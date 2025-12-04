@@ -29,6 +29,8 @@ HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 BOOL InitRichEditLibrary();
 HWND CreateRichEditControl(HWND hwndParent);
+HWND CreateStatusBar(HWND hwndParent);
+void UpdateStatusBar();
 void UpdateTitle();
 
 //============================================================================
@@ -132,19 +134,32 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 return -1;
             }
             
-            // TODO: Create status bar
+            // Create status bar
+            g_hWndStatus = CreateStatusBar(hwnd);
+            
+            // Update status bar
+            UpdateStatusBar();
+            
             // TODO: Load filters
             
             return 0;
             
         case WM_SIZE:
-            // Resize RichEdit control to fill client area
+            // Resize status bar
+            if (g_hWndStatus) {
+                SendMessage(g_hWndStatus, WM_SIZE, 0, 0);
+            }
+            
+            // Resize RichEdit control to fill client area minus status bar
             if (g_hWndEdit) {
-                RECT rcClient;
+                RECT rcClient, rcStatus;
                 GetClientRect(hwnd, &rcClient);
+                GetClientRect(g_hWndStatus, &rcStatus);
+                
                 SetWindowPos(g_hWndEdit, NULL,
                     0, 0,
-                    rcClient.right, rcClient.bottom,
+                    rcClient.right,
+                    rcClient.bottom - rcStatus.bottom,
                     SWP_NOZORDER);
             }
             return 0;
@@ -187,6 +202,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case ID_HELP_ABOUT:
                     MessageBox(hwnd, L"About dialog - Not implemented yet", L"Info", MB_OK);
                     break;
+            }
+            return 0;
+            
+        case WM_NOTIFY:
+            // Handle RichEdit notifications
+            if (((LPNMHDR)lParam)->hwndFrom == g_hWndEdit) {
+                if (((LPNMHDR)lParam)->code == EN_SELCHANGE) {
+                    UpdateStatusBar();
+                }
             }
             return 0;
             
@@ -248,6 +272,61 @@ HWND CreateRichEditControl(HWND hwndParent)
     }
     
     return hwndEdit;
+}
+
+//============================================================================
+// CreateStatusBar - Create status bar control
+//============================================================================
+HWND CreateStatusBar(HWND hwndParent)
+{
+    HWND hwndStatus = CreateWindowEx(
+        0,
+        STATUSCLASSNAME,
+        NULL,
+        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
+        0, 0, 0, 0,
+        hwndParent,
+        (HMENU)IDC_STATUSBAR,
+        GetModuleHandle(NULL),
+        NULL
+    );
+    
+    if (hwndStatus) {
+        // Set parts (will be updated dynamically in UpdateStatusBar)
+        int parts[] = {-1}; // Single part initially
+        SendMessage(hwndStatus, SB_SETPARTS, 1, (LPARAM)parts);
+    }
+    
+    return hwndStatus;
+}
+
+//============================================================================
+// UpdateStatusBar - Update status bar with current position and info
+//============================================================================
+void UpdateStatusBar()
+{
+    if (!g_hWndStatus || !g_hWndEdit) return;
+    
+    // Get cursor position
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    
+    // Get line and column
+    int line = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin) + 1;
+    int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, line - 1, 0);
+    int col = cr.cpMin - lineStart + 1;
+    
+    // Format status text
+    WCHAR szStatus[512];
+    if (g_szFileName[0]) {
+        swprintf(szStatus, 512, L"%s    Line %d, Col %d    [Filter: None]",
+                 g_szFileTitle, line, col);
+    } else {
+        swprintf(szStatus, 512, L"Untitled    Line %d, Col %d    [Filter: None]",
+                 line, col);
+    }
+    
+    SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
 }
 
 //============================================================================
