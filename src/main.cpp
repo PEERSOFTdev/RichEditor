@@ -32,6 +32,12 @@ HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
 void UpdateStatusBar();
 void UpdateTitle();
+LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
+LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
+BOOL LoadTextFile(LPCWSTR pszFileName);
+BOOL SaveTextFile(LPCWSTR pszFileName);
+void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
+void ShowError(LPCWSTR pszMessage, DWORD dwError);
 
 //============================================================================
 // WinMain - Entry Point
@@ -345,4 +351,231 @@ void UpdateTitle()
     }
     
     SetWindowText(g_hWndMain, szTitle);
+}
+
+//============================================================================
+// UTF8ToUTF16 - Convert UTF-8 string to UTF-16 (caller must free result)
+//============================================================================
+LPWSTR UTF8ToUTF16(LPCSTR pszUTF8)
+{
+    if (!pszUTF8) return NULL;
+    
+    // Get required buffer size
+    int cchWide = MultiByteToWideChar(CP_UTF8, 0, pszUTF8, -1, NULL, 0);
+    if (cchWide == 0) return NULL;
+    
+    // Allocate buffer
+    LPWSTR pszWide = (LPWSTR)malloc(cchWide * sizeof(WCHAR));
+    if (!pszWide) return NULL;
+    
+    // Convert
+    if (MultiByteToWideChar(CP_UTF8, 0, pszUTF8, -1, pszWide, cchWide) == 0) {
+        free(pszWide);
+        return NULL;
+    }
+    
+    return pszWide;
+}
+
+//============================================================================
+// UTF16ToUTF8 - Convert UTF-16 string to UTF-8 (caller must free result)
+//============================================================================
+LPSTR UTF16ToUTF8(LPCWSTR pszUTF16)
+{
+    if (!pszUTF16) return NULL;
+    
+    // Get required buffer size
+    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, pszUTF16, -1, NULL, 0, NULL, NULL);
+    if (cbUTF8 == 0) return NULL;
+    
+    // Allocate buffer
+    LPSTR pszUTF8 = (LPSTR)malloc(cbUTF8);
+    if (!pszUTF8) return NULL;
+    
+    // Convert
+    if (WideCharToMultiByte(CP_UTF8, 0, pszUTF16, -1, pszUTF8, cbUTF8, NULL, NULL) == 0) {
+        free(pszUTF8);
+        return NULL;
+    }
+    
+    return pszUTF8;
+}
+
+//============================================================================
+// LoadTextFile - Load UTF-8 text file into RichEdit control
+//============================================================================
+BOOL LoadTextFile(LPCWSTR pszFileName)
+{
+    // Open file
+    HANDLE hFile = CreateFile(pszFileName, GENERIC_READ, FILE_SHARE_READ, NULL,
+                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        ShowError(L"Could not open file", GetLastError());
+        return FALSE;
+    }
+    
+    // Get file size
+    DWORD dwFileSize = GetFileSize(hFile, NULL);
+    if (dwFileSize == INVALID_FILE_SIZE) {
+        CloseHandle(hFile);
+        ShowError(L"Could not get file size", GetLastError());
+        return FALSE;
+    }
+    
+    // Allocate buffer for UTF-8 data
+    LPSTR pszUTF8 = (LPSTR)malloc(dwFileSize + 1);
+    if (!pszUTF8) {
+        CloseHandle(hFile);
+        ShowError(L"Out of memory", 0);
+        return FALSE;
+    }
+    
+    // Read file
+    DWORD dwBytesRead;
+    if (!ReadFile(hFile, pszUTF8, dwFileSize, &dwBytesRead, NULL)) {
+        free(pszUTF8);
+        CloseHandle(hFile);
+        ShowError(L"Could not read file", GetLastError());
+        return FALSE;
+    }
+    pszUTF8[dwBytesRead] = '\0';
+    CloseHandle(hFile);
+    
+    // Convert to UTF-16
+    LPWSTR pszUTF16 = UTF8ToUTF16(pszUTF8);
+    free(pszUTF8);
+    
+    if (!pszUTF16) {
+        ShowError(L"Could not convert file encoding", 0);
+        return FALSE;
+    }
+    
+    // Set text in RichEdit control
+    SetWindowText(g_hWndEdit, pszUTF16);
+    free(pszUTF16);
+    
+    // Update state
+    wcscpy_s(g_szFileName, MAX_PATH, pszFileName);
+    
+    // Extract filename from path
+    LPCWSTR pszFileNameOnly = wcsrchr(pszFileName, L'\\');
+    if (pszFileNameOnly) {
+        wcscpy_s(g_szFileTitle, MAX_PATH, pszFileNameOnly + 1);
+    } else {
+        wcscpy_s(g_szFileTitle, MAX_PATH, pszFileName);
+    }
+    
+    g_bModified = FALSE;
+    UpdateTitle();
+    UpdateStatusBar();
+    
+    return TRUE;
+}
+
+//============================================================================
+// SaveTextFile - Save RichEdit control content as UTF-8 text file
+//============================================================================
+BOOL SaveTextFile(LPCWSTR pszFileName)
+{
+    // Get text length
+    int cchText = GetWindowTextLength(g_hWndEdit);
+    if (cchText < 0) return FALSE;
+    
+    // Allocate buffer for UTF-16 text
+    LPWSTR pszUTF16 = (LPWSTR)malloc((cchText + 1) * sizeof(WCHAR));
+    if (!pszUTF16) {
+        ShowError(L"Out of memory", 0);
+        return FALSE;
+    }
+    
+    // Get text from RichEdit control
+    GetWindowText(g_hWndEdit, pszUTF16, cchText + 1);
+    
+    // Convert to UTF-8
+    LPSTR pszUTF8 = UTF16ToUTF8(pszUTF16);
+    free(pszUTF16);
+    
+    if (!pszUTF8) {
+        ShowError(L"Could not convert text encoding", 0);
+        return FALSE;
+    }
+    
+    // Create file
+    HANDLE hFile = CreateFile(pszFileName, GENERIC_WRITE, 0, NULL,
+                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        free(pszUTF8);
+        ShowError(L"Could not create file", GetLastError());
+        return FALSE;
+    }
+    
+    // Write UTF-8 data (without BOM)
+    DWORD dwBytesToWrite = (DWORD)strlen(pszUTF8);
+    DWORD dwBytesWritten;
+    if (!WriteFile(hFile, pszUTF8, dwBytesToWrite, &dwBytesWritten, NULL)) {
+        free(pszUTF8);
+        CloseHandle(hFile);
+        ShowError(L"Could not write file", GetLastError());
+        return FALSE;
+    }
+    
+    free(pszUTF8);
+    CloseHandle(hFile);
+    
+    // Update state
+    wcscpy_s(g_szFileName, MAX_PATH, pszFileName);
+    
+    // Extract filename from path
+    LPCWSTR pszFileNameOnly = wcsrchr(pszFileName, L'\\');
+    if (pszFileNameOnly) {
+        wcscpy_s(g_szFileTitle, MAX_PATH, pszFileNameOnly + 1);
+    } else {
+        wcscpy_s(g_szFileTitle, MAX_PATH, pszFileName);
+    }
+    
+    g_bModified = FALSE;
+    UpdateTitle();
+    UpdateStatusBar();
+    
+    return TRUE;
+}
+
+//============================================================================
+// GetDocumentsPath - Get user's Documents folder path
+//============================================================================
+void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath)
+{
+    if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_MYDOCUMENTS, NULL, 0, pszPath))) {
+        return;
+    }
+    // Fallback to current directory
+    GetCurrentDirectory(cchPath, pszPath);
+}
+
+//============================================================================
+// ShowError - Display error message with optional Win32 error code
+//============================================================================
+void ShowError(LPCWSTR pszMessage, DWORD dwError)
+{
+    WCHAR szError[512];
+    
+    if (dwError != 0) {
+        // Format Win32 error message
+        WCHAR szErrorMsg[256];
+        FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                     NULL, dwError, 0, szErrorMsg, 256, NULL);
+        
+        swprintf(szError, 512, L"%s\n\nError: %s", pszMessage, szErrorMsg);
+        
+        // Also output to debugger
+        OutputDebugString(L"RichEditor Error: ");
+        OutputDebugString(pszMessage);
+        OutputDebugString(L" - ");
+        OutputDebugString(szErrorMsg);
+        OutputDebugString(L"\n");
+    } else {
+        wcscpy_s(szError, 512, pszMessage);
+    }
+    
+    MessageBox(g_hWndMain, szError, L"Error", MB_OK | MB_ICONERROR);
 }
