@@ -27,6 +27,8 @@ HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 // Function Declarations
 //============================================================================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+BOOL InitRichEditLibrary();
+HWND CreateRichEditControl(HWND hwndParent);
 void UpdateTitle();
 
 //============================================================================
@@ -40,6 +42,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&icc);
+    
+    // Load RichEdit library
+    if (!InitRichEditLibrary()) {
+        MessageBox(NULL, L"Failed to load RichEdit library (Msftedit.dll)", L"Error", MB_ICONERROR);
+        return 1;
+    }
     
     // Register window class
     WNDCLASSEX wc = {0};
@@ -117,14 +125,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             g_szFileTitle[0] = L'\0';
             g_bModified = FALSE;
             
-            // TODO: Create RichEdit control
+            // Create RichEdit control
+            g_hWndEdit = CreateRichEditControl(hwnd);
+            if (!g_hWndEdit) {
+                MessageBox(hwnd, L"Failed to create RichEdit control", L"Error", MB_ICONERROR);
+                return -1;
+            }
+            
             // TODO: Create status bar
             // TODO: Load filters
             
             return 0;
             
         case WM_SIZE:
-            // TODO: Resize RichEdit and status bar
+            // Resize RichEdit control to fill client area
+            if (g_hWndEdit) {
+                RECT rcClient;
+                GetClientRect(hwnd, &rcClient);
+                SetWindowPos(g_hWndEdit, NULL,
+                    0, 0,
+                    rcClient.right, rcClient.bottom,
+                    SWP_NOZORDER);
+            }
             return 0;
             
         case WM_COMMAND:
@@ -179,6 +201,53 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
     
     return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+//============================================================================
+// InitRichEditLibrary - Load RichEdit 4.1 DLL
+//============================================================================
+BOOL InitRichEditLibrary()
+{
+    g_hRichEditLib = LoadLibrary(L"Msftedit.dll");
+    return (g_hRichEditLib != NULL);
+}
+
+//============================================================================
+// CreateRichEditControl - Create and configure RichEdit control
+//============================================================================
+HWND CreateRichEditControl(HWND hwndParent)
+{
+    HWND hwndEdit = CreateWindowEx(
+        WS_EX_CLIENTEDGE,
+        MSFTEDIT_CLASS,
+        L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
+        ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_NOHIDESEL,
+        0, 0, 0, 0,
+        hwndParent,
+        (HMENU)IDC_RICHEDIT,
+        GetModuleHandle(NULL),
+        NULL
+    );
+    
+    if (hwndEdit) {
+        // Set plain text mode
+        SendMessage(hwndEdit, EM_SETTEXTMODE, TM_PLAINTEXT, 0);
+        
+        // Set undo limit
+        SendMessage(hwndEdit, EM_SETUNDOLIMIT, 100, 0);
+        
+        // Set event mask for notifications
+        SendMessage(hwndEdit, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+        
+        // Set large text limit (2GB)
+        SendMessage(hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+        
+        // Set focus to editor
+        SetFocus(hwndEdit);
+    }
+    
+    return hwndEdit;
 }
 
 //============================================================================
