@@ -1,0 +1,73 @@
+#include <windows.h>
+#include "resource.h"
+
+// Menu
+IDR_MENU_MAIN MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&New\tCtrl+N", ID_FILE_NEW
+        MENUITEM "&Open...\tCtrl+O", ID_FILE_OPEN
+        MENUITEM "&Save\tCtrl+S", ID_FILE_SAVE
+        MENUITEM "Save &As...", ID_FILE_SAVEAS
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit\tAlt+F4", ID_FILE_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z", ID_EDIT_UNDO
+        MENUITEM "&Redo\tCtrl+Y", ID_EDIT_REDO
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X", ID_EDIT_CUT
+        MENUITEM "&Copy\tCtrl+C", ID_EDIT_COPY
+        MENUITEM "&Paste\tCtrl+V", ID_EDIT_PASTE
+        MENUITEM SEPARATOR
+        MENUITEM "Select &All\tCtrl+A", ID_EDIT_SELECTALL
+    END
+    POPUP "&Tools"
+    BEGIN
+        MENUITEM "&Execute Filter\tCtrl+Enter", ID_TOOLS_EXECUTEFILTER
+        MENUITEM "&Manage Filters...", ID_TOOLS_MANAGEFILTERS
+        MENUITEM SEPARATOR
+        POPUP "Select &Filter"
+        BEGIN
+            MENUITEM "(No filters configured)", ID_TOOLS_FILTER_BASE, GRAYED
+        END
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About...", ID_HELP_ABOUT
+    END
+END
+
+// Accelerators
+IDR_ACCELERATOR ACCELERATORS
+BEGIN
+    "N", ID_FILE_NEW, VIRTKEY, CONTROL
+    "O", ID_FILE_OPEN, VIRTKEY, CONTROL
+    "S", ID_FILE_SAVE, VIRTKEY, CONTROL
+    "Z", ID_EDIT_UNDO, VIRTKEY, CONTROL
+    "Y", ID_EDIT_REDO, VIRTKEY, CONTROL
+    "X", ID_EDIT_CUT, VIRTKEY, CONTROL
+    "C", ID_EDIT_COPY, VIRTKEY, CONTROL
+    "V", ID_EDIT_PASTE, VIRTKEY, CONTROL
+    "A", ID_EDIT_SELECTALL, VIRTKEY, CONTROL
+    VK_RETURN, ID_TOOLS_EXECUTEFILTER, VIRTKEY, CONTROL
+END
+
+// About Dialog
+IDD_ABOUT DIALOGEX 0, 0, 240, 120
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About RichEditor"
+FONT 8, "MS Shell Dlg", 400, 0
+BEGIN
+    ICON IDI_APPLICATION, IDC_STATIC, 10, 10, 20, 20
+    LTEXT "RichEditor v1.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
+    LTEXT "A lightweight text editor using RichEdit control", IDC_STATIC, 40, 25, 190, 10
+    LTEXT "Built with MinGW-w64", IDC_STATIC, 40, 38, 190, 10
+    LTEXT "", IDC_STATIC, 10, 55, 220, 1, SS_ETCHEDHORZ
+    LTEXT "Features:", IDC_STATIC, 10, 62, 220, 10
+    LTEXT "• UTF-8 text file editing", IDC_STATIC, 20, 75, 210, 10
+    LTEXT "• External filter/utility execution (Phase 2)", IDC_STATIC, 20, 87, 210, 10
+    DEFPUSHBUTTON "OK", IDOK, 95, 100, 50, 14
+END
