@@ -1,0 +1,31 @@
+# Compiled object files
+*.o
+
+# Executables
+*.exe
+
+# Build artifacts
+RichEditor.exe
+main.o
+
+# Windows shortcuts
+*.lnk
+
+# Editor backups
+*~
+*.bak
+*.swp
+
+# MinGW/GCC temporary files
+*.d
+
+# Debug files
+*.pdb
+*.ilk
+
+# Visual Studio Code
+.vscode/
+
+# Other IDEs
+.idea/
+*.sublime-*
