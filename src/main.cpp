@@ -43,6 +43,12 @@ void FileOpen();
 BOOL FileSave();
 BOOL FileSaveAs();
 BOOL PromptSaveChanges();
+void EditUndo();
+void EditRedo();
+void EditCut();
+void EditCopy();
+void EditPaste();
+void EditSelectAll();
 
 //============================================================================
 // WinMain - Entry Point
@@ -196,12 +202,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     
                 // Edit menu
                 case ID_EDIT_UNDO:
+                    EditUndo();
+                    break;
                 case ID_EDIT_REDO:
+                    EditRedo();
+                    break;
                 case ID_EDIT_CUT:
+                    EditCut();
+                    break;
                 case ID_EDIT_COPY:
+                    EditCopy();
+                    break;
                 case ID_EDIT_PASTE:
+                    EditPaste();
+                    break;
                 case ID_EDIT_SELECTALL:
-                    MessageBox(hwnd, L"Edit operation - Not implemented yet", L"Info", MB_OK);
+                    EditSelectAll();
                     break;
                 
                 // Tools menu
@@ -219,8 +235,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_NOTIFY:
             // Handle RichEdit notifications
             if (((LPNMHDR)lParam)->hwndFrom == g_hWndEdit) {
-                if (((LPNMHDR)lParam)->code == EN_SELCHANGE) {
-                    UpdateStatusBar();
+                switch (((LPNMHDR)lParam)->code) {
+                    case EN_SELCHANGE:
+                        UpdateStatusBar();
+                        break;
+                    case EN_CHANGE:
+                        if (!g_bModified) {
+                            g_bModified = TRUE;
+                            UpdateTitle();
+                        }
+                        break;
                 }
             }
             return 0;
@@ -723,4 +747,55 @@ BOOL PromptSaveChanges()
         default:
             return FALSE; // Cancel operation
     }
+}
+
+//============================================================================
+// EditUndo - Undo last operation
+//============================================================================
+void EditUndo()
+{
+    SendMessage(g_hWndEdit, EM_UNDO, 0, 0);
+}
+
+//============================================================================
+// EditRedo - Redo last undone operation
+//============================================================================
+void EditRedo()
+{
+    SendMessage(g_hWndEdit, EM_REDO, 0, 0);
+}
+
+//============================================================================
+// EditCut - Cut selected text to clipboard
+//============================================================================
+void EditCut()
+{
+    SendMessage(g_hWndEdit, WM_CUT, 0, 0);
+}
+
+//============================================================================
+// EditCopy - Copy selected text to clipboard
+//============================================================================
+void EditCopy()
+{
+    SendMessage(g_hWndEdit, WM_COPY, 0, 0);
+}
+
+//============================================================================
+// EditPaste - Paste text from clipboard
+//============================================================================
+void EditPaste()
+{
+    SendMessage(g_hWndEdit, WM_PASTE, 0, 0);
+}
+
+//============================================================================
+// EditSelectAll - Select all text in editor
+//============================================================================
+void EditSelectAll()
+{
+    CHARRANGE cr;
+    cr.cpMin = 0;
+    cr.cpMax = -1; // -1 means end of text
+    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
 }
