@@ -27,6 +27,7 @@ HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 // Function Declarations
 //============================================================================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 BOOL InitRichEditLibrary();
 HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
@@ -227,7 +228,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     
                 // Help menu
                 case ID_HELP_ABOUT:
-                    MessageBox(hwnd, L"About dialog - Not implemented yet", L"Info", MB_OK);
+                    DialogBox(GetModuleHandle(NULL),
+                             MAKEINTRESOURCE(IDD_ABOUT),
+                             hwnd,
+                             AboutDlgProc);
                     break;
             }
             return 0;
@@ -798,4 +802,28 @@ void EditSelectAll()
     cr.cpMin = 0;
     cr.cpMax = -1; // -1 means end of text
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+}
+
+//============================================================================
+// AboutDlgProc - About dialog procedure
+//============================================================================
+INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+        case WM_INITDIALOG:
+            return TRUE;
+            
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
+                EndDialog(hwnd, LOWORD(wParam));
+                return TRUE;
+            }
+            break;
+            
+        case WM_CLOSE:
+            EndDialog(hwnd, 0);
+            return TRUE;
+    }
+    
+    return FALSE;
 }
