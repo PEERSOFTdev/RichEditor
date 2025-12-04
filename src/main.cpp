@@ -38,6 +38,11 @@ BOOL LoadTextFile(LPCWSTR pszFileName);
 BOOL SaveTextFile(LPCWSTR pszFileName);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
 void ShowError(LPCWSTR pszMessage, DWORD dwError);
+void FileNew();
+void FileOpen();
+BOOL FileSave();
+BOOL FileSaveAs();
+BOOL PromptSaveChanges();
 
 //============================================================================
 // WinMain - Entry Point
@@ -174,16 +179,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             switch (LOWORD(wParam)) {
                 // File menu
                 case ID_FILE_NEW:
-                    MessageBox(hwnd, L"New - Not implemented yet", L"Info", MB_OK);
+                    FileNew();
                     break;
                 case ID_FILE_OPEN:
-                    MessageBox(hwnd, L"Open - Not implemented yet", L"Info", MB_OK);
+                    FileOpen();
                     break;
                 case ID_FILE_SAVE:
-                    MessageBox(hwnd, L"Save - Not implemented yet", L"Info", MB_OK);
+                    FileSave();
                     break;
                 case ID_FILE_SAVEAS:
-                    MessageBox(hwnd, L"Save As - Not implemented yet", L"Info", MB_OK);
+                    FileSaveAs();
                     break;
                 case ID_FILE_EXIT:
                     PostMessage(hwnd, WM_CLOSE, 0, 0);
@@ -221,7 +226,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
             
         case WM_CLOSE:
-            // TODO: Check for unsaved changes
+            // Check for unsaved changes
+            if (!PromptSaveChanges()) {
+                return 0; // Cancel close
+            }
             DestroyWindow(hwnd);
             return 0;
             
@@ -578,4 +586,141 @@ void ShowError(LPCWSTR pszMessage, DWORD dwError)
     }
     
     MessageBox(g_hWndMain, szError, L"Error", MB_OK | MB_ICONERROR);
+}
+
+//============================================================================
+// FileNew - Create new document
+//============================================================================
+void FileNew()
+{
+    // Check for unsaved changes
+    if (!PromptSaveChanges()) {
+        return;
+    }
+    
+    // Clear editor
+    SetWindowText(g_hWndEdit, L"");
+    
+    // Reset state
+    g_szFileName[0] = L'\0';
+    g_szFileTitle[0] = L'\0';
+    g_bModified = FALSE;
+    
+    UpdateTitle();
+    UpdateStatusBar();
+    SetFocus(g_hWndEdit);
+}
+
+//============================================================================
+// FileOpen - Open file dialog and load file
+//============================================================================
+void FileOpen()
+{
+    // Check for unsaved changes
+    if (!PromptSaveChanges()) {
+        return;
+    }
+    
+    // Setup file dialog
+    OPENFILENAME ofn = {0};
+    WCHAR szFile[MAX_PATH] = L"";
+    WCHAR szInitialDir[MAX_PATH];
+    
+    GetDocumentsPath(szInitialDir, MAX_PATH);
+    
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    ofn.hwndOwner = g_hWndMain;
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrInitialDir = szInitialDir;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    
+    // Show dialog
+    if (GetOpenFileName(&ofn)) {
+        LoadTextFile(szFile);
+        SetFocus(g_hWndEdit);
+    }
+}
+
+//============================================================================
+// FileSave - Save current file (or show Save As if no filename)
+//============================================================================
+BOOL FileSave()
+{
+    if (g_szFileName[0] == L'\0') {
+        return FileSaveAs();
+    }
+    
+    return SaveTextFile(g_szFileName);
+}
+
+//============================================================================
+// FileSaveAs - Show Save As dialog and save file
+//============================================================================
+BOOL FileSaveAs()
+{
+    // Setup file dialog
+    OPENFILENAME ofn = {0};
+    WCHAR szFile[MAX_PATH] = L"";
+    WCHAR szInitialDir[MAX_PATH];
+    
+    // Copy current filename if exists
+    if (g_szFileName[0]) {
+        wcscpy_s(szFile, MAX_PATH, g_szFileName);
+    }
+    
+    GetDocumentsPath(szInitialDir, MAX_PATH);
+    
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    ofn.hwndOwner = g_hWndMain;
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrInitialDir = szInitialDir;
+    ofn.lpstrDefExt = L"txt";
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
+    
+    // Show dialog
+    if (GetSaveFileName(&ofn)) {
+        if (SaveTextFile(szFile)) {
+            SetFocus(g_hWndEdit);
+            return TRUE;
+        }
+    }
+    
+    return FALSE;
+}
+
+//============================================================================
+// PromptSaveChanges - Ask user to save changes if modified
+//============================================================================
+BOOL PromptSaveChanges()
+{
+    if (!g_bModified) {
+        return TRUE; // No changes, continue
+    }
+    
+    WCHAR szPrompt[MAX_PATH + 100];
+    if (g_szFileTitle[0]) {
+        swprintf(szPrompt, MAX_PATH + 100,
+                 L"Do you want to save changes to %s?", g_szFileTitle);
+    } else {
+        wcscpy_s(szPrompt, MAX_PATH + 100, L"Do you want to save changes to Untitled?");
+    }
+    
+    int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",
+                           MB_YESNOCANCEL | MB_ICONQUESTION);
+    
+    switch (result) {
+        case IDYES:
+            return FileSave(); // Save and continue if successful
+        case IDNO:
+            return TRUE; // Don't save, but continue
+        case IDCANCEL:
+        default:
+            return FALSE; // Cancel operation
+    }
 }
