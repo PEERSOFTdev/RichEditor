@@ -50,6 +50,9 @@ void EditCut();
 void EditCopy();
 void EditPaste();
 void EditSelectAll();
+void ExecuteFilter();
+void LoadFilters();
+void UpdateFilterDisplay();
 
 //============================================================================
 // WinMain - Entry Point
@@ -158,7 +161,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Update status bar
             UpdateStatusBar();
             
-            // TODO: Load filters
+            // Load filters (Phase 2)
+            LoadFilters();
+            UpdateFilterDisplay();
             
             return 0;
             
@@ -223,7 +228,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 
                 // Tools menu
                 case ID_TOOLS_EXECUTEFILTER:
-                    MessageBox(hwnd, L"Filter execution - Not implemented yet", L"Info", MB_OK);
+                    ExecuteFilter();
                     break;
                     
                 // Help menu
@@ -826,4 +831,54 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
     
     return FALSE;
+}
+
+//============================================================================
+// PHASE 2: Filter System Stubs
+//============================================================================
+
+//============================================================================
+// ExecuteFilter - Execute current filter on selected text or current line
+// TODO Phase 2: Implement external process execution with stdin/stdout pipes
+//============================================================================
+void ExecuteFilter()
+{
+    MessageBox(g_hWndMain,
+               L"Filter execution will be implemented in Phase 2.\n\n"
+               L"Architecture:\n"
+               L"• Get selected text or current line from RichEdit\n"
+               L"• Execute configured filter command with CreateProcess\n"
+               L"• Pass input via stdin pipe (UTF-8)\n"
+               L"• Read output from stdout pipe (UTF-8)\n"
+               L"• Insert output below input line\n"
+               L"• Handle errors from stderr\n\n"
+               L"Usage: Select text or place cursor on line, press Ctrl+Enter",
+               L"Filter Execution - Phase 2",
+               MB_ICONINFORMATION);
+}
+
+//============================================================================
+// LoadFilters - Load filter configurations from INI file
+// TODO Phase 2: Read from RichEditor.ini, parse [Filters] sections
+//============================================================================
+void LoadFilters()
+{
+    // Stub: No filters loaded in Phase 1
+    // Phase 2 will read from INI file:
+    // [Filters]
+    // Count=N
+    // [Filter1]
+    // Name=Calculator
+    // Command=calc.exe
+    // Description=...
+}
+
+//============================================================================
+// UpdateFilterDisplay - Update status bar with current filter info
+// TODO Phase 2: Show selected filter name in status bar
+//============================================================================
+void UpdateFilterDisplay()
+{
+    // Stub: Filter display will show active filter in Phase 2
+    // Currently just shows "[Filter: None]" in UpdateStatusBar
 }
