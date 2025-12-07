@@ -3,13 +3,12 @@
 // Phase 1: Basic text editing with UTF-8 support
 //============================================================================
 
-#define UNICODE
-#define _UNICODE
 #include <windows.h>
 #include <richedit.h>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shlobj.h>
+#include <stdio.h>
 #include "resource.h"
 
 //============================================================================
@@ -26,8 +25,8 @@ HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 //============================================================================
 // Function Declarations
 //============================================================================
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
+INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
 BOOL InitRichEditLibrary();
 HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
@@ -57,8 +56,8 @@ void UpdateFilterDisplay();
 //============================================================================
 // WinMain - Entry Point
 //============================================================================
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                    LPWSTR lpCmdLine, int nCmdShow)
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
+                    LPWSTR /* lpCmdLine */, int nCmdShow)
 {
     // Initialize common controls
     INITCOMMONCONTROLSEX icc;
@@ -73,7 +72,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     
     // Register window class
-    WNDCLASSEX wc = {0};
+    WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WndProc;
@@ -139,7 +138,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 //============================================================================
 // WndProc - Main Window Procedure
 //============================================================================
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */)
 {
     switch (msg) {
         case WM_CREATE:
@@ -366,11 +365,11 @@ void UpdateStatusBar()
     // Format status text
     WCHAR szStatus[512];
     if (g_szFileName[0]) {
-        swprintf(szStatus, 512, L"%s    Line %d, Col %d    [Filter: None]",
-                 g_szFileTitle, line, col);
+        _snwprintf(szStatus, 512, L"%s    Line %d, Col %d    [Filter: None]",
+                   g_szFileTitle, line, col);
     } else {
-        swprintf(szStatus, 512, L"Untitled    Line %d, Col %d    [Filter: None]",
-                 line, col);
+        _snwprintf(szStatus, 512, L"Untitled    Line %d, Col %d    [Filter: None]",
+                   line, col);
     }
     
     SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
@@ -384,11 +383,11 @@ void UpdateTitle()
     WCHAR szTitle[MAX_PATH + 50];
     
     if (g_szFileTitle[0]) {
-        swprintf(szTitle, MAX_PATH + 50, L"%s%s - RichEditor",
-                 g_bModified ? L"*" : L"", g_szFileTitle);
+        _snwprintf(szTitle, MAX_PATH + 50, L"%s%s - RichEditor",
+                   g_bModified ? L"*" : L"", g_szFileTitle);
     } else {
-        swprintf(szTitle, MAX_PATH + 50, L"%sUntitled - RichEditor",
-                 g_bModified ? L"*" : L"");
+        _snwprintf(szTitle, MAX_PATH + 50, L"%sUntitled - RichEditor",
+                   g_bModified ? L"*" : L"");
     }
     
     SetWindowText(g_hWndMain, szTitle);
@@ -606,7 +605,7 @@ void ShowError(LPCWSTR pszMessage, DWORD dwError)
         FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                      NULL, dwError, 0, szErrorMsg, 256, NULL);
         
-        swprintf(szError, 512, L"%s\n\nError: %s", pszMessage, szErrorMsg);
+        _snwprintf(szError, 512, L"%s\n\nError: %s", pszMessage, szErrorMsg);
         
         // Also output to debugger
         OutputDebugString(L"RichEditor Error: ");
@@ -655,7 +654,7 @@ void FileOpen()
     }
     
     // Setup file dialog
-    OPENFILENAME ofn = {0};
+    OPENFILENAME ofn = {};
     WCHAR szFile[MAX_PATH] = L"";
     WCHAR szInitialDir[MAX_PATH];
     
@@ -695,7 +694,7 @@ BOOL FileSave()
 BOOL FileSaveAs()
 {
     // Setup file dialog
-    OPENFILENAME ofn = {0};
+    OPENFILENAME ofn = {};
     WCHAR szFile[MAX_PATH] = L"";
     WCHAR szInitialDir[MAX_PATH];
     
@@ -738,7 +737,7 @@ BOOL PromptSaveChanges()
     
     WCHAR szPrompt[MAX_PATH + 100];
     if (g_szFileTitle[0]) {
-        swprintf(szPrompt, MAX_PATH + 100,
+        _snwprintf(szPrompt, MAX_PATH + 100,
                  L"Do you want to save changes to %s?", g_szFileTitle);
     } else {
         wcscpy_s(szPrompt, MAX_PATH + 100, L"Do you want to save changes to Untitled?");
@@ -812,7 +811,7 @@ void EditSelectAll()
 //============================================================================
 // AboutDlgProc - About dialog procedure
 //============================================================================
-INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */)
 {
     switch (msg) {
         case WM_INITDIALOG:

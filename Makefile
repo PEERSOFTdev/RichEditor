@@ -1,9 +1,20 @@
 # Makefile for RichEditor - Win32 Text Editor with RichEdit control
-# Supports both MXE cross-compilation and native MinGW-w64
+# Supports MXE cross-compilation and native MinGW-w64
+#
+# Usage with MXE:
+#   make CROSS=i686-w64-mingw32.static-
+#   make CROSS=x86_64-w64-mingw32.static-
+#
+# Usage with native MinGW-w64:
+#   make CROSS=i686-w64-mingw32-
+#   make CROSS=x86_64-w64-mingw32-
+
+# Default cross-compiler prefix (can be overridden)
+CROSS ?= x86_64-w64-mingw32-
 
 # Compiler and tools
-CC = x86_64-w64-mingw32-g++
-WINDRES = x86_64-w64-mingw32-windres
+CC = $(CROSS)g++
+WINDRES = $(CROSS)windres
 
 # Compiler flags
 CFLAGS = -O2 -std=c++11 -DUNICODE -D_UNICODE -Wall -Wextra
@@ -47,14 +58,17 @@ help:
 	@echo "======================="
 	@echo ""
 	@echo "Targets:"
-	@echo "  make          - Build RichEditor.exe"
-	@echo "  make clean    - Remove build artifacts"
-	@echo "  make rebuild  - Clean and build"
-	@echo "  make help     - Show this help"
+	@echo "  make                                    - Build with default (x86_64-w64-mingw32-)"
+	@echo "  make CROSS=i686-w64-mingw32.static-     - Build 32-bit with MXE static"
+	@echo "  make CROSS=x86_64-w64-mingw32.static-   - Build 64-bit with MXE static"
+	@echo "  make clean                              - Remove build artifacts"
+	@echo "  make rebuild                            - Clean and build"
+	@echo "  make help                               - Show this help"
 	@echo ""
-	@echo "Requirements:"
-	@echo "  - MinGW-w64 (x86_64-w64-mingw32-g++)"
-	@echo "  - Windows 7 or later (target OS)"
+	@echo "Examples:"
+	@echo "  MXE 32-bit:    make CROSS=i686-w64-mingw32.static-"
+	@echo "  MXE 64-bit:    make CROSS=x86_64-w64-mingw32.static-"
+	@echo "  Native MinGW:  make CROSS=x86_64-w64-mingw32-"
 	@echo ""
 
 .PHONY: all clean rebuild help
