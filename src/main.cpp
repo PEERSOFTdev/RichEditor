@@ -25,7 +25,7 @@ HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 //============================================================================
 // Function Declarations
 //============================================================================
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
 BOOL InitRichEditLibrary();
 HWND CreateRichEditControl(HWND hwndParent);
@@ -138,7 +138,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
 //============================================================================
 // WndProc - Main Window Procedure
 //============================================================================
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */)
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
         case WM_CREATE:
