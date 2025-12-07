@@ -20,6 +20,7 @@ HWND g_hWndStatus = NULL;         // Status bar handle (to be added)
 WCHAR g_szFileName[MAX_PATH];     // Current file path
 WCHAR g_szFileTitle[MAX_PATH];    // Current file name only
 BOOL g_bModified = FALSE;         // Document modified flag
+BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
 HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 
 //============================================================================
@@ -236,6 +237,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                              MAKEINTRESOURCE(IDD_ABOUT),
                              hwnd,
                              AboutDlgProc);
+                    SetFocus(g_hWndEdit);
                     break;
             }
             return 0;
@@ -248,7 +250,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         UpdateStatusBar();
                         break;
                     case EN_CHANGE:
-                        if (!g_bModified) {
+                        if (!g_bSettingText && !g_bModified) {
                             g_bModified = TRUE;
                             UpdateTitle();
                         }
@@ -490,8 +492,10 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
         return FALSE;
     }
     
-    // Set text in RichEdit control
+    // Set text in RichEdit control (block EN_CHANGE notifications)
+    g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, pszUTF16);
+    g_bSettingText = FALSE;
     free(pszUTF16);
     
     // Update state
@@ -630,8 +634,10 @@ void FileNew()
         return;
     }
     
-    // Clear editor
+    // Clear editor (block EN_CHANGE notifications)
+    g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, L"");
+    g_bSettingText = FALSE;
     
     // Reset state
     g_szFileName[0] = L'\0';
