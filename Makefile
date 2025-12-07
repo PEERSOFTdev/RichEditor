@@ -18,7 +18,7 @@ WINDRES = $(CROSS)windres
 
 # Compiler flags
 CFLAGS = -O2 -std=c++11 -DUNICODE -D_UNICODE -Wall -Wextra
-LDFLAGS = -mwindows -static -static-libgcc -static-libstdc++
+LDFLAGS = -mwindows -municode -static -static-libgcc -static-libstdc++
 LIBS = -lcomctl32 -lcomdlg32 -lole32 -loleaut32 -lshell32
 
 # Output
