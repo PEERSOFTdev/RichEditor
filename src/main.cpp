@@ -57,6 +57,7 @@ void EditCut();
 void EditCopy();
 void EditPaste();
 void EditSelectAll();
+void EditInsertTimeDate();
 void ViewWordWrap();
 void ExecuteFilter();
 void LoadFilters();
@@ -275,6 +276,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case ID_EDIT_SELECTALL:
                     EditSelectAll();
                     break;
+                case ID_EDIT_TIMEDATE:
+                    EditInsertTimeDate();
+                    break;
                 
                 // View menu
                 case ID_VIEW_WORDWRAP:
@@ -418,40 +422,98 @@ void UpdateStatusBar()
     CHARRANGE cr;
     SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
     
-    // Get line and column (logical - respects word wrap)
-    int line = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin) + 1;
-    int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, line - 1, 0);
-    int col = cr.cpMin - lineStart + 1;
-    
-    // If word wrap is on, also get the "physical" position (unwrapped)
-    int physicalLine = line;
-    int physicalCol = col;
+    int visualLine, visualCol;
+    int physicalLine, physicalCol;
     
     if (g_bWordWrap) {
-        // Find the actual line number by counting newlines from start to cursor
-        TEXTRANGE tr;
-        LPWSTR buffer = (LPWSTR)malloc((cr.cpMin + 1) * sizeof(WCHAR));
-        if (buffer) {
-            tr.chrg.cpMin = 0;
-            tr.chrg.cpMax = cr.cpMin;
-            tr.lpstrText = buffer;
-            SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
-            
-            // Count newlines to get physical line
-            physicalLine = 1;
-            int lastNewline = -1;
-            for (int i = 0; i < cr.cpMin; i++) {
-                if (buffer[i] == L'\n') {
-                    physicalLine++;
-                    lastNewline = i;
-                }
+        // When word wrap is ON:
+        // - Visual line/col: counts display lines including soft wraps (from RichEdit)
+        // - Physical line/col: counts only hard line breaks by parsing the text
+        
+        // Get visual (wrapped) line by counting display lines from start to cursor
+        visualLine = 1;
+        int currentLineStart = 0;
+        int lineIndex = 0;
+        
+        while (currentLineStart < cr.cpMin) {
+            int nextLineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
+            if (nextLineStart == -1 || nextLineStart <= currentLineStart) {
+                break;
             }
-            
-            // Physical column is distance from last newline (or start)
-            physicalCol = cr.cpMin - lastNewline;
-            
-            free(buffer);
+            if (nextLineStart <= cr.cpMin) {
+                visualLine++;
+                currentLineStart = nextLineStart;
+                lineIndex++;
+            } else {
+                break;
+            }
         }
+        visualCol = cr.cpMin - currentLineStart + 1;
+        
+        // Get physical (unwrapped) line and column by manually counting hard newlines
+        // Use EM_GETTEXTRANGE to get text up to cursor with exact character positions
+        physicalLine = 1;  // Start at line 1
+        physicalCol = 1;
+        int physicalLineStart = 0;  // Start of file is start of line 1
+        
+        if (cr.cpMin > 0) {
+            // Allocate buffer for text up to cursor
+            LPWSTR buffer = (LPWSTR)malloc((cr.cpMin + 1) * sizeof(WCHAR));
+            if (buffer) {
+                // Use EM_GETTEXTRANGE to get exactly the text from 0 to cursor position
+                TEXTRANGE tr;
+                tr.chrg.cpMin = 0;
+                tr.chrg.cpMax = cr.cpMin;
+                tr.lpstrText = buffer;
+                
+                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                
+                if (retrieved > 0) {
+                    // Count newlines and track positions
+                    // Note: retrieved is the number of chars returned, which should equal cr.cpMin
+                    int bufferPos = 0;  // Position in buffer
+                    
+                    while (bufferPos < retrieved) {
+                        if (buffer[bufferPos] == L'\r') {
+                            // Check if this is CRLF or just CR
+                            if (bufferPos + 1 < retrieved && buffer[bufferPos + 1] == L'\n') {
+                                // CRLF - treat as one newline
+                                bufferPos += 2;
+                                physicalLine++;
+                                physicalLineStart = bufferPos;
+                            } else {
+                                // Just CR
+                                bufferPos++;
+                                physicalLine++;
+                                physicalLineStart = bufferPos;
+                            }
+                        } else if (buffer[bufferPos] == L'\n') {
+                            // Just LF
+                            bufferPos++;
+                            physicalLine++;
+                            physicalLineStart = bufferPos;
+                        } else {
+                            // Regular character
+                            bufferPos++;
+                        }
+                    }
+                    
+                    // Calculate column: how many buffer positions from line start to end
+                    physicalCol = bufferPos - physicalLineStart + 1;
+                }
+                
+                free(buffer);
+            }
+        }
+        
+    } else {
+        // When word wrap is OFF, visual = physical (no soft wraps)
+        visualLine = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin) + 1;
+        int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, visualLine - 1, 0);
+        visualCol = cr.cpMin - lineStart + 1;
+        
+        physicalLine = visualLine;
+        physicalCol = visualCol;
     }
     
     // Get character at cursor
@@ -486,14 +548,16 @@ void UpdateStatusBar()
     
     // Format position string
     WCHAR posInfo[128];
-    if (g_bWordWrap && (line != physicalLine || col != physicalCol)) {
-        // Show both wrapped and unwrapped positions
+    if (g_bWordWrap) {
+        // When word wrap is on, always show both visual and physical positions
+        // visualLine/visualCol: includes soft wraps (displayed lines)
+        // physicalLine/physicalCol: count only hard line breaks
         _snwprintf(posInfo, 128, L"Ln %d, Col %d / %d,%d",
-                   line, col, physicalLine, physicalCol);
+                   visualLine, visualCol, physicalLine, physicalCol);
     } else {
-        // Show only one position (word wrap off or on a non-wrapped line)
+        // When word wrap is off, show only one position
         _snwprintf(posInfo, 128, L"Ln %d, Col %d",
-                   line, col);
+                   visualLine, visualCol);
     }
     
     // Format status text
@@ -944,6 +1008,31 @@ void EditSelectAll()
     cr.cpMin = 0;
     cr.cpMax = -1; // -1 means end of text
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+}
+
+//============================================================================
+// EditInsertTimeDate - Insert current date and time at cursor position
+//============================================================================
+void EditInsertTimeDate()
+{
+    // Get current local time
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    
+    // Format date and time using locale short format (like Notepad)
+    WCHAR szDateTime[256];
+    int dateLen = GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &st, NULL, szDateTime, 128);
+    
+    if (dateLen > 0) {
+        // Add space separator
+        szDateTime[dateLen - 1] = L' ';
+        
+        // Append time
+        GetTimeFormat(LOCALE_USER_DEFAULT, 0, &st, NULL, szDateTime + dateLen, 128);
+        
+        // Insert at current cursor position (replaces selection if any)
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szDateTime);
+    }
 }
 
 //============================================================================
