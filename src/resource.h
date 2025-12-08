@@ -24,6 +24,9 @@
 #define ID_EDIT_PASTE                   1105
 #define ID_EDIT_SELECTALL               1106
 
+// View menu
+#define ID_VIEW_WORDWRAP                1110
+
 // Tools menu (Phase 2)
 #define ID_TOOLS_EXECUTEFILTER          1201
 #define ID_TOOLS_MANAGEFILTERS          1202

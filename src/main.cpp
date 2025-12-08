@@ -21,11 +21,12 @@ WCHAR g_szFileName[MAX_PATH];     // Current file path
 WCHAR g_szFileTitle[MAX_PATH];    // Current file name only
 BOOL g_bModified = FALSE;         // Document modified flag
 BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
+BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
 HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 
 // Autosave settings
 BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
-UINT g_nAutosaveIntervalMinutes = 5;         // Autosave interval in minutes (0 = disabled)
+UINT g_nAutosaveIntervalMinutes = 1;         // Autosave interval in minutes (0 = disabled)
 BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 
@@ -56,6 +57,7 @@ void EditCut();
 void EditCopy();
 void EditPaste();
 void EditSelectAll();
+void ViewWordWrap();
 void ExecuteFilter();
 void LoadFilters();
 void UpdateFilterDisplay();
@@ -173,6 +175,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             LoadFilters();
             UpdateFilterDisplay();
             
+            // Set initial word wrap menu checkmark
+            HMENU hMenu = GetMenu(hwnd);
+            CheckMenuItem(hMenu, ID_VIEW_WORDWRAP, g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
+            
             // Start autosave timer if enabled
             StartAutosaveTimer(hwnd);
             
@@ -266,6 +272,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     break;
                 case ID_EDIT_SELECTALL:
                     EditSelectAll();
+                    break;
+                
+                // View menu
+                case ID_VIEW_WORDWRAP:
+                    ViewWordWrap();
                     break;
                 
                 // Tools menu
@@ -880,6 +891,87 @@ void EditSelectAll()
     cr.cpMin = 0;
     cr.cpMax = -1; // -1 means end of text
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+}
+
+//============================================================================
+// ViewWordWrap - Toggle word wrap on/off
+//============================================================================
+void ViewWordWrap()
+{
+    // Toggle word wrap state
+    g_bWordWrap = !g_bWordWrap;
+    
+    // Get current selection to restore after recreation
+    CHARRANGE crSel;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crSel);
+    
+    // Get current text to restore
+    int textLen = GetWindowTextLength(g_hWndEdit);
+    LPWSTR pszText = (LPWSTR)malloc((textLen + 1) * sizeof(WCHAR));
+    if (pszText) {
+        GetWindowText(g_hWndEdit, pszText, textLen + 1);
+    }
+    
+    // Destroy and recreate the edit control with new style
+    DestroyWindow(g_hWndEdit);
+    
+    // Create new edit control with or without horizontal scroll
+    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | 
+                  ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL;
+    
+    if (!g_bWordWrap) {
+        // Add horizontal scroll when word wrap is off
+        style |= WS_HSCROLL | ES_AUTOHSCROLL;
+    }
+    
+    g_hWndEdit = CreateWindowEx(
+        WS_EX_CLIENTEDGE,
+        MSFTEDIT_CLASS,
+        L"",
+        style,
+        0, 0, 0, 0,
+        g_hWndMain,
+        (HMENU)IDC_RICHEDIT,
+        GetModuleHandle(NULL),
+        NULL
+    );
+    
+    if (g_hWndEdit) {
+        // Set plain text mode
+        SendMessage(g_hWndEdit, EM_SETTEXTMODE, TM_PLAINTEXT, 0);
+        
+        // Set undo limit
+        SendMessage(g_hWndEdit, EM_SETUNDOLIMIT, 100, 0);
+        
+        // Set event mask for notifications
+        SendMessage(g_hWndEdit, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+        
+        // Set large text limit (2GB)
+        SendMessage(g_hWndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+        
+        // Restore text
+        if (pszText) {
+            g_bSettingText = TRUE;
+            SetWindowText(g_hWndEdit, pszText);
+            g_bSettingText = FALSE;
+            free(pszText);
+        }
+        
+        // Restore selection
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+        
+        // Trigger resize to position control correctly
+        RECT rcClient;
+        GetClientRect(g_hWndMain, &rcClient);
+        SendMessage(g_hWndMain, WM_SIZE, 0, MAKELPARAM(rcClient.right, rcClient.bottom));
+        
+        // Update menu checkmark
+        HMENU hMenu = GetMenu(g_hWndMain);
+        CheckMenuItem(hMenu, ID_VIEW_WORDWRAP, g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
+        
+        // Set focus back to edit control
+        SetFocus(g_hWndEdit);
+    }
 }
 
 //============================================================================
