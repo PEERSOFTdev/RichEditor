@@ -215,6 +215,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_TIMER:
             // Handle autosave timer
             if (wParam == IDT_AUTOSAVE) {
+                OutputDebugString(L"WM_TIMER: Autosave timer fired\n");
                 DoAutosave();
             }
             return 0;
@@ -967,7 +968,14 @@ void StartAutosaveTimer()
     if (g_bAutosaveEnabled && g_nAutosaveIntervalMinutes > 0) {
         // Convert minutes to milliseconds
         UINT interval = g_nAutosaveIntervalMinutes * 60 * 1000;
-        SetTimer(g_hWndMain, IDT_AUTOSAVE, interval, NULL);
+        UINT_PTR result = SetTimer(g_hWndMain, IDT_AUTOSAVE, interval, NULL);
+        
+        WCHAR debug[256];
+        _snwprintf(debug, 256, L"StartAutosaveTimer: SetTimer called with interval=%d ms, result=%p\n", 
+                   interval, (void*)result);
+        OutputDebugString(debug);
+    } else {
+        OutputDebugString(L"StartAutosaveTimer: Timer not started (disabled or interval=0)\n");
     }
 }
 
@@ -976,13 +984,21 @@ void StartAutosaveTimer()
 //============================================================================
 void DoAutosave()
 {
+    OutputDebugString(L"DoAutosave: Called\n");
+    
     // Only autosave if:
     // 1. Autosave is enabled
     // 2. Document has been modified
     // 3. Document has a filename (not "Untitled")
     if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0') {
+        WCHAR debug[256];
+        _snwprintf(debug, 256, L"DoAutosave: Skipped (enabled=%d, modified=%d, hasFilename=%d)\n",
+                   g_bAutosaveEnabled, g_bModified, g_szFileName[0] != L'\0');
+        OutputDebugString(debug);
         return;
     }
+    
+    OutputDebugString(L"DoAutosave: Saving...\n");
     
     // Save the file silently
     if (SaveTextFile(g_szFileName)) {
