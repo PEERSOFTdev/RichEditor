@@ -340,12 +340,20 @@ BOOL InitRichEditLibrary()
 //============================================================================
 HWND CreateRichEditControl(HWND hwndParent)
 {
+    // Create style based on word wrap setting
+    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | 
+                  ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL;
+    
+    if (!g_bWordWrap) {
+        // Add horizontal scroll when word wrap is off
+        style |= WS_HSCROLL | ES_AUTOHSCROLL;
+    }
+    
     HWND hwndEdit = CreateWindowEx(
         WS_EX_CLIENTEDGE,
         MSFTEDIT_CLASS,
         L"",
-        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
-        ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_NOHIDESEL,
+        style,
         0, 0, 0, 0,
         hwndParent,
         (HMENU)IDC_RICHEDIT,
