@@ -374,14 +374,44 @@ void UpdateStatusBar()
     int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, line - 1, 0);
     int col = cr.cpMin - lineStart + 1;
     
+    // Get character at cursor
+    WCHAR charAtCursor = 0;
+    WCHAR charInfo[64] = L"";
+    int textLen = GetWindowTextLength(g_hWndEdit);
+    
+    if (cr.cpMin < textLen) {
+        // Get the character at cursor position
+        TEXTRANGE tr;
+        WCHAR buffer[2] = {0};
+        tr.chrg.cpMin = cr.cpMin;
+        tr.chrg.cpMax = cr.cpMin + 1;
+        tr.lpstrText = buffer;
+        SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+        charAtCursor = buffer[0];
+        
+        // Format character info (dec and hex)
+        if (charAtCursor >= 32 && charAtCursor != 127) {
+            // Printable character
+            _snwprintf(charInfo, 64, L"Char: '%lc' (Dec: %d, Hex: 0x%04X)",
+                       charAtCursor, (int)charAtCursor, (unsigned int)charAtCursor);
+        } else {
+            // Control character or non-printable
+            _snwprintf(charInfo, 64, L"Char: (Dec: %d, Hex: 0x%04X)",
+                       (int)charAtCursor, (unsigned int)charAtCursor);
+        }
+    } else {
+        // Cursor is at end of file or empty file
+        wcscpy(charInfo, L"Char: EOF");
+    }
+    
     // Format status text
     WCHAR szStatus[512];
     if (g_szFileName[0]) {
-        _snwprintf(szStatus, 512, L"%s    Line %d, Col %d    [Filter: None]",
-                   g_szFileTitle, line, col);
+        _snwprintf(szStatus, 512, L"%s    Line %d, Col %d    %s    [Filter: None]",
+                   g_szFileTitle, line, col, charInfo);
     } else {
-        _snwprintf(szStatus, 512, L"Untitled    Line %d, Col %d    [Filter: None]",
-                   line, col);
+        _snwprintf(szStatus, 512, L"Untitled    Line %d, Col %d    %s    [Filter: None]",
+                   line, col, charInfo);
     }
     
     SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
