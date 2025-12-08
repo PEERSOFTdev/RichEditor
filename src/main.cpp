@@ -60,7 +60,7 @@ void ExecuteFilter();
 void LoadFilters();
 void UpdateFilterDisplay();
 void DoAutosave();
-void StartAutosaveTimer();
+void StartAutosaveTimer(HWND hwnd);
 
 //============================================================================
 // WinMain - Entry Point
@@ -174,7 +174,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             UpdateFilterDisplay();
             
             // Start autosave timer if enabled
-            StartAutosaveTimer();
+            StartAutosaveTimer(hwnd);
             
             return 0;
             
@@ -959,20 +959,20 @@ void UpdateFilterDisplay()
 //============================================================================
 // StartAutosaveTimer - Start or restart the autosave timer
 //============================================================================
-void StartAutosaveTimer()
+void StartAutosaveTimer(HWND hwnd)
 {
     // Kill existing timer if any
-    KillTimer(g_hWndMain, IDT_AUTOSAVE);
+    KillTimer(hwnd, IDT_AUTOSAVE);
     
     // Start timer if interval is set and autosave is enabled
     if (g_bAutosaveEnabled && g_nAutosaveIntervalMinutes > 0) {
         // Convert minutes to milliseconds
         UINT interval = g_nAutosaveIntervalMinutes * 60 * 1000;
-        UINT_PTR result = SetTimer(g_hWndMain, IDT_AUTOSAVE, interval, NULL);
+        UINT_PTR result = SetTimer(hwnd, IDT_AUTOSAVE, interval, NULL);
         
         WCHAR debug[256];
-        _snwprintf(debug, 256, L"StartAutosaveTimer: SetTimer called with interval=%d ms, result=%p\n", 
-                   interval, (void*)result);
+        _snwprintf(debug, 256, L"StartAutosaveTimer: hwnd=%p, SetTimer called with interval=%d ms, result=%p\n", 
+                   hwnd, interval, (void*)result);
         OutputDebugString(debug);
     } else {
         OutputDebugString(L"StartAutosaveTimer: Timer not started (disabled or interval=0)\n");
