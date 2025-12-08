@@ -187,6 +187,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
             
+        case WM_SETFOCUS:
+            // Restore focus to edit control when window receives focus
+            if (g_hWndEdit) {
+                SetFocus(g_hWndEdit);
+            }
+            return 0;
+            
         case WM_COMMAND:
             // Handle edit control notifications
             if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == g_hWndEdit) {
