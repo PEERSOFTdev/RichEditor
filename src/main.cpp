@@ -153,6 +153,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
         case WM_CREATE:
+        {
             // Initialize state
             g_szFileName[0] = L'\0';
             g_szFileTitle[0] = L'\0';
@@ -183,6 +184,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             StartAutosaveTimer(hwnd);
             
             return 0;
+        }
             
         case WM_SIZE:
             // Resize status bar
