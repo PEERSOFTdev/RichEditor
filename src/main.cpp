@@ -23,6 +23,12 @@ BOOL g_bModified = FALSE;         // Document modified flag
 BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
 HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 
+// Autosave settings
+BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
+UINT g_nAutosaveIntervalMinutes = 5;         // Autosave interval in minutes (0 = disabled)
+BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
+const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
+
 //============================================================================
 // Function Declarations
 //============================================================================
@@ -53,6 +59,8 @@ void EditSelectAll();
 void ExecuteFilter();
 void LoadFilters();
 void UpdateFilterDisplay();
+void DoAutosave();
+void StartAutosaveTimer();
 
 //============================================================================
 // WinMain - Entry Point
@@ -165,6 +173,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             LoadFilters();
             UpdateFilterDisplay();
             
+            // Start autosave timer if enabled
+            StartAutosaveTimer();
+            
             return 0;
             
         case WM_SIZE:
@@ -191,6 +202,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Restore focus to edit control when window receives focus
             if (g_hWndEdit) {
                 SetFocus(g_hWndEdit);
+            }
+            return 0;
+            
+        case WM_KILLFOCUS:
+            // Autosave on focus loss if enabled
+            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss) {
+                DoAutosave();
+            }
+            return 0;
+            
+        case WM_TIMER:
+            // Handle autosave timer
+            if (wParam == IDT_AUTOSAVE) {
+                DoAutosave();
             }
             return 0;
             
@@ -278,6 +303,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
             
         case WM_DESTROY:
+            // Kill autosave timer
+            KillTimer(hwnd, IDT_AUTOSAVE);
             PostQuitMessage(0);
             return 0;
     }
@@ -926,4 +953,46 @@ void UpdateFilterDisplay()
 {
     // Stub: Filter display will show active filter in Phase 2
     // Currently just shows "[Filter: None]" in UpdateStatusBar
+}
+
+//============================================================================
+// StartAutosaveTimer - Start or restart the autosave timer
+//============================================================================
+void StartAutosaveTimer()
+{
+    // Kill existing timer if any
+    KillTimer(g_hWndMain, IDT_AUTOSAVE);
+    
+    // Start timer if interval is set and autosave is enabled
+    if (g_bAutosaveEnabled && g_nAutosaveIntervalMinutes > 0) {
+        // Convert minutes to milliseconds
+        UINT interval = g_nAutosaveIntervalMinutes * 60 * 1000;
+        SetTimer(g_hWndMain, IDT_AUTOSAVE, interval, NULL);
+    }
+}
+
+//============================================================================
+// DoAutosave - Perform autosave if file has been modified and has a name
+//============================================================================
+void DoAutosave()
+{
+    // Only autosave if:
+    // 1. Autosave is enabled
+    // 2. Document has been modified
+    // 3. Document has a filename (not "Untitled")
+    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0') {
+        return;
+    }
+    
+    // Save the file silently
+    if (SaveTextFile(g_szFileName)) {
+        // Update status briefly to show autosave happened
+        WCHAR szOldStatus[512];
+        SendMessage(g_hWndStatus, SB_GETTEXT, 0, (LPARAM)szOldStatus);
+        SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)L"[Autosaved]");
+        
+        // Restore original status after 1 second
+        Sleep(100);  // Brief flash
+        SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szOldStatus);
+    }
 }
