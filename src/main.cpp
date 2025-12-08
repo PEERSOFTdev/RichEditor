@@ -418,10 +418,41 @@ void UpdateStatusBar()
     CHARRANGE cr;
     SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
     
-    // Get line and column
+    // Get line and column (logical - respects word wrap)
     int line = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin) + 1;
     int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, line - 1, 0);
     int col = cr.cpMin - lineStart + 1;
+    
+    // If word wrap is on, also get the "physical" position (unwrapped)
+    int physicalLine = line;
+    int physicalCol = col;
+    
+    if (g_bWordWrap) {
+        // Find the actual line number by counting newlines from start to cursor
+        TEXTRANGE tr;
+        LPWSTR buffer = (LPWSTR)malloc((cr.cpMin + 1) * sizeof(WCHAR));
+        if (buffer) {
+            tr.chrg.cpMin = 0;
+            tr.chrg.cpMax = cr.cpMin;
+            tr.lpstrText = buffer;
+            SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+            
+            // Count newlines to get physical line
+            physicalLine = 1;
+            int lastNewline = -1;
+            for (int i = 0; i < cr.cpMin; i++) {
+                if (buffer[i] == L'\n') {
+                    physicalLine++;
+                    lastNewline = i;
+                }
+            }
+            
+            // Physical column is distance from last newline (or start)
+            physicalCol = cr.cpMin - lastNewline;
+            
+            free(buffer);
+        }
+    }
     
     // Get character at cursor
     WCHAR charAtCursor = 0;
@@ -453,14 +484,26 @@ void UpdateStatusBar()
         wcscpy(charInfo, L"Char: EOF");
     }
     
+    // Format position string
+    WCHAR posInfo[128];
+    if (g_bWordWrap && (line != physicalLine || col != physicalCol)) {
+        // Show both wrapped and unwrapped positions
+        _snwprintf(posInfo, 128, L"Ln %d, Col %d / %d,%d",
+                   line, col, physicalLine, physicalCol);
+    } else {
+        // Show only one position (word wrap off or on a non-wrapped line)
+        _snwprintf(posInfo, 128, L"Ln %d, Col %d",
+                   line, col);
+    }
+    
     // Format status text
     WCHAR szStatus[512];
     if (g_szFileName[0]) {
-        _snwprintf(szStatus, 512, L"%s    Line %d, Col %d    %s    [Filter: None]",
-                   g_szFileTitle, line, col, charInfo);
+        _snwprintf(szStatus, 512, L"%s    %s    %s    [Filter: None]",
+                   g_szFileTitle, posInfo, charInfo);
     } else {
-        _snwprintf(szStatus, 512, L"Untitled    Line %d, Col %d    %s    [Filter: None]",
-                   line, col, charInfo);
+        _snwprintf(szStatus, 512, L"Untitled    %s    %s    [Filter: None]",
+                   posInfo, charInfo);
     }
     
     SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
