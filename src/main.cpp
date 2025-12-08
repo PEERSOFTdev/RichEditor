@@ -190,9 +190,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_COMMAND:
             // Handle edit control notifications
             if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == g_hWndEdit) {
-                OutputDebugString(L"EN_CHANGE via WM_COMMAND\n");
                 if (!g_bSettingText && !g_bModified) {
-                    OutputDebugString(L"Setting g_bModified = TRUE via WM_COMMAND\n");
                     g_bModified = TRUE;
                     UpdateTitle();
                 }
@@ -259,15 +257,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 switch (((LPNMHDR)lParam)->code) {
                     case EN_SELCHANGE:
                         UpdateStatusBar();
-                        break;
-                    case EN_CHANGE:
-                        // Debug output
-                        OutputDebugString(L"EN_CHANGE received\n");
-                        if (!g_bSettingText && !g_bModified) {
-                            OutputDebugString(L"Setting g_bModified = TRUE\n");
-                            g_bModified = TRUE;
-                            UpdateTitle();
-                        }
                         break;
                 }
             }
