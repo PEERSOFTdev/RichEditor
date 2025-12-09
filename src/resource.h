@@ -23,6 +23,7 @@
 #define ID_EDIT_COPY                    1104
 #define ID_EDIT_PASTE                   1105
 #define ID_EDIT_SELECTALL               1106
+#define ID_EDIT_TIMEDATE                1107
 
 // View menu
 #define ID_VIEW_WORDWRAP                1110
