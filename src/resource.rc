@@ -70,12 +70,47 @@ CAPTION "About RichEditor"
 FONT 8, "MS Shell Dlg", 400, 0
 BEGIN
     ICON IDI_APPLICATION, IDC_STATIC, 10, 10, 20, 20
-    LTEXT "RichEditor v1.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
-    LTEXT "A lightweight text editor using RichEdit control", IDC_STATIC, 40, 25, 190, 10
-    LTEXT "Built with MinGW-w64", IDC_STATIC, 40, 38, 190, 10
+    LTEXT "RichEditor v1.0.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
+    LTEXT "A lightweight, accessible text editor", IDC_STATIC, 40, 25, 190, 10
+    LTEXT "Built with MinGW-w64 and RichEdit 4.1", IDC_STATIC, 40, 38, 190, 10
     LTEXT "", IDC_STATIC, 10, 55, 220, 1, SS_ETCHEDHORZ
     LTEXT "Features:", IDC_STATIC, 10, 62, 220, 10
-    LTEXT "• UTF-8 text file editing", IDC_STATIC, 20, 75, 210, 10
-    LTEXT "• External filter/utility execution (Phase 2)", IDC_STATIC, 20, 87, 210, 10
+    LTEXT "• UTF-8 text editing with autosave", IDC_STATIC, 20, 75, 210, 10
+    LTEXT "• Word wrap with position tracking", IDC_STATIC, 20, 87, 210, 10
     DEFPUSHBUTTON "OK", IDOK, 95, 100, 50, 14
+END
+
+// Version Information
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+    FILEFLAGS   VS_FF_DEBUG
+#else
+    FILEFLAGS   0x0L
+#endif
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"  // English (US), Unicode
+        BEGIN
+            VALUE "CompanyName",      "PEERSOFT"
+            VALUE "FileDescription",  "RichEditor - Lightweight Text Editor"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "RichEditor"
+            VALUE "LegalCopyright",   "Copyright (C) 2025 PEERSOFT"
+            VALUE "OriginalFilename", "RichEditor.exe"
+            VALUE "ProductName",      "RichEditor"
+            VALUE "ProductVersion",   "1.0.0 (Phase 1 Complete)"
+            VALUE "Comments",         "Accessible text editor with RichEdit 4.1 control, autosave, word wrap, and filter support. Built with MinGW-w64."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0  // English (US), Unicode
+    END
 END
