@@ -120,6 +120,36 @@ The application is a **universal binary** containing both English and Czech reso
 - If Czech is not available, falls back to English
 - No configuration needed - works out of the box
 
+**Technical Implementation:**
+
+The `resource.rc` file uses the following structure:
+
+```rc
+#pragma code_page(65001)  // Critical: tells windres to use UTF-8 encoding
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+// ... English resources ...
+
+LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
+// ... Czech resources with diacritics (ř, č, š, ž, á, í, é, ý, ů) ...
+```
+
+**Key Points:**
+1. **UTF-8 Encoding:** The RC file must be saved as UTF-8 with BOM
+2. **Code Page Pragma:** `#pragma code_page(65001)` is essential for MinGW-w64's `windres` to properly handle non-ASCII characters
+3. **Language Sections:** Each `LANGUAGE` directive creates a separate resource set
+4. **Automatic Selection:** Windows uses `GetUserDefaultUILanguage()` to pick the right resources at runtime
+5. **Proper Encoding:** Czech diacritics are compiled as UTF-16LE in the PE executable (e.g., 'ř' = U+0159 = `59 01` bytes)
+
+**Without the pragma:** MinGW's `windres` would misinterpret UTF-8 bytes, causing garbled characters (mojibake) in Czech text.
+
+**Adding New Languages:**
+1. Add a new `LANGUAGE` section in `resource.rc`
+2. Duplicate and translate menu/dialog resources
+3. Add version info block with appropriate language ID
+4. Update `Translation` value in `VarFileInfo` section
+5. Rebuild - the new language will be automatically available
+
 ### Build Configuration
 
 The `Makefile` uses:
