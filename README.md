@@ -92,36 +92,33 @@ make CROSS=i686-w64-mingw32.static-
 make
 ```
 
-**Czech language build:**
-```bash
-make CROSS=x86_64-w64-mingw32.static- LANG=cs
-# or
-make czech CROSS=x86_64-w64-mingw32.static-
-```
-
 **Clean build:**
 ```bash
 make clean
 make CROSS=x86_64-w64-mingw32.static-
 ```
 
-**Output:** `RichEditor.exe` (standalone static executable, ~166KB)
+**Output:** `RichEditor.exe` (universal executable with English and Czech, ~169KB)
 
 ### Localization
 
-The application supports multiple languages through separate resource files:
-- **English (default):** `src/resource.rc` - Language ID: 0x0409 (en-US)
-- **Czech:** `src/resource_cs.rc` - Language ID: 0x0405 (cs-CZ)
+The application is a **universal binary** containing both English and Czech resources in a single executable. Windows automatically selects the appropriate language based on the system's UI language settings.
 
-To build a localized version, use the `LANG` parameter:
-- English: `make` or `make LANG=en`
-- Czech: `make LANG=cs`
+**Supported Languages:**
+- **English (en-US):** Default fallback language - Language ID: 0x0409
+- **Czech (cs-CZ):** Full localization - Language ID: 0x0405
 
-All UI elements are localized:
-- Menus (File, Edit, View, Tools, Help)
-- Dialogs (About dialog)
-- Version information strings
-- Keyboard shortcuts remain the same across all languages
+**What's Localized:**
+- All menus (File/Soubor, Edit/Úpravy, View/Zobrazit, Tools/Nástroje, Help/Nápověda)
+- Dialog boxes (About dialog)
+- Version information strings (visible in file properties)
+- Keyboard shortcuts remain universal (Ctrl+N, Ctrl+S, F5, etc.)
+
+**How It Works:**
+- Single executable contains both language resources
+- Windows loads the matching language automatically
+- If Czech is not available, falls back to English
+- No configuration needed - works out of the box
 
 ### Build Configuration
 
@@ -197,11 +194,10 @@ When word wrap is enabled:
 ```
 RichEditor/
 ├── src/
-│   ├── main.cpp       (~1050 lines) - Main application logic
+│   ├── main.cpp       (~1,248 lines) - Main application logic
 │   ├── resource.h     - Resource IDs and constants
-│   ├── resource.rc    - English resources (menus, dialogs, version info)
-│   └── resource_cs.rc - Czech resources (localized UI)
-├── Makefile           - Build configuration with language support
+│   └── resource.rc    - Universal resources (English + Czech UI)
+├── Makefile           - Build configuration
 ├── README.md          - This file
 └── .gitignore         - Git ignore patterns
 ```
@@ -363,6 +359,6 @@ Created with focus on:
 ---
 
 **Version:** 1.0.0 - Phase 1 Complete (December 2025)  
-**Build:** ~166KB static executable  
-**Lines of Code:** ~1,248 lines (main.cpp), ~1,526 total  
-**Languages:** English, Czech (Čeština)
+**Build:** ~169KB universal executable  
+**Lines of Code:** 1,248 lines (main.cpp), 1,506 total  
+**Languages:** English + Czech (universal build with automatic selection)

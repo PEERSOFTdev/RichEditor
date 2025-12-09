@@ -26,21 +26,7 @@ TARGET = RichEditor.exe
 
 # Source files
 SRC = src/main.cpp
-RC_EN = src/resource.rc
-RC_CS = src/resource_cs.rc
-
-# Language selection (default: English)
-# Use LANG=cs for Czech build
-LANG ?= en
-
-ifeq ($(LANG),cs)
-    RC = $(RC_CS)
-    LANG_NAME = Czech
-else
-    RC = $(RC_EN)
-    LANG_NAME = English
-endif
-
+RC = src/resource.rc
 OBJ = main.o resource.o
 
 # Build rules
@@ -50,7 +36,8 @@ $(TARGET): $(OBJ)
 	$(CC) $(LDFLAGS) $(OBJ) $(LIBS) -o $(TARGET)
 	@echo ""
 	@echo "========================================="
-	@echo "Build complete: $(TARGET) ($(LANG_NAME))"
+	@echo "Build complete: $(TARGET)"
+	@echo "Universal build with English and Czech"
 	@echo "========================================="
 	@echo ""
 
@@ -66,34 +53,26 @@ clean:
 
 rebuild: clean all
 
-# Language-specific builds
-english: LANG=en
-english: all
-
-czech: LANG=cs
-czech: all
-
 # Help target
 help:
 	@echo "RichEditor Build System"
 	@echo "======================="
 	@echo ""
 	@echo "Targets:"
-	@echo "  make                                    - Build with default (English, x86_64)"
-	@echo "  make LANG=cs                            - Build Czech version"
-	@echo "  make english                            - Build English version"
-	@echo "  make czech                              - Build Czech version"
-	@echo "  make CROSS=i686-w64-mingw32.static-     - Build 32-bit with MXE static"
-	@echo "  make CROSS=x86_64-w64-mingw32.static-   - Build 64-bit with MXE static"
+	@echo "  make                                    - Build universal executable (English + Czech)"
+	@echo "  make CROSS=i686-w64-mingw32.static-     - Build 32-bit universal"
+	@echo "  make CROSS=x86_64-w64-mingw32.static-   - Build 64-bit universal"
 	@echo "  make clean                              - Remove build artifacts"
 	@echo "  make rebuild                            - Clean and build"
 	@echo "  make help                               - Show this help"
 	@echo ""
+	@echo "The executable contains both English and Czech resources."
+	@echo "Windows automatically selects the language based on system settings."
+	@echo ""
 	@echo "Examples:"
-	@echo "  English 64-bit:  make CROSS=x86_64-w64-mingw32.static-"
-	@echo "  Czech 64-bit:    make CROSS=x86_64-w64-mingw32.static- LANG=cs"
-	@echo "  Czech 32-bit:    make CROSS=i686-w64-mingw32.static- LANG=cs"
-	@echo "  Native MinGW:    make CROSS=x86_64-w64-mingw32-"
+	@echo "  64-bit universal:  make CROSS=x86_64-w64-mingw32.static-"
+	@echo "  32-bit universal:  make CROSS=i686-w64-mingw32.static-"
+	@echo "  Native MinGW:      make CROSS=x86_64-w64-mingw32-"
 	@echo ""
 
 .PHONY: all clean rebuild help
