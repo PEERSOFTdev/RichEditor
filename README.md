@@ -92,13 +92,36 @@ make CROSS=i686-w64-mingw32.static-
 make
 ```
 
+**Czech language build:**
+```bash
+make CROSS=x86_64-w64-mingw32.static- LANG=cs
+# or
+make czech CROSS=x86_64-w64-mingw32.static-
+```
+
 **Clean build:**
 ```bash
 make clean
 make CROSS=x86_64-w64-mingw32.static-
 ```
 
-**Output:** `RichEditor.exe` (standalone static executable, ~150KB)
+**Output:** `RichEditor.exe` (standalone static executable, ~166KB)
+
+### Localization
+
+The application supports multiple languages through separate resource files:
+- **English (default):** `src/resource.rc` - Language ID: 0x0409 (en-US)
+- **Czech:** `src/resource_cs.rc` - Language ID: 0x0405 (cs-CZ)
+
+To build a localized version, use the `LANG` parameter:
+- English: `make` or `make LANG=en`
+- Czech: `make LANG=cs`
+
+All UI elements are localized:
+- Menus (File, Edit, View, Tools, Help)
+- Dialogs (About dialog)
+- Version information strings
+- Keyboard shortcuts remain the same across all languages
 
 ### Build Configuration
 
@@ -176,8 +199,9 @@ RichEditor/
 ├── src/
 │   ├── main.cpp       (~1050 lines) - Main application logic
 │   ├── resource.h     - Resource IDs and constants
-│   └── resource.rc    - Menus, dialogs, accelerators
-├── Makefile           - Build configuration
+│   ├── resource.rc    - English resources (menus, dialogs, version info)
+│   └── resource_cs.rc - Czech resources (localized UI)
+├── Makefile           - Build configuration with language support
 ├── README.md          - This file
 └── .gitignore         - Git ignore patterns
 ```
@@ -338,6 +362,7 @@ Created with focus on:
 
 ---
 
-**Version:** Phase 1 Complete (December 2025)  
-**Build:** ~150KB static executable  
-**Lines of Code:** ~1050 lines (main.cpp)
+**Version:** 1.0.0 - Phase 1 Complete (December 2025)  
+**Build:** ~166KB static executable  
+**Lines of Code:** ~1,248 lines (main.cpp), ~1,526 total  
+**Languages:** English, Czech (Čeština)
