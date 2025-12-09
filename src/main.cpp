@@ -9,6 +9,7 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <stdio.h>
+#include <string>
 #include "resource.h"
 
 //============================================================================
@@ -29,6 +30,24 @@ BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
 UINT g_nAutosaveIntervalMinutes = 1;         // Autosave interval in minutes (0 = disabled)
 BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
+
+//============================================================================
+// Filter System (Phase 2)
+//============================================================================
+#define MAX_FILTERS 100
+#define MAX_FILTER_NAME 64
+#define MAX_FILTER_COMMAND 512
+#define MAX_FILTER_DESC 256
+
+struct FilterInfo {
+    WCHAR szName[MAX_FILTER_NAME];
+    WCHAR szCommand[MAX_FILTER_COMMAND];
+    WCHAR szDescription[MAX_FILTER_DESC];
+};
+
+FilterInfo g_Filters[MAX_FILTERS];
+int g_nFilterCount = 0;
+int g_nCurrentFilter = -1;  // -1 = no filter selected, 0-99 = filter index
 
 //============================================================================
 // Function Declarations
@@ -62,6 +81,7 @@ void ViewWordWrap();
 void ExecuteFilter();
 void LoadFilters();
 void UpdateFilterDisplay();
+void BuildFilterMenu();
 void DoAutosave();
 void StartAutosaveTimer(HWND hwnd);
 
@@ -175,6 +195,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Load filters (Phase 2)
             LoadFilters();
+            BuildFilterMenu();
             UpdateFilterDisplay();
             
             // Set initial word wrap menu checkmark
@@ -288,6 +309,33 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // Tools menu
                 case ID_TOOLS_EXECUTEFILTER:
                     ExecuteFilter();
+                    break;
+                
+                // Tools -> Manage Filters
+                case ID_TOOLS_MANAGEFILTERS:
+                    MessageBox(hwnd, 
+                              L"Filter Management dialog will open here.\n\n"
+                              L"For now, create RichEditor.ini in the same folder as the executable:\n\n"
+                              L"[Filters]\nCount=2\n\n"
+                              L"[Filter1]\nName=Uppercase\nCommand=powershell -Command \"$input | ForEach-Object { $_.ToUpper() }\"\n\n"
+                              L"[Filter2]\nName=Calculator\nCommand=powershell -NoProfile -Command \"$input | Invoke-Expression\"",
+                              L"Manage Filters",
+                              MB_ICONINFORMATION);
+                    break;
+                
+                // Tools -> Select Filter submenu (dynamic filter selection)
+                default:
+                    {
+                        int wmId = LOWORD(wParam);
+                        if (wmId >= ID_TOOLS_FILTER_BASE && wmId < ID_TOOLS_FILTER_BASE + 100) {
+                            int filterIdx = wmId - ID_TOOLS_FILTER_BASE;
+                            if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
+                                g_nCurrentFilter = filterIdx;
+                                BuildFilterMenu();
+                                UpdateFilterDisplay();
+                            }
+                        }
+                    }
                     break;
                     
                 // Help menu
@@ -1146,48 +1194,308 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
 
 //============================================================================
 // ExecuteFilter - Execute current filter on selected text or current line
-// TODO Phase 2: Implement external process execution with stdin/stdout pipes
 //============================================================================
 void ExecuteFilter()
 {
-    MessageBox(g_hWndMain,
-               L"Filter execution will be implemented in Phase 2.\n\n"
-               L"Architecture:\n"
-               L"• Get selected text or current line from RichEdit\n"
-               L"• Execute configured filter command with CreateProcess\n"
-               L"• Pass input via stdin pipe (UTF-8)\n"
-               L"• Read output from stdout pipe (UTF-8)\n"
-               L"• Insert output below input line\n"
-               L"• Handle errors from stderr\n\n"
-               L"Usage: Select text or place cursor on line, press Ctrl+Enter",
-               L"Filter Execution - Phase 2",
-               MB_ICONINFORMATION);
+    // Check if a filter is selected
+    if (g_nCurrentFilter < 0 || g_nCurrentFilter >= g_nFilterCount) {
+        MessageBox(g_hWndMain,
+                   L"No filter selected.\n\nUse Tools → Select Filter to choose a filter.",
+                   L"Filter Execution",
+                   MB_ICONEXCLAMATION);
+        return;
+    }
+    
+    // Get selected text range
+    CHARRANGE crSel;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crSel);
+    
+    // If no selection, select current line
+    if (crSel.cpMin == crSel.cpMax) {
+        // Get line number
+        LONG lineNum = SendMessage(g_hWndEdit, EM_LINEFROMCHAR, crSel.cpMin, 0);
+        // Get line start and end
+        LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineNum, 0);
+        LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineNum + 1, 0);
+        if (lineEnd == -1) {
+            // Last line - get text length
+            lineEnd = GetWindowTextLength(g_hWndEdit);
+        }
+        crSel.cpMin = lineStart;
+        crSel.cpMax = lineEnd;
+    }
+    
+    // Get selected text
+    int textLen = crSel.cpMax - crSel.cpMin;
+    if (textLen <= 0) {
+        MessageBox(g_hWndMain, L"No text to process.", L"Filter Execution", MB_ICONEXCLAMATION);
+        return;
+    }
+    
+    LPWSTR pszInput = (LPWSTR)malloc((textLen + 1) * sizeof(WCHAR));
+    if (!pszInput) return;
+    
+    TEXTRANGE tr;
+    tr.chrg = crSel;
+    tr.lpstrText = pszInput;
+    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    pszInput[textLen] = L'\0';
+    
+    // Convert to UTF-8 for pipe
+    LPSTR pszInputUTF8 = UTF16ToUTF8(pszInput);
+    free(pszInput);
+    if (!pszInputUTF8) return;
+    
+    // Create pipes for stdin, stdout, stderr
+    HANDLE hStdinRead, hStdinWrite;
+    HANDLE hStdoutRead, hStdoutWrite;
+    HANDLE hStderrRead, hStderrWrite;
+    
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+    
+    if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0) ||
+        !CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0) ||
+        !CreatePipe(&hStderrRead, &hStderrWrite, &sa, 0)) {
+        MessageBox(g_hWndMain, L"Failed to create pipes.", L"Error", MB_ICONERROR);
+        free(pszInputUTF8);
+        return;
+    }
+    
+    // Ensure write handles aren't inherited
+    SetHandleInformation(hStdinWrite, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(hStdoutRead, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(hStderrRead, HANDLE_FLAG_INHERIT, 0);
+    
+    // Setup process startup info
+    STARTUPINFO si = {};
+    si.cb = sizeof(STARTUPINFO);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = hStdinRead;
+    si.hStdOutput = hStdoutWrite;
+    si.hStdError = hStderrWrite;
+    
+    PROCESS_INFORMATION pi = {};
+    
+    // Create process
+    WCHAR szCommand[MAX_FILTER_COMMAND + 100];
+    wcscpy(szCommand, g_Filters[g_nCurrentFilter].szCommand);
+    
+    if (!CreateProcess(NULL, szCommand, NULL, NULL, TRUE, 
+                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        WCHAR szError[512];
+        swprintf(szError, 512, L"Failed to execute filter:\n%s\n\nError code: %d",
+                 g_Filters[g_nCurrentFilter].szName, GetLastError());
+        MessageBox(g_hWndMain, szError, L"Filter Execution Error", MB_ICONERROR);
+        CloseHandle(hStdinRead);
+        CloseHandle(hStdinWrite);
+        CloseHandle(hStdoutRead);
+        CloseHandle(hStdoutWrite);
+        CloseHandle(hStderrRead);
+        CloseHandle(hStderrWrite);
+        free(pszInputUTF8);
+        return;
+    }
+    
+    // Close unused pipe ends
+    CloseHandle(hStdinRead);
+    CloseHandle(hStdoutWrite);
+    CloseHandle(hStderrWrite);
+    
+    // Write input to process stdin
+    DWORD dwWritten;
+    WriteFile(hStdinWrite, pszInputUTF8, strlen(pszInputUTF8), &dwWritten, NULL);
+    CloseHandle(hStdinWrite);
+    free(pszInputUTF8);
+    
+    // Read stdout
+    char bufferOut[4096];
+    DWORD dwRead;
+    std::string outputData;
+    while (ReadFile(hStdoutRead, bufferOut, sizeof(bufferOut) - 1, &dwRead, NULL) && dwRead > 0) {
+        bufferOut[dwRead] = '\0';
+        outputData.append(bufferOut, dwRead);
+    }
+    CloseHandle(hStdoutRead);
+    
+    // Read stderr
+    char bufferErr[4096];
+    std::string errorData;
+    while (ReadFile(hStderrRead, bufferErr, sizeof(bufferErr) - 1, &dwRead, NULL) && dwRead > 0) {
+        bufferErr[dwRead] = '\0';
+        errorData.append(bufferErr, dwRead);
+    }
+    CloseHandle(hStderrRead);
+    
+    // Wait for process to complete (with timeout)
+    WaitForSingleObject(pi.hProcess, 30000);
+    
+    // Get exit code
+    DWORD dwExitCode;
+    GetExitCodeProcess(pi.hProcess, &dwExitCode);
+    
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    
+    // Show errors if any
+    if (!errorData.empty()) {
+        LPWSTR pszError = UTF8ToUTF16(errorData.c_str());
+        if (pszError) {
+            WCHAR szMsg[2048];
+            swprintf(szMsg, 2048, L"Filter stderr output:\n\n%s", pszError);
+            MessageBox(g_hWndMain, szMsg, L"Filter Error", MB_ICONWARNING);
+            free(pszError);
+        }
+    }
+    
+    // Insert output after selection if we have output
+    if (!outputData.empty()) {
+        LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
+        if (pszOutput) {
+            // Position cursor at end of selection
+            crSel.cpMin = crSel.cpMax;
+            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+            
+            // Insert newline if not at end
+            WCHAR szNewline[] = L"\r\n";
+            SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szNewline);
+            
+            // Insert output
+            SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+            
+            free(pszOutput);
+        }
+    } else if (dwExitCode != 0) {
+        WCHAR szMsg[256];
+        swprintf(szMsg, 256, L"Filter completed with exit code: %d\nNo output produced.", dwExitCode);
+        MessageBox(g_hWndMain, szMsg, L"Filter Result", MB_ICONINFORMATION);
+    }
 }
 
 //============================================================================
 // LoadFilters - Load filter configurations from INI file
-// TODO Phase 2: Read from RichEditor.ini, parse [Filters] sections
 //============================================================================
 void LoadFilters()
 {
-    // Stub: No filters loaded in Phase 1
-    // Phase 2 will read from INI file:
-    // [Filters]
-    // Count=N
-    // [Filter1]
-    // Name=Calculator
-    // Command=calc.exe
-    // Description=...
+    // Get path to INI file (in same directory as executable)
+    WCHAR szIniPath[MAX_PATH];
+    GetModuleFileName(NULL, szIniPath, MAX_PATH);
+    
+    // Replace .exe with .ini
+    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    // Check if INI file exists
+    if (GetFileAttributes(szIniPath) == INVALID_FILE_ATTRIBUTES) {
+        g_nFilterCount = 0;
+        return;
+    }
+    
+    // Read filter count
+    g_nFilterCount = GetPrivateProfileInt(L"Filters", L"Count", 0, szIniPath);
+    if (g_nFilterCount > MAX_FILTERS) {
+        g_nFilterCount = MAX_FILTERS;
+    }
+    
+    // Load each filter
+    for (int i = 0; i < g_nFilterCount; i++) {
+        WCHAR szSection[32];
+        swprintf(szSection, 32, L"Filter%d", i + 1);
+        
+        GetPrivateProfileString(szSection, L"Name", L"", 
+                                g_Filters[i].szName, MAX_FILTER_NAME, szIniPath);
+        GetPrivateProfileString(szSection, L"Command", L"", 
+                                g_Filters[i].szCommand, MAX_FILTER_COMMAND, szIniPath);
+        GetPrivateProfileString(szSection, L"Description", L"", 
+                                g_Filters[i].szDescription, MAX_FILTER_DESC, szIniPath);
+    }
+    
+    // Set current filter to first one if available
+    if (g_nFilterCount > 0) {
+        g_nCurrentFilter = 0;
+    }
 }
 
 //============================================================================
 // UpdateFilterDisplay - Update status bar with current filter info
-// TODO Phase 2: Show selected filter name in status bar
 //============================================================================
 void UpdateFilterDisplay()
 {
-    // Stub: Filter display will show active filter in Phase 2
-    // Currently just shows "[Filter: None]" in UpdateStatusBar
+    WCHAR szFilter[128];
+    
+    if (g_nCurrentFilter >= 0 && g_nCurrentFilter < g_nFilterCount) {
+        swprintf(szFilter, 128, L"[Filter: %s]", g_Filters[g_nCurrentFilter].szName);
+    } else {
+        wcscpy(szFilter, L"[Filter: None]");
+    }
+    
+    SendMessage(g_hWndStatus, SB_SETTEXT, 3, (LPARAM)szFilter);
+}
+
+//============================================================================
+// BuildFilterMenu - Build dynamic filter submenu
+//============================================================================
+void BuildFilterMenu()
+{
+    HMENU hMenu = GetMenu(g_hWndMain);
+    if (!hMenu) return;
+    
+    // Find Tools menu
+    int toolsMenuPos = -1;
+    int menuCount = GetMenuItemCount(hMenu);
+    for (int i = 0; i < menuCount; i++) {
+        HMENU hSubMenu = GetSubMenu(hMenu, i);
+        if (hSubMenu && GetMenuItemID(hSubMenu, 0) == ID_TOOLS_EXECUTEFILTER) {
+            toolsMenuPos = i;
+            break;
+        }
+    }
+    
+    if (toolsMenuPos == -1) return;
+    
+    HMENU hToolsMenu = GetSubMenu(hMenu, toolsMenuPos);
+    if (!hToolsMenu) return;
+    
+    // Find "Select Filter" submenu
+    int selectFilterPos = -1;
+    int toolsItemCount = GetMenuItemCount(hToolsMenu);
+    for (int i = 0; i < toolsItemCount; i++) {
+        if (GetSubMenu(hToolsMenu, i)) {
+            // This is a submenu - check if it's our filter submenu
+            selectFilterPos = i;
+            break;
+        }
+    }
+    
+    if (selectFilterPos == -1) return;
+    
+    HMENU hFilterMenu = GetSubMenu(hToolsMenu, selectFilterPos);
+    if (!hFilterMenu) return;
+    
+    // Clear existing filter menu items
+    while (GetMenuItemCount(hFilterMenu) > 0) {
+        DeleteMenu(hFilterMenu, 0, MF_BYPOSITION);
+    }
+    
+    // Add filters or "No filters" message
+    if (g_nFilterCount == 0) {
+        AppendMenu(hFilterMenu, MF_STRING | MF_GRAYED, ID_TOOLS_FILTER_BASE, L"(No filters configured)");
+    } else {
+        for (int i = 0; i < g_nFilterCount; i++) {
+            UINT flags = MF_STRING;
+            if (i == g_nCurrentFilter) {
+                flags |= MF_CHECKED;
+            }
+            AppendMenu(hFilterMenu, flags, ID_TOOLS_FILTER_BASE + i, g_Filters[i].szName);
+        }
+    }
+    
+    DrawMenuBar(g_hWndMain);
 }
 
 //============================================================================

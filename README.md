@@ -19,7 +19,7 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
   - File name (or "Untitled")
   - Line and column position
   - Character at cursor (decimal and hex: e.g., 'A' Dec: 65, Hex: 0x0041)
-  - Current filter status (placeholder for Phase 2)
+  - Current active filter (e.g., "[Filter: Calculator]")
 - Word wrap toggle (Ctrl+W) with dual position display:
   - Visual position: includes soft-wrapped lines
   - Physical position: actual line/column in file
@@ -38,24 +38,28 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Handles Windows (CRLF), Unix (LF), and Mac (CR) line endings
 - Default save format: Windows CRLF
 
-### Phase 2 (Planned)
+### Phase 2 (Complete)
 
 **Filter System:**
 - External filter/utility execution (Ctrl+Enter)
 - Multiple configurable filters (calculator, scripts, AI agents, etc.)
-- Process input/output via stdin/stdout pipes
+- Process input/output via stdin/stdout pipes with UTF-8 encoding
 - INI-based filter configuration (`RichEditor.ini`)
 - Dynamic filter menu populated from configuration
-- Error handling with stderr capture
+- Error handling with stderr capture and display
 - Selected text (or current line if no selection) sent to filter
-- Filter output inserted below input
+- Filter output inserted below input with automatic newline
+- Up to 100 filters supported with hotkeys (Tools → Select Filter menu)
+- Process timeout (30 seconds) to prevent hanging
+- Proper pipe and process handle cleanup
 
 **Example Use Cases:**
-- Calculator: `2 + 2 + 3` → `7`
-- Text processing: uppercase, lowercase, sorting
-- Code execution: Python, PowerShell one-liners
-- AI text generation/completion
-- Custom utilities and scripts
+- **Calculator**: `2 + 2 + 3` → evaluates to `7`
+- **Text transformation**: UPPERCASE, lowercase, reverse, sort lines
+- **Code execution**: Python, PowerShell, Bash one-liners
+- **AI text generation**: Integration with AI agents via command-line
+- **Custom utilities**: Any program that reads stdin and writes stdout
+- **Data processing**: JSON/XML formatting, text analysis, statistics
 
 ### Future Phases (Ideas)
 - Find/Replace functionality
@@ -175,7 +179,7 @@ The `Makefile` uses:
 | `Ctrl+A` | Select all |
 | `Ctrl+W` | Toggle word wrap |
 | `F5` | Insert time/date |
-| `Ctrl+Enter` | Execute filter (Phase 2) |
+| `Ctrl+Enter` | Execute current filter |
 | `Alt+F4` | Exit |
 
 ### Configuration
@@ -198,6 +202,51 @@ BOOL g_bAutosaveOnFocusLoss = TRUE;
 BOOL g_bWordWrap = TRUE;
 ```
 
+**Filter Configuration** (`RichEditor.ini`):
+
+The filter system reads from `RichEditor.ini` in the same directory as the executable. Create this file to define custom filters:
+
+```ini
+[Filters]
+Count=4
+
+[Filter1]
+Name=Calculator
+Command=powershell -NoProfile -Command "$input | Invoke-Expression"
+Description=Evaluates mathematical expressions
+
+[Filter2]
+Name=Uppercase
+Command=powershell -NoProfile -Command "$input | ForEach-Object { $_.ToUpper() }"
+Description=Converts text to uppercase
+
+[Filter3]
+Name=Lowercase
+Command=powershell -NoProfile -Command "$input | ForEach-Object { $_.ToLower() }"
+Description=Converts text to lowercase
+
+[Filter4]
+Name=Line Count
+Command=powershell -NoProfile -Command "$input | Measure-Object -Line | Select-Object -ExpandProperty Lines"
+Description=Counts the number of lines in the selection
+```
+
+**Filter Usage:**
+1. Create or edit `RichEditor.ini` in the same folder as `RichEditor.exe`
+2. Restart RichEditor to load the filters
+3. Select a filter from Tools → Select Filter menu (checkmark shows active filter)
+4. Select text or place cursor on a line
+5. Press `Ctrl+Enter` to execute the filter
+6. Output appears below the input with a newline separator
+
+**Filter Requirements:**
+- Command must read from stdin (pipe input)
+- Command must write to stdout (results)
+- Stderr output is captured and shown in a message box
+- Process timeout: 30 seconds
+- UTF-8 encoding for input/output
+- Up to 100 filters supported (IDs 1300-1399)
+
 ### Status Bar Information
 
 The status bar displays (from left to right):
@@ -207,7 +256,7 @@ The status bar displays (from left to right):
    - Word wrap ON: `Ln X, Col Y / A,B` (visual / physical)
 3. **Character:** Character at cursor (e.g., `Char: 'A' (Dec: 65, Hex: 0x0041)`)
    - Shows `Char: EOF` at end of file
-4. **Filter:** `[Filter: None]` (placeholder for Phase 2)
+4. **Filter:** Current active filter name (e.g., `[Filter: Calculator]` or `[Filter: None]`)
 
 ### Word Wrap Position Display
 
@@ -224,11 +273,12 @@ When word wrap is enabled:
 ```
 RichEditor/
 ├── src/
-│   ├── main.cpp       (~1,248 lines) - Main application logic
+│   ├── main.cpp       (~1,400 lines) - Main application logic + filter system
 │   ├── resource.h     - Resource IDs and constants
 │   └── resource.rc    - Universal resources (English + Czech UI)
 ├── Makefile           - Build configuration
 ├── README.md          - This file
+├── RichEditor.ini     - Filter configuration (user-created)
 └── .gitignore         - Git ignore patterns
 ```
 
@@ -255,43 +305,34 @@ RichEditor/
 - Interval: Configurable (default 60 seconds)
 - Triggered by: WM_TIMER message
 
-### Filter System Architecture (Phase 2)
+**Filter System (Phase 2):**
+- Data structure: Array of `FilterInfo` structs (max 100 filters)
+- INI loading: `GetPrivateProfileString` / `GetPrivateProfileInt`
+- Dynamic menu: Built from loaded filters, checkmark shows active
+- Process execution: `CreateProcess` with pipe redirection
+- UTF-8 I/O: UTF16↔UTF8 conversion for pipes
+- Error handling: Stderr capture, exit code checking, timeout (30s)
 
-**INI Configuration (`RichEditor.ini`):**
-```ini
-[Filters]
-Count=3
-
-[Filter1]
-Name=Calculator
-Command=calc.exe
-Description=Mathematical expression evaluator
-
-[Filter2]
-Name=Uppercase
-Command=powershell -Command "$input | ForEach-Object { $_.ToUpper() }"
-Description=Convert text to uppercase
-
-[Filter3]
-Name=AI Agent
-Command=ai-agent.exe --stdin
-Description=AI text processor
-```
-
-**Execution Flow:**
-1. User selects text (or cursor on line if no selection)
-2. Presses Ctrl+Enter (or selects filter from menu)
-3. Selected text sent to filter process via stdin
-4. Filter processes input and writes to stdout
-5. Output inserted below original text
-6. Errors (stderr) shown in message box
+**Filter Execution Flow:**
+1. User selects text (or current line if no selection)
+2. Press `Ctrl+Enter` or choose from Tools menu
+3. Text extracted with `EM_GETTEXTRANGE`, converted to UTF-8
+4. Anonymous pipes created for stdin/stdout/stderr
+5. `CreateProcess` launches filter with `STARTF_USESTDHANDLES`
+6. Input written to stdin pipe, then closed
+7. Read stdout and stderr buffers (4KB chunks)
+8. Wait up to 30 seconds for process completion
+9. Convert UTF-8 output to UTF-16, insert after selection
+10. Show stderr in message box if present
+11. Clean up all handles
 
 **Process Management:**
-- Uses `CreateProcess` with redirected stdin/stdout/stderr
-- Anonymous pipes for IPC
-- 30-second timeout per execution
-- Asynchronous I/O to prevent blocking
-- Proper handle cleanup
+- Uses `CreateProcess` with `CREATE_NO_WINDOW` flag
+- Three anonymous pipes: stdin (write), stdout (read), stderr (read)
+- Non-inheritable handles for pipe ends used by parent
+- Proper handle cleanup prevents resource leaks
+- Synchronous I/O (acceptable for 30s timeout)
+- Exit code check for error detection
 
 ## Known Issues & Limitations
 
@@ -316,7 +357,7 @@ Description=AI text processor
 ## Development Notes
 
 ### Commit History
-The repository contains ~30 clean, incremental commits documenting the development process:
+The repository contains ~35+ clean, incremental commits documenting the development process:
 - Initial Win32 window and RichEdit setup
 - File I/O with UTF-8 support
 - Edit menu implementation
@@ -324,6 +365,9 @@ The repository contains ~30 clean, incremental commits documenting the developme
 - Autosave with timer and focus-loss triggers
 - Word wrap with dual position calculation
 - Time/Date insertion feature
+- Czech localization with UTF-8 pragma fix
+- Filter system with INI configuration
+- Process execution with pipe redirection
 
 ### Coding Style
 - Hungarian notation for Win32 types (e.g., `hwnd`, `sz`, `g_`)
@@ -337,15 +381,16 @@ The repository contains ~30 clean, incremental commits documenting the developme
 - Long lines for word wrap testing
 - Focus management testing with dialogs
 - Autosave testing with timer and focus loss
+- Filter execution with PowerShell commands (calculator, uppercase, lowercase)
+- Process pipe I/O with UTF-8 encoding
+- Error handling with stderr capture
 
 ## Future Enhancements
 
-### High Priority (Phase 2)
-- [ ] Implement filter system with INI configuration
-- [ ] Add process execution with stdin/stdout piping
-- [ ] Create dynamic filter menu
-- [ ] Integrate calculator utility example
-- [ ] Add error handling for filter execution
+### High Priority (Phase 3)
+- [ ] Filter management dialog (add/edit/delete filters in GUI)
+- [ ] Save filter configuration back to INI file
+- [ ] Filter keyboard shortcuts (F1-F12 for quick access)
 
 ### Medium Priority
 - [ ] Find/Replace dialog
@@ -388,7 +433,8 @@ Created with focus on:
 
 ---
 
-**Version:** 1.0.0 - Phase 1 Complete (December 2025)  
-**Build:** ~169KB universal executable  
-**Lines of Code:** 1,248 lines (main.cpp), 1,506 total  
-**Languages:** English + Czech (universal build with automatic selection)
+**Version:** 2.0.0 - Phase 2 Complete (December 2025)  
+**Build:** ~748KB universal executable (includes C++ string library for filter I/O)  
+**Lines of Code:** 1,556 lines (main.cpp), 1,817 total  
+**Languages:** English + Czech (universal build with automatic selection)  
+**Features:** Full text editing + external filter system with process pipes
