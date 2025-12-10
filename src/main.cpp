@@ -89,6 +89,7 @@ void EditSelectAll();
 void EditInsertTimeDate();
 void ViewWordWrap();
 void ExecuteFilter();
+void CreateDefaultINI();
 void LoadSettings();
 void LoadFilters();
 void UpdateFilterDisplay();
@@ -205,6 +206,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             UpdateStatusBar();
             
             // Load settings and filters (Phase 2)
+            CreateDefaultINI();  // Create default INI if it doesn't exist
             LoadSettings();
             LoadFilters();
             BuildFilterMenu(hwnd);
@@ -1400,6 +1402,77 @@ void ExecuteFilter()
         swprintf(szMsg, 256, L"Filter completed with exit code: %d\nNo output produced.", dwExitCode);
         MessageBox(g_hWndMain, szMsg, L"Filter Result", MB_ICONINFORMATION);
     }
+}
+
+//============================================================================
+// CreateDefaultINI - Create default INI file with example filters
+//============================================================================
+void CreateDefaultINI()
+{
+    // Get path to INI file (in same directory as executable)
+    WCHAR szIniPath[MAX_PATH];
+    GetModuleFileName(NULL, szIniPath, MAX_PATH);
+    
+    // Replace .exe with .ini
+    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    // Check if file already exists
+    DWORD dwAttrib = GetFileAttributes(szIniPath);
+    if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
+        return;  // File exists, don't overwrite
+    }
+    
+    // Create default INI file with UTF-8 encoding
+    HANDLE hFile = CreateFile(szIniPath, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return;  // Failed to create file
+    }
+    
+    // Write UTF-8 BOM (optional, but helps some text editors)
+    const char utf8bom[] = "\xEF\xBB\xBF";
+    DWORD dwWritten;
+    WriteFile(hFile, utf8bom, 3, &dwWritten, NULL);
+    
+    // Write default configuration
+    const char* szDefaultINI = 
+        "[Settings]\r\n"
+        "; Editor settings\r\n"
+        "WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)\r\n"
+        "\r\n"
+        "; Autosave settings\r\n"
+        "AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)\r\n"
+        "AutosaveIntervalMinutes=1     ; Autosave interval in minutes, 0=disabled (default: 1)\r\n"
+        "AutosaveOnFocusLoss=1         ; 1=save when window loses focus, 0=don't (default: 1)\r\n"
+        "\r\n"
+        "[Filters]\r\n"
+        "Count=3\r\n"
+        "\r\n"
+        "[Filter1]\r\n"
+        "Name=Uppercase\r\n"
+        "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToUpper() }\"\r\n"
+        "Description=Converts text to UPPERCASE\r\n"
+        "Category=Transform\r\n"
+        "Mode=Replace\r\n"
+        "\r\n"
+        "[Filter2]\r\n"
+        "Name=Lowercase\r\n"
+        "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToLower() }\"\r\n"
+        "Description=Converts text to lowercase\r\n"
+        "Category=Transform\r\n"
+        "Mode=Replace\r\n"
+        "\r\n"
+        "[Filter3]\r\n"
+        "Name=Line Count\r\n"
+        "Command=powershell -NoProfile -Command \"($input | Measure-Object -Line).Lines\"\r\n"
+        "Description=Counts the number of lines\r\n"
+        "Category=Statistics\r\n"
+        "Mode=Append\r\n";
+    
+    WriteFile(hFile, szDefaultINI, strlen(szDefaultINI), &dwWritten, NULL);
+    CloseHandle(hFile);
 }
 
 //============================================================================
