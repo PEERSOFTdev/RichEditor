@@ -39,6 +39,7 @@ const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 #define MAX_FILTER_COMMAND 512
 #define MAX_FILTER_DESC 256
 #define MAX_FILTER_MODE 16
+#define MAX_FILTER_CATEGORY 32
 
 enum FilterOutputMode {
     FILTER_MODE_BELOW = 0,    // Insert output below input (default)
@@ -50,6 +51,7 @@ struct FilterInfo {
     WCHAR szName[MAX_FILTER_NAME];
     WCHAR szCommand[MAX_FILTER_COMMAND];
     WCHAR szDescription[MAX_FILTER_DESC];
+    WCHAR szCategory[MAX_FILTER_CATEGORY];
     FilterOutputMode mode;
 };
 
@@ -1430,6 +1432,8 @@ void LoadFilters()
                                 g_Filters[i].szCommand, MAX_FILTER_COMMAND, szIniPath);
         GetPrivateProfileString(szSection, L"Description", L"", 
                                 g_Filters[i].szDescription, MAX_FILTER_DESC, szIniPath);
+        GetPrivateProfileString(szSection, L"Category", L"General", 
+                                g_Filters[i].szCategory, MAX_FILTER_CATEGORY, szIniPath);
         
         // Read output mode (Below, Replace, Append)
         WCHAR szMode[MAX_FILTER_MODE];
@@ -1525,12 +1529,55 @@ void BuildFilterMenu(HWND hwnd)
     if (g_nFilterCount == 0) {
         AppendMenu(hFilterMenu, MF_STRING | MF_GRAYED, ID_TOOLS_FILTER_BASE, L"(No filters configured)");
     } else {
+        // Build category map: category name -> list of filter indices
+        struct CategoryInfo {
+            WCHAR szName[MAX_FILTER_CATEGORY];
+            int filterIndices[MAX_FILTERS];
+            int count;
+        };
+        CategoryInfo categories[32];  // Max 32 categories
+        int categoryCount = 0;
+        
+        // Group filters by category
         for (int i = 0; i < g_nFilterCount; i++) {
-            UINT flags = MF_STRING;
-            if (i == g_nCurrentFilter) {
-                flags |= MF_CHECKED;
+            // Find existing category or create new one
+            int catIndex = -1;
+            for (int c = 0; c < categoryCount; c++) {
+                if (wcscmp(categories[c].szName, g_Filters[i].szCategory) == 0) {
+                    catIndex = c;
+                    break;
+                }
             }
-            AppendMenu(hFilterMenu, flags, ID_TOOLS_FILTER_BASE + i, g_Filters[i].szName);
+            
+            // Create new category if not found
+            if (catIndex == -1) {
+                catIndex = categoryCount++;
+                wcscpy(categories[catIndex].szName, g_Filters[i].szCategory);
+                categories[catIndex].count = 0;
+            }
+            
+            // Add filter index to category
+            categories[catIndex].filterIndices[categories[catIndex].count++] = i;
+        }
+        
+        // Create submenu for each category
+        for (int c = 0; c < categoryCount; c++) {
+            HMENU hCategoryMenu = CreatePopupMenu();
+            
+            // Add filters in this category
+            for (int f = 0; f < categories[c].count; f++) {
+                int filterIndex = categories[c].filterIndices[f];
+                UINT flags = MF_STRING;
+                if (filterIndex == g_nCurrentFilter) {
+                    flags |= MF_CHECKED;
+                }
+                AppendMenu(hCategoryMenu, flags, ID_TOOLS_FILTER_BASE + filterIndex, 
+                           g_Filters[filterIndex].szName);
+            }
+            
+            // Add category submenu to main filter menu
+            AppendMenu(hFilterMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, 
+                       categories[c].szName);
         }
     }
     
