@@ -39,7 +39,7 @@ BEGIN
     POPUP "&Tools"
     BEGIN
         MENUITEM "&Execute Filter\tCtrl+Enter", ID_TOOLS_EXECUTEFILTER
-        MENUITEM "&Manage Filters...", ID_TOOLS_MANAGEFILTERS
+        MENUITEM "Filter &Help...", ID_TOOLS_MANAGEFILTERS
         MENUITEM SEPARATOR
         POPUP "Select &Filter"
         BEGIN
@@ -170,7 +170,7 @@ BEGIN
     POPUP "&Nástroje"
     BEGIN
         MENUITEM "&Spustit filtr\tCtrl+Enter", ID_TOOLS_EXECUTEFILTER
-        MENUITEM "&Spravovat filtry...", ID_TOOLS_MANAGEFILTERS
+        MENUITEM "&Nápověda k filtrům...", ID_TOOLS_MANAGEFILTERS
         MENUITEM SEPARATOR
         POPUP "Vybrat &filtr"
         BEGIN

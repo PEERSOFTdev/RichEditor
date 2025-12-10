@@ -325,15 +325,29 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     ExecuteFilter();
                     break;
                 
-                // Tools -> Manage Filters
+                // Tools -> Filter Help
                 case ID_TOOLS_MANAGEFILTERS:
                     MessageBox(hwnd, 
-                              L"Filter Management dialog will open here.\n\n"
-                              L"For now, create RichEditor.ini in the same folder as the executable:\n\n"
-                              L"[Filters]\nCount=2\n\n"
-                              L"[Filter1]\nName=Uppercase\nCommand=powershell -Command \"$input | ForEach-Object { $_.ToUpper() }\"\n\n"
-                              L"[Filter2]\nName=Calculator\nCommand=powershell -NoProfile -Command \"$input | Invoke-Expression\"",
-                              L"Manage Filters",
+                              L"FILTER HELP\n\n"
+                              L"Filters are configured in RichEditor.ini (same folder as .exe)\n\n"
+                              L"FILTER STRUCTURE:\n"
+                              L"[Filter1]\n"
+                              L"Name=Uppercase\n"
+                              L"Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToUpper() }\"\n"
+                              L"Description=Converts text to UPPERCASE\n"
+                              L"Category=Transform     ; Submenu grouping\n"
+                              L"Mode=Replace           ; Replace/Append/Below\n\n"
+                              L"CATEGORIES: Transform, Statistics, Extract, Web (or custom)\n\n"
+                              L"OUTPUT MODES:\n"
+                              L"• Replace - Replaces selected text\n"
+                              L"• Append - Adds result on same line\n"
+                              L"• Below - Inserts result on new line (default)\n\n"
+                              L"USAGE:\n"
+                              L"1. Select text (or place cursor on line)\n"
+                              L"2. Choose filter from Tools → Select Filter → [Category]\n"
+                              L"3. Press Ctrl+Enter to execute\n\n"
+                              L"See included RichEditor.ini for 20 example filters!",
+                              L"Filter Help",
                               MB_ICONINFORMATION);
                     break;
                 
