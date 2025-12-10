@@ -210,7 +210,7 @@ BOOL g_bWordWrap = TRUE;
 
 **Filter Configuration** (`RichEditor.ini`):
 
-The filter system reads from `RichEditor.ini` in the same directory as the executable. Create this file to define custom filters:
+The filter system reads from `RichEditor.ini` in the same directory as the executable. Filters are organized into categories that appear as submenus.
 
 ```ini
 [Filters]
@@ -220,44 +220,48 @@ Count=20
 Name=Calculator
 Command=powershell -NoProfile -Command "$input | Invoke-Expression"
 Description=Evaluates mathematical expressions
+Category=Transform
+Mode=Replace
 
 # ... more filters (see included RichEditor.ini for full collection)
 ```
 
-**Included Filter Collection (20 filters):**
+**Filter Categories:**
 
-*Text Transformation:*
-- **Uppercase/Lowercase/Title Case** - Change text casing
-- **Reverse Lines** - Reverse line order
-- **Reverse Each Line** - Reverse characters in each line
-- **Sort Lines** - Sort alphabetically
-- **Remove Duplicates** - Remove duplicate lines
-- **Remove Empty Lines** - Clean up blank lines
-- **Trim Whitespace** - Remove leading/trailing spaces
-- **Number Lines** - Add line numbers (1. 2. 3...)
+Filters are automatically organized into submenus based on their `Category=` setting:
 
-*Statistics & Analysis:*
-- **Line Count** - Count lines
-- **Word Count** - Count words
-- **Character Count** - Count characters
-- **Extract URLs** - Find all HTTP/HTTPS URLs
-- **Extract Email Addresses** - Find all email addresses
+- **Transform** - Text manipulation (11 filters)
+  - Uppercase, Lowercase, Title Case
+  - Reverse Lines, Reverse Each Line
+  - Sort Lines, Remove Duplicates
+  - Remove Empty Lines, Trim Whitespace
+  - Number Lines, Calculator
 
-*Encoding & Data:*
-- **Base64 Encode/Decode** - Convert to/from Base64
-- **JSON Format** - Prettify JSON with indentation
+- **Statistics** - Analysis tools (3 filters)
+  - Line Count, Word Count, Character Count
 
-*Network & Utilities:*
-- **Calculator** - Evaluate math expressions (2+2*3, [Math]::Sqrt(16))
-- **Download URL Content** - Paste URL, get webpage content
+- **Extract** - Data extraction (4 filters)
+  - Extract URLs, Extract Email Addresses
+  - Base64 Encode/Decode
+
+- **Web** - Network operations (2 filters)
+  - Download URL Content, JSON Format
+
+**Filter Output Modes:**
+
+The `Mode=` setting controls how filter output is inserted:
+- `Mode=Replace` - Replaces selected text with output
+- `Mode=Append` - Appends output on same line (no newline)
+- `Mode=Below` - Inserts output below with newline separator (default)
 
 **Filter Usage:**
 1. Create or edit `RichEditor.ini` in the same folder as `RichEditor.exe`
 2. Restart RichEditor to load the filters
-3. Select a filter from Tools → Select Filter menu (checkmark shows active filter)
-4. Select text or place cursor on a line
-5. Press `Ctrl+Enter` to execute the filter
-6. Output appears below the input with a newline separator
+3. Navigate to Tools → Select Filter → [Category] → [Filter Name]
+4. Checkmark shows the currently active filter
+5. Select text or place cursor on a line
+6. Press `Ctrl+Enter` to execute the filter
+7. Output behavior depends on the filter's `Mode=` setting (Replace/Append/Below)
 
 **Filter Requirements:**
 - Command must read from stdin (pipe input)
