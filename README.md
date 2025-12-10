@@ -55,11 +55,17 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 
 **Example Use Cases:**
 - **Calculator**: `2 + 2 + 3` → evaluates to `7`
-- **Text transformation**: UPPERCASE, lowercase, reverse, sort lines
+- **Text transformation**: UPPERCASE, lowercase, Title Case, reverse
+- **Line operations**: Sort, remove duplicates, number lines, reverse order
+- **Data extraction**: Extract URLs, email addresses from documents
+- **Encoding**: Base64 encode/decode
+- **Web content**: Download webpage by URL
+- **JSON formatting**: Prettify minified JSON
+- **Statistics**: Count lines, words, characters
+- **Cleanup**: Remove empty lines, trim whitespace
 - **Code execution**: Python, PowerShell, Bash one-liners
-- **AI text generation**: Integration with AI agents via command-line
+- **AI integration**: Any AI agent via command-line interface
 - **Custom utilities**: Any program that reads stdin and writes stdout
-- **Data processing**: JSON/XML formatting, text analysis, statistics
 
 ### Future Phases (Ideas)
 - Find/Replace functionality
@@ -208,28 +214,42 @@ The filter system reads from `RichEditor.ini` in the same directory as the execu
 
 ```ini
 [Filters]
-Count=4
+Count=20
 
 [Filter1]
 Name=Calculator
 Command=powershell -NoProfile -Command "$input | Invoke-Expression"
 Description=Evaluates mathematical expressions
 
-[Filter2]
-Name=Uppercase
-Command=powershell -NoProfile -Command "$input | ForEach-Object { $_.ToUpper() }"
-Description=Converts text to uppercase
-
-[Filter3]
-Name=Lowercase
-Command=powershell -NoProfile -Command "$input | ForEach-Object { $_.ToLower() }"
-Description=Converts text to lowercase
-
-[Filter4]
-Name=Line Count
-Command=powershell -NoProfile -Command "$input | Measure-Object -Line | Select-Object -ExpandProperty Lines"
-Description=Counts the number of lines in the selection
+# ... more filters (see included RichEditor.ini for full collection)
 ```
+
+**Included Filter Collection (20 filters):**
+
+*Text Transformation:*
+- **Uppercase/Lowercase/Title Case** - Change text casing
+- **Reverse Lines** - Reverse line order
+- **Reverse Each Line** - Reverse characters in each line
+- **Sort Lines** - Sort alphabetically
+- **Remove Duplicates** - Remove duplicate lines
+- **Remove Empty Lines** - Clean up blank lines
+- **Trim Whitespace** - Remove leading/trailing spaces
+- **Number Lines** - Add line numbers (1. 2. 3...)
+
+*Statistics & Analysis:*
+- **Line Count** - Count lines
+- **Word Count** - Count words
+- **Character Count** - Count characters
+- **Extract URLs** - Find all HTTP/HTTPS URLs
+- **Extract Email Addresses** - Find all email addresses
+
+*Encoding & Data:*
+- **Base64 Encode/Decode** - Convert to/from Base64
+- **JSON Format** - Prettify JSON with indentation
+
+*Network & Utilities:*
+- **Calculator** - Evaluate math expressions (2+2*3, [Math]::Sqrt(16))
+- **Download URL Content** - Paste URL, get webpage content
 
 **Filter Usage:**
 1. Create or edit `RichEditor.ini` in the same folder as `RichEditor.exe`
