@@ -89,6 +89,7 @@ void EditSelectAll();
 void EditInsertTimeDate();
 void ViewWordWrap();
 void ExecuteFilter();
+void LoadSettings();
 void LoadFilters();
 void UpdateFilterDisplay();
 void BuildFilterMenu(HWND hwnd);
@@ -203,7 +204,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Update status bar
             UpdateStatusBar();
             
-            // Load filters (Phase 2)
+            // Load settings and filters (Phase 2)
+            LoadSettings();
             LoadFilters();
             BuildFilterMenu(hwnd);
             UpdateFilterDisplay();
@@ -1398,6 +1400,28 @@ void ExecuteFilter()
         swprintf(szMsg, 256, L"Filter completed with exit code: %d\nNo output produced.", dwExitCode);
         MessageBox(g_hWndMain, szMsg, L"Filter Result", MB_ICONINFORMATION);
     }
+}
+
+//============================================================================
+// LoadSettings - Load application settings from INI file
+//============================================================================
+void LoadSettings()
+{
+    // Get path to INI file (in same directory as executable)
+    WCHAR szIniPath[MAX_PATH];
+    GetModuleFileName(NULL, szIniPath, MAX_PATH);
+    
+    // Replace .exe with .ini
+    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    // Load settings from [Settings] section
+    g_bWordWrap = GetPrivateProfileInt(L"Settings", L"WordWrap", 1, szIniPath);
+    g_bAutosaveEnabled = GetPrivateProfileInt(L"Settings", L"AutosaveEnabled", 1, szIniPath);
+    g_nAutosaveIntervalMinutes = GetPrivateProfileInt(L"Settings", L"AutosaveIntervalMinutes", 1, szIniPath);
+    g_bAutosaveOnFocusLoss = GetPrivateProfileInt(L"Settings", L"AutosaveOnFocusLoss", 1, szIniPath);
 }
 
 //============================================================================

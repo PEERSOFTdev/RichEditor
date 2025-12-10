@@ -190,22 +190,19 @@ The `Makefile` uses:
 
 ### Configuration
 
-**Autosave Settings** (in `src/main.cpp`):
-```cpp
-// Line 28: Autosave interval in minutes
-const int g_nAutosaveIntervalMinutes = 1;
+All settings are now configurable via `RichEditor.ini` in the same directory as the executable.
 
-// Line 29: Enable/disable autosave timer
-BOOL g_bAutosaveEnabled = TRUE;
+**Application Settings** (`RichEditor.ini`):
 
-// Line 30: Enable/disable autosave on focus loss
-BOOL g_bAutosaveOnFocusLoss = TRUE;
-```
+```ini
+[Settings]
+; Editor settings
+WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)
 
-**Word Wrap Default** (in `src/main.cpp`):
-```cpp
-// Line 24: Word wrap enabled by default
-BOOL g_bWordWrap = TRUE;
+; Autosave settings
+AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)
+AutosaveIntervalMinutes=1     ; Autosave interval in minutes, 0=disabled (default: 1)
+AutosaveOnFocusLoss=1         ; 1=save when window loses focus, 0=don't (default: 1)
 ```
 
 **Filter Configuration** (`RichEditor.ini`):
