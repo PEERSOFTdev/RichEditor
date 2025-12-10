@@ -81,7 +81,7 @@ void ViewWordWrap();
 void ExecuteFilter();
 void LoadFilters();
 void UpdateFilterDisplay();
-void BuildFilterMenu();
+void BuildFilterMenu(HWND hwnd);
 void DoAutosave();
 void StartAutosaveTimer(HWND hwnd);
 
@@ -195,7 +195,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Load filters (Phase 2)
             LoadFilters();
-            BuildFilterMenu();
+            BuildFilterMenu(hwnd);
             UpdateFilterDisplay();
             
             // Set initial word wrap menu checkmark
@@ -331,7 +331,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             int filterIdx = wmId - ID_TOOLS_FILTER_BASE;
                             if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
                                 g_nCurrentFilter = filterIdx;
-                                BuildFilterMenu();
+                                BuildFilterMenu(hwnd);
                                 UpdateFilterDisplay();
                             }
                         }
@@ -1390,12 +1390,6 @@ void LoadFilters()
         wcscpy(pszExt, L".ini");
     }
     
-    // Check if INI file exists
-    if (GetFileAttributes(szIniPath) == INVALID_FILE_ATTRIBUTES) {
-        g_nFilterCount = 0;
-        return;
-    }
-    
     // Read filter count
     g_nFilterCount = GetPrivateProfileInt(L"Filters", L"Count", 0, szIniPath);
     if (g_nFilterCount > MAX_FILTERS) {
@@ -1440,39 +1434,19 @@ void UpdateFilterDisplay()
 //============================================================================
 // BuildFilterMenu - Build dynamic filter submenu
 //============================================================================
-void BuildFilterMenu()
+void BuildFilterMenu(HWND hwnd)
 {
-    HMENU hMenu = GetMenu(g_hWndMain);
+    HMENU hMenu = GetMenu(hwnd);
     if (!hMenu) return;
     
-    // Find Tools menu
-    int toolsMenuPos = -1;
-    int menuCount = GetMenuItemCount(hMenu);
-    for (int i = 0; i < menuCount; i++) {
-        HMENU hSubMenu = GetSubMenu(hMenu, i);
-        if (hSubMenu && GetMenuItemID(hSubMenu, 0) == ID_TOOLS_EXECUTEFILTER) {
-            toolsMenuPos = i;
-            break;
-        }
-    }
-    
-    if (toolsMenuPos == -1) return;
+    // Find Tools menu (it's the 4th menu: File, Edit, View, Tools)
+    int toolsMenuPos = 3;  // 0=File, 1=Edit, 2=View, 3=Tools
     
     HMENU hToolsMenu = GetSubMenu(hMenu, toolsMenuPos);
     if (!hToolsMenu) return;
     
-    // Find "Select Filter" submenu
-    int selectFilterPos = -1;
-    int toolsItemCount = GetMenuItemCount(hToolsMenu);
-    for (int i = 0; i < toolsItemCount; i++) {
-        if (GetSubMenu(hToolsMenu, i)) {
-            // This is a submenu - check if it's our filter submenu
-            selectFilterPos = i;
-            break;
-        }
-    }
-    
-    if (selectFilterPos == -1) return;
+    // Find "Select Filter" submenu (it's the 4th item after separator)
+    int selectFilterPos = 3;
     
     HMENU hFilterMenu = GetSubMenu(hToolsMenu, selectFilterPos);
     if (!hFilterMenu) return;
@@ -1495,7 +1469,7 @@ void BuildFilterMenu()
         }
     }
     
-    DrawMenuBar(g_hWndMain);
+    DrawMenuBar(hwnd);
 }
 
 //============================================================================
