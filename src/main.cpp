@@ -38,11 +38,19 @@ const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 #define MAX_FILTER_NAME 64
 #define MAX_FILTER_COMMAND 512
 #define MAX_FILTER_DESC 256
+#define MAX_FILTER_MODE 16
+
+enum FilterOutputMode {
+    FILTER_MODE_BELOW = 0,    // Insert output below input (default)
+    FILTER_MODE_REPLACE = 1,  // Replace input with output
+    FILTER_MODE_APPEND = 2    // Append output after input on same line
+};
 
 struct FilterInfo {
     WCHAR szName[MAX_FILTER_NAME];
     WCHAR szCommand[MAX_FILTER_COMMAND];
     WCHAR szDescription[MAX_FILTER_DESC];
+    FilterOutputMode mode;
 };
 
 FilterInfo g_Filters[MAX_FILTERS];
@@ -1355,16 +1363,31 @@ void ExecuteFilter()
     if (!outputData.empty()) {
         LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
         if (pszOutput) {
-            // Position cursor at end of selection
-            crSel.cpMin = crSel.cpMax;
-            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+            // Get the output mode for current filter
+            FilterOutputMode mode = g_Filters[g_nCurrentFilter].mode;
             
-            // Insert newline if not at end
-            WCHAR szNewline[] = L"\r\n";
-            SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szNewline);
-            
-            // Insert output
-            SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+            if (mode == FILTER_MODE_REPLACE) {
+                // Replace: Just replace the selection with output
+                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+                
+            } else if (mode == FILTER_MODE_APPEND) {
+                // Append: Move to end of selection and append (no newline)
+                crSel.cpMin = crSel.cpMax;
+                SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+                
+            } else {  // FILTER_MODE_BELOW (default)
+                // Below: Position cursor at end of selection, add newline, then output
+                crSel.cpMin = crSel.cpMax;
+                SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+                
+                // Insert newline
+                WCHAR szNewline[] = L"\r\n";
+                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szNewline);
+                
+                // Insert output
+                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+            }
             
             free(pszOutput);
         }
@@ -1407,6 +1430,20 @@ void LoadFilters()
                                 g_Filters[i].szCommand, MAX_FILTER_COMMAND, szIniPath);
         GetPrivateProfileString(szSection, L"Description", L"", 
                                 g_Filters[i].szDescription, MAX_FILTER_DESC, szIniPath);
+        
+        // Read output mode (Below, Replace, Append)
+        WCHAR szMode[MAX_FILTER_MODE];
+        GetPrivateProfileString(szSection, L"Mode", L"Below", 
+                                szMode, MAX_FILTER_MODE, szIniPath);
+        
+        // Parse mode string
+        if (_wcsicmp(szMode, L"Replace") == 0) {
+            g_Filters[i].mode = FILTER_MODE_REPLACE;
+        } else if (_wcsicmp(szMode, L"Append") == 0) {
+            g_Filters[i].mode = FILTER_MODE_APPEND;
+        } else {
+            g_Filters[i].mode = FILTER_MODE_BELOW;  // Default
+        }
     }
     
     // Set current filter to first one if available
