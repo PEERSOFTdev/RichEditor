@@ -69,6 +69,7 @@ HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
 void UpdateStatusBar();
 void UpdateTitle();
+void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
 BOOL LoadTextFile(LPCWSTR pszFileName);
@@ -111,7 +112,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     
     // Load RichEdit library
     if (!InitRichEditLibrary()) {
-        MessageBox(NULL, L"Failed to load RichEdit library (Msftedit.dll)", L"Error", MB_ICONERROR);
+        WCHAR szError[256], szTitle[64];
+        LoadStringResource(IDS_RICHEDIT_LOAD_FAILED, szError, 256);
+        LoadStringResource(IDS_ERROR, szTitle, 64);
+        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
         return 1;
     }
     
@@ -129,7 +133,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
     
     if (!RegisterClassEx(&wc)) {
-        MessageBox(NULL, L"Window registration failed", L"Error", MB_ICONERROR);
+        WCHAR szError[256], szTitle[64];
+        LoadStringResource(IDS_WINDOW_REG_FAILED, szError, 256);
+        LoadStringResource(IDS_ERROR, szTitle, 64);
+        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
         return 1;
     }
     
@@ -151,7 +158,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     );
     
     if (!g_hWndMain) {
-        MessageBox(NULL, L"Window creation failed", L"Error", MB_ICONERROR);
+        WCHAR szError[256], szTitle[64];
+        LoadStringResource(IDS_WINDOW_CREATE_FAILED, szError, 256);
+        LoadStringResource(IDS_ERROR, szTitle, 64);
+        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
         return 1;
     }
     
@@ -195,7 +205,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Create RichEdit control
             g_hWndEdit = CreateRichEditControl(hwnd);
             if (!g_hWndEdit) {
-                MessageBox(hwnd, L"Failed to create RichEdit control", L"Error", MB_ICONERROR);
+                WCHAR szError[256], szTitle[64];
+                LoadStringResource(IDS_RICHEDIT_CREATE_FAILED, szError, 256);
+                LoadStringResource(IDS_ERROR, szTitle, 64);
+                MessageBox(hwnd, szError, szTitle, MB_ICONERROR);
                 return -1;
             }
             
@@ -327,28 +340,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 
                 // Tools -> Filter Help
                 case ID_TOOLS_MANAGEFILTERS:
-                    MessageBox(hwnd, 
-                              L"FILTER HELP\n\n"
-                              L"Filters are configured in RichEditor.ini (same folder as .exe)\n\n"
-                              L"FILTER STRUCTURE:\n"
-                              L"[Filter1]\n"
-                              L"Name=Uppercase\n"
-                              L"Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToUpper() }\"\n"
-                              L"Description=Converts text to UPPERCASE\n"
-                              L"Category=Transform     ; Submenu grouping\n"
-                              L"Mode=Replace           ; Replace/Append/Below\n\n"
-                              L"CATEGORIES: Transform, Statistics, Extract, Web (or custom)\n\n"
-                              L"OUTPUT MODES:\n"
-                              L"• Replace - Replaces selected text\n"
-                              L"• Append - Adds result on same line\n"
-                              L"• Below - Inserts result on new line (default)\n\n"
-                              L"USAGE:\n"
-                              L"1. Select text (or place cursor on line)\n"
-                              L"2. Choose filter from Tools → Select Filter → [Category]\n"
-                              L"3. Press Ctrl+Enter to execute\n\n"
-                              L"See included RichEditor.ini for 20 example filters!",
-                              L"Filter Help",
-                              MB_ICONINFORMATION);
+                    {
+                        WCHAR szHelpText[2048], szTitle[64];
+                        LoadStringResource(IDS_FILTER_HELP_TEXT, szHelpText, 2048);
+                        LoadStringResource(IDS_FILTER_HELP_TITLE, szTitle, 64);
+                        MessageBox(hwnd, szHelpText, szTitle, MB_ICONINFORMATION);
+                    }
                     break;
                 
                 // Tools -> Select Filter submenu (dynamic filter selection)
@@ -893,7 +890,20 @@ void ShowError(LPCWSTR pszMessage, DWORD dwError)
         wcscpy_s(szError, 512, pszMessage);
     }
     
-    MessageBox(g_hWndMain, szError, L"Error", MB_OK | MB_ICONERROR);
+    WCHAR szTitle[64];
+    LoadStringResource(IDS_ERROR, szTitle, 64);
+    MessageBox(g_hWndMain, szError, szTitle, MB_OK | MB_ICONERROR);
+}
+
+//============================================================================
+// LoadStringResource - Load string from resource with language fallback
+//============================================================================
+void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax)
+{
+    if (LoadString(GetModuleHandle(NULL), uID, lpBuffer, cchBufferMax) == 0) {
+        // Fallback to empty string if resource not found
+        lpBuffer[0] = L'\0';
+    }
 }
 
 //============================================================================
@@ -1009,16 +1019,15 @@ BOOL FileSaveAs()
 //============================================================================
 BOOL PromptSaveChanges()
 {
-    if (!g_bModified) {
-        return TRUE; // No changes, continue
-    }
-    
     WCHAR szPrompt[MAX_PATH + 100];
+    WCHAR szTemplate[256];
+    
+    LoadStringResource(IDS_SAVE_CHANGES_PROMPT, szTemplate, 256);
+    
     if (g_szFileTitle[0]) {
-        _snwprintf(szPrompt, MAX_PATH + 100,
-                 L"Do you want to save changes to %s?", g_szFileTitle);
+        _snwprintf(szPrompt, MAX_PATH + 100, szTemplate, g_szFileTitle);
     } else {
-        wcscpy_s(szPrompt, MAX_PATH + 100, L"Do you want to save changes to Untitled?");
+        _snwprintf(szPrompt, MAX_PATH + 100, szTemplate, L"Untitled");
     }
     
     int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",
@@ -1256,7 +1265,10 @@ void ExecuteFilter()
     // Get selected text
     int textLen = crSel.cpMax - crSel.cpMin;
     if (textLen <= 0) {
-        MessageBox(g_hWndMain, L"No text to process.", L"Filter Execution", MB_ICONEXCLAMATION);
+        WCHAR szError[256], szTitle[64];
+        LoadStringResource(IDS_NO_TEXT_TO_PROCESS, szError, 256);
+        LoadStringResource(IDS_FILTER_EXECUTION, szTitle, 64);
+        MessageBox(g_hWndMain, szError, szTitle, MB_ICONEXCLAMATION);
         return;
     }
     
@@ -1287,7 +1299,10 @@ void ExecuteFilter()
     if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0) ||
         !CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0) ||
         !CreatePipe(&hStderrRead, &hStderrWrite, &sa, 0)) {
-        MessageBox(g_hWndMain, L"Failed to create pipes.", L"Error", MB_ICONERROR);
+        WCHAR szError[256], szTitle[64];
+        LoadStringResource(IDS_PIPE_CREATE_FAILED, szError, 256);
+        LoadStringResource(IDS_ERROR, szTitle, 64);
+        MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
         free(pszInputUTF8);
         return;
     }
@@ -1314,10 +1329,11 @@ void ExecuteFilter()
     
     if (!CreateProcess(NULL, szCommand, NULL, NULL, TRUE, 
                        CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WCHAR szError[512];
+        WCHAR szError[512], szTitle[64];
         swprintf(szError, 512, L"Failed to execute filter:\n%s\n\nError code: %d",
                  g_Filters[g_nCurrentFilter].szName, GetLastError());
-        MessageBox(g_hWndMain, szError, L"Filter Execution Error", MB_ICONERROR);
+        LoadStringResource(IDS_FILTER_EXEC_ERROR, szTitle, 64);
+        MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
         CloseHandle(hStdinRead);
         CloseHandle(hStdinWrite);
         CloseHandle(hStdoutRead);
@@ -1372,9 +1388,10 @@ void ExecuteFilter()
     if (!errorData.empty()) {
         LPWSTR pszError = UTF8ToUTF16(errorData.c_str());
         if (pszError) {
-            WCHAR szMsg[2048];
+            WCHAR szMsg[2048], szTitle[64];
             swprintf(szMsg, 2048, L"Filter stderr output:\n\n%s", pszError);
-            MessageBox(g_hWndMain, szMsg, L"Filter Error", MB_ICONWARNING);
+            LoadStringResource(IDS_FILTER_ERROR, szTitle, 64);
+            MessageBox(g_hWndMain, szMsg, szTitle, MB_ICONWARNING);
             free(pszError);
         }
     }
@@ -1412,9 +1429,10 @@ void ExecuteFilter()
             free(pszOutput);
         }
     } else if (dwExitCode != 0) {
-        WCHAR szMsg[256];
+        WCHAR szMsg[256], szTitle[64];
         swprintf(szMsg, 256, L"Filter completed with exit code: %d\nNo output produced.", dwExitCode);
-        MessageBox(g_hWndMain, szMsg, L"Filter Result", MB_ICONINFORMATION);
+        LoadStringResource(IDS_FILTER_RESULT, szTitle, 64);
+        MessageBox(g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
     }
 }
 

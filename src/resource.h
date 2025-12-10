@@ -40,4 +40,20 @@
 #define IDD_ABOUT                       300
 #define IDC_STATIC                      -1
 
+// String resource IDs (2000-2099)
+#define IDS_ERROR                       2000
+#define IDS_RICHEDIT_LOAD_FAILED        2001
+#define IDS_WINDOW_REG_FAILED           2002
+#define IDS_WINDOW_CREATE_FAILED        2003
+#define IDS_RICHEDIT_CREATE_FAILED      2004
+#define IDS_SAVE_CHANGES_PROMPT         2005
+#define IDS_NO_TEXT_TO_PROCESS          2006
+#define IDS_FILTER_EXECUTION            2007
+#define IDS_PIPE_CREATE_FAILED          2008
+#define IDS_FILTER_EXEC_ERROR           2009
+#define IDS_FILTER_ERROR                2010
+#define IDS_FILTER_RESULT               2011
+#define IDS_FILTER_HELP_TITLE           2012
+#define IDS_FILTER_HELP_TEXT            2013
+
 #endif // RESOURCE_H

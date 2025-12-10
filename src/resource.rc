@@ -133,6 +133,25 @@ BEGIN
     END
 END
 
+// String Resources
+STRINGTABLE
+BEGIN
+    IDS_ERROR                    "Error"
+    IDS_RICHEDIT_LOAD_FAILED     "Failed to load RichEdit library (Msftedit.dll)"
+    IDS_WINDOW_REG_FAILED        "Window registration failed"
+    IDS_WINDOW_CREATE_FAILED     "Window creation failed"
+    IDS_RICHEDIT_CREATE_FAILED   "Failed to create RichEdit control"
+    IDS_SAVE_CHANGES_PROMPT      "Do you want to save changes to %s?"
+    IDS_NO_TEXT_TO_PROCESS       "No text to process."
+    IDS_FILTER_EXECUTION         "Filter Execution"
+    IDS_PIPE_CREATE_FAILED       "Failed to create pipes."
+    IDS_FILTER_EXEC_ERROR        "Filter Execution Error"
+    IDS_FILTER_ERROR             "Filter Error"
+    IDS_FILTER_RESULT            "Filter Result"
+    IDS_FILTER_HELP_TITLE        "Filter Help"
+    IDS_FILTER_HELP_TEXT         "FILTER HELP\n\nFilters are configured in RichEditor.ini (same folder as .exe)\n\nFILTER STRUCTURE:\n[Filter1]\nName=Uppercase\nCommand=powershell -NoProfile -Command ""$input | ForEach-Object { $_.ToUpper() }""\nDescription=Converts text to UPPERCASE\nCategory=Transform     ; Submenu grouping\nMode=Replace           ; Replace/Append/Below\n\nCATEGORIES: Transform, Statistics, Extract, Web (or custom)\n\nOUTPUT MODES:\n• Replace - Replaces selected text\n• Append - Adds result on same line\n• Below - Inserts result on new line (default)\n\nUSAGE:\n1. Select text (or place cursor on line)\n2. Choose filter from Tools → Select Filter → [Category]\n3. Press Ctrl+Enter to execute\n\nSee included RichEditor.ini for 20 example filters!"
+END
+
 // ============================================================================
 // Czech (Czech Republic) resources
 // ============================================================================
@@ -215,4 +234,23 @@ BEGIN
     LTEXT "• Editace textu v UTF-8 s automatickým ukládáním", IDC_STATIC, 20, 75, 210, 10
     LTEXT "• Zalamování řádků se sledováním pozice", IDC_STATIC, 20, 87, 210, 10
     DEFPUSHBUTTON "OK", IDOK, 95, 100, 50, 14
+END
+
+// String Resources (Czech)
+STRINGTABLE
+BEGIN
+    IDS_ERROR                    "Chyba"
+    IDS_RICHEDIT_LOAD_FAILED     "Nelze načíst knihovnu RichEdit (Msftedit.dll)"
+    IDS_WINDOW_REG_FAILED        "Registrace okna selhala"
+    IDS_WINDOW_CREATE_FAILED     "Vytvoření okna selhalo"
+    IDS_RICHEDIT_CREATE_FAILED   "Nelze vytvořit ovládací prvek RichEdit"
+    IDS_SAVE_CHANGES_PROMPT      "Chcete uložit změny do %s?"
+    IDS_NO_TEXT_TO_PROCESS       "Žádný text ke zpracování."
+    IDS_FILTER_EXECUTION         "Spuštění filtru"
+    IDS_PIPE_CREATE_FAILED       "Nelze vytvořit roury."
+    IDS_FILTER_EXEC_ERROR        "Chyba při spuštění filtru"
+    IDS_FILTER_ERROR             "Chyba filtru"
+    IDS_FILTER_RESULT            "Výsledek filtru"
+    IDS_FILTER_HELP_TITLE        "Nápověda k filtrům"
+    IDS_FILTER_HELP_TEXT         "NÁPOVĚDA K FILTRŮM\n\nFiltry se konfigurují v RichEditor.ini (stejná složka jako .exe)\n\nSTRUKTURA FILTRU:\n[Filter1]\nName=Uppercase\nCommand=powershell -NoProfile -Command ""$input | ForEach-Object { $_.ToUpper() }""\nDescription=Převede text na VELKÁ PÍSMENA\nCategory=Transform     ; Seskupení do podmenu\nMode=Replace           ; Replace/Append/Below\n\nKATEGORIE: Transform, Statistics, Extract, Web (nebo vlastní)\n\nREŽIMY VÝSTUPU:\n• Replace - Nahradí vybraný text\n• Append - Přidá výsledek na stejný řádek\n• Below - Vloží výsledek na nový řádek (výchozí)\n\nPOUŽITÍ:\n1. Vyberte text (nebo umístěte kurzor na řádek)\n2. Zvolte filtr z Nástroje → Vybrat filtr → [Kategorie]\n3. Stiskněte Ctrl+Enter pro spuštění\n\nViz přiložený RichEditor.ini pro 20 ukázkových filtrů!"
 END
