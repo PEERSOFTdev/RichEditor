@@ -68,7 +68,7 @@ BOOL InitRichEditLibrary();
 HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
 void UpdateStatusBar();
-void UpdateTitle();
+void UpdateTitle(HWND hwnd = NULL);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
@@ -151,7 +151,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     g_hWndMain = CreateWindowEx(
         0,
         L"RichEditorClass",
-        L"Untitled - RichEditor",
+        L"RichEditor",  // Temporary title, will be updated in WM_CREATE
         WS_OVERLAPPEDWINDOW,
         x, y, windowWidth, windowHeight,
         NULL, NULL, hInstance, NULL
@@ -231,6 +231,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Start autosave timer if enabled
             StartAutosaveTimer(hwnd);
+            
+            // Set initial window title with localized "Untitled"
+            UpdateTitle(hwnd);
             
             return 0;
         }
@@ -635,12 +638,17 @@ void UpdateStatusBar()
     
     // Format status text
     WCHAR szStatus[512];
-    if (g_szFileName[0]) {
+    WCHAR szUntitled[64];
+    
+    LoadStringResource(IDS_UNTITLED, szUntitled, 64);
+    
+    // Display status with filename or Untitled
+    if (g_szFileTitle[0]) {
         _snwprintf(szStatus, 512, L"%s    %s    %s    [Filter: None]",
                    g_szFileTitle, posInfo, charInfo);
     } else {
-        _snwprintf(szStatus, 512, L"Untitled    %s    %s    [Filter: None]",
-                   posInfo, charInfo);
+        _snwprintf(szStatus, 512, L"%s    %s    %s    [Filter: None]",
+                   szUntitled, posInfo, charInfo);
     }
     
     SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
@@ -649,19 +657,26 @@ void UpdateStatusBar()
 //============================================================================
 // UpdateTitle - Update window title with filename and modified state
 //============================================================================
-void UpdateTitle()
+void UpdateTitle(HWND hwnd)
 {
     WCHAR szTitle[MAX_PATH + 50];
+    WCHAR szUntitled[64];
+    
+    // Use provided hwnd or fall back to g_hWndMain
+    HWND targetWnd = hwnd ? hwnd : g_hWndMain;
+    if (!targetWnd) return;
+    
+    LoadStringResource(IDS_UNTITLED, szUntitled, 64);
     
     if (g_szFileTitle[0]) {
         _snwprintf(szTitle, MAX_PATH + 50, L"%s%s - RichEditor",
                    g_bModified ? L"*" : L"", g_szFileTitle);
     } else {
-        _snwprintf(szTitle, MAX_PATH + 50, L"%sUntitled - RichEditor",
-                   g_bModified ? L"*" : L"");
+        _snwprintf(szTitle, MAX_PATH + 50, L"%s%s - RichEditor",
+                   g_bModified ? L"*" : L"", szUntitled);
     }
     
-    SetWindowText(g_hWndMain, szTitle);
+    SetWindowText(targetWnd, szTitle);
 }
 
 //============================================================================
@@ -1019,15 +1034,28 @@ BOOL FileSaveAs()
 //============================================================================
 BOOL PromptSaveChanges()
 {
+    // Don't prompt if document is not modified
+    if (!g_bModified) {
+        return TRUE;
+    }
+    
+    // Don't prompt if document is empty (no text)
+    int len = GetWindowTextLength(g_hWndEdit);
+    if (len == 0) {
+        return TRUE;
+    }
+    
     WCHAR szPrompt[MAX_PATH + 100];
     WCHAR szTemplate[256];
+    WCHAR szUntitled[64];
     
     LoadStringResource(IDS_SAVE_CHANGES_PROMPT, szTemplate, 256);
+    LoadStringResource(IDS_UNTITLED, szUntitled, 64);
     
     if (g_szFileTitle[0]) {
         _snwprintf(szPrompt, MAX_PATH + 100, szTemplate, g_szFileTitle);
     } else {
-        _snwprintf(szPrompt, MAX_PATH + 100, szTemplate, L"Untitled");
+        _snwprintf(szPrompt, MAX_PATH + 100, szTemplate, szUntitled);
     }
     
     int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",

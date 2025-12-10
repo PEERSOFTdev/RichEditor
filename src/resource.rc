@@ -150,6 +150,7 @@ BEGIN
     IDS_FILTER_RESULT            "Filter Result"
     IDS_FILTER_HELP_TITLE        "Filter Help"
     IDS_FILTER_HELP_TEXT         "FILTER HELP\n\nFilters are configured in RichEditor.ini (same folder as .exe)\n\nFILTER STRUCTURE:\n[Filter1]\nName=Uppercase\nCommand=powershell -NoProfile -Command ""$input | ForEach-Object { $_.ToUpper() }""\nDescription=Converts text to UPPERCASE\nCategory=Transform     ; Submenu grouping\nMode=Replace           ; Replace/Append/Below\n\nCATEGORIES: Transform, Statistics, Extract, Web (or custom)\n\nOUTPUT MODES:\n• Replace - Replaces selected text\n• Append - Adds result on same line\n• Below - Inserts result on new line (default)\n\nUSAGE:\n1. Select text (or place cursor on line)\n2. Choose filter from Tools → Select Filter → [Category]\n3. Press Ctrl+Enter to execute\n\nSee included RichEditor.ini for 20 example filters!"
+    IDS_UNTITLED                 "Untitled"
 END
 
 // ============================================================================
@@ -253,4 +254,5 @@ BEGIN
     IDS_FILTER_RESULT            "Výsledek filtru"
     IDS_FILTER_HELP_TITLE        "Nápověda k filtrům"
     IDS_FILTER_HELP_TEXT         "NÁPOVĚDA K FILTRŮM\n\nFiltry se konfigurují v RichEditor.ini (stejná složka jako .exe)\n\nSTRUKTURA FILTRU:\n[Filter1]\nName=Uppercase\nCommand=powershell -NoProfile -Command ""$input | ForEach-Object { $_.ToUpper() }""\nDescription=Převede text na VELKÁ PÍSMENA\nCategory=Transform     ; Seskupení do podmenu\nMode=Replace           ; Replace/Append/Below\n\nKATEGORIE: Transform, Statistics, Extract, Web (nebo vlastní)\n\nREŽIMY VÝSTUPU:\n• Replace - Nahradí vybraný text\n• Append - Přidá výsledek na stejný řádek\n• Below - Vloží výsledek na nový řádek (výchozí)\n\nPOUŽITÍ:\n1. Vyberte text (nebo umístěte kurzor na řádek)\n2. Zvolte filtr z Nástroje → Vybrat filtr → [Kategorie]\n3. Stiskněte Ctrl+Enter pro spuštění\n\nViz přiložený RichEditor.ini pro 20 ukázkových filtrů!"
+    IDS_UNTITLED                 "Bez názvu"
 END
