@@ -40,16 +40,27 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 
 ### Phase 2 (Complete)
 
+**INI Configuration System:**
+- Auto-creation of default `RichEditor.ini` on first run
+- 3 example filters included (Uppercase, Lowercase, Line Count)
+- All application settings configurable via INI file:
+  - Word wrap default state
+  - Autosave enable/disable
+  - Autosave interval (minutes)
+  - Autosave on focus loss behavior
+- Filter Help dialog (Tools → Filter Help) with comprehensive documentation
+- No need to edit source code for customization
+
 **Filter System:**
 - External filter/utility execution (Ctrl+Enter)
-- Multiple configurable filters (calculator, scripts, AI agents, etc.)
+- Multiple configurable filters with category organization
 - Process input/output via stdin/stdout pipes with UTF-8 encoding
 - INI-based filter configuration (`RichEditor.ini`)
-- Dynamic filter menu populated from configuration
+- Dynamic categorized menu (Transform, Statistics, Extract, Web)
+- Three output modes: Replace, Append, Below
 - Error handling with stderr capture and display
 - Selected text (or current line if no selection) sent to filter
-- Filter output inserted below input with automatic newline
-- Up to 100 filters supported with hotkeys (Tools → Select Filter menu)
+- Up to 100 filters supported (Tools → Select Filter menu)
 - Process timeout (30 seconds) to prevent hanging
 - Proper pipe and process handle cleanup
 
@@ -108,7 +119,7 @@ make clean
 make CROSS=x86_64-w64-mingw32.static-
 ```
 
-**Output:** `RichEditor.exe` (universal executable with English and Czech, ~169KB)
+**Output:** `RichEditor.exe` (universal executable with English and Czech, ~752KB)
 
 ### Localization
 
@@ -190,7 +201,15 @@ The `Makefile` uses:
 
 ### Configuration
 
-All settings are now configurable via `RichEditor.ini` in the same directory as the executable.
+**First Run:**
+On first launch, RichEditor automatically creates a default `RichEditor.ini` file with:
+- Sensible default settings (word wrap on, autosave enabled)
+- 3 example filters to get you started:
+  - Uppercase (Transform category, Replace mode)
+  - Lowercase (Transform category, Replace mode)
+  - Line Count (Statistics category, Append mode)
+
+You can customize this file or replace it with the full 20-filter collection included in the repository.
 
 **Application Settings** (`RichEditor.ini`):
 
@@ -252,13 +271,15 @@ The `Mode=` setting controls how filter output is inserted:
 - `Mode=Below` - Inserts output below with newline separator (default)
 
 **Filter Usage:**
-1. Create or edit `RichEditor.ini` in the same folder as `RichEditor.exe`
-2. Restart RichEditor to load the filters
-3. Navigate to Tools → Select Filter → [Category] → [Filter Name]
-4. Checkmark shows the currently active filter
-5. Select text or place cursor on a line
-6. Press `Ctrl+Enter` to execute the filter
-7. Output behavior depends on the filter's `Mode=` setting (Replace/Append/Below)
+1. On first run, RichEditor creates `RichEditor.ini` with 3 example filters
+2. Edit the INI file to add more filters or copy the full collection from the repository
+3. Restart RichEditor to load the filters
+4. Click Tools → Filter Help for comprehensive documentation
+5. Navigate to Tools → Select Filter → [Category] → [Filter Name]
+6. Checkmark shows the currently active filter
+7. Select text or place cursor on a line
+8. Press `Ctrl+Enter` to execute the filter
+9. Output behavior depends on the filter's `Mode=` setting (Replace/Append/Below)
 
 **Filter Requirements:**
 - Command must read from stdin (pipe input)
@@ -294,12 +315,12 @@ When word wrap is enabled:
 ```
 RichEditor/
 ├── src/
-│   ├── main.cpp       (~1,400 lines) - Main application logic + filter system
+│   ├── main.cpp       (~1,750 lines) - Main application logic + filter system
 │   ├── resource.h     - Resource IDs and constants
 │   └── resource.rc    - Universal resources (English + Czech UI)
 ├── Makefile           - Build configuration
 ├── README.md          - This file
-├── RichEditor.ini     - Filter configuration (user-created)
+├── RichEditor.ini     - Filter configuration (auto-created on first run)
 └── .gitignore         - Git ignore patterns
 ```
 
@@ -328,11 +349,14 @@ RichEditor/
 
 **Filter System (Phase 2):**
 - Data structure: Array of `FilterInfo` structs (max 100 filters)
+- Default INI creation: `CreateDefaultINI()` on first run with 3 example filters
+- Settings loading: `LoadSettings()` reads [Settings] section
 - INI loading: `GetPrivateProfileString` / `GetPrivateProfileInt`
-- Dynamic menu: Built from loaded filters, checkmark shows active
+- Dynamic menu: Built from loaded filters with category submenus
 - Process execution: `CreateProcess` with pipe redirection
 - UTF-8 I/O: UTF16↔UTF8 conversion for pipes
 - Error handling: Stderr capture, exit code checking, timeout (30s)
+- Output modes: Replace, Append, Below
 
 **Filter Execution Flow:**
 1. User selects text (or current line if no selection)
@@ -378,7 +402,7 @@ RichEditor/
 ## Development Notes
 
 ### Commit History
-The repository contains ~35+ clean, incremental commits documenting the development process:
+The repository contains ~46 clean, incremental commits documenting the development process:
 - Initial Win32 window and RichEdit setup
 - File I/O with UTF-8 support
 - Edit menu implementation
@@ -389,6 +413,11 @@ The repository contains ~35+ clean, incremental commits documenting the developm
 - Czech localization with UTF-8 pragma fix
 - Filter system with INI configuration
 - Process execution with pipe redirection
+- Filter output modes (Replace/Append/Below)
+- Filter categories and submenus
+- Configurable application settings via INI
+- Auto-creation of default INI on first run
+- Filter Help dialog with comprehensive documentation
 
 ### Coding Style
 - Hungarian notation for Win32 types (e.g., `hwnd`, `sz`, `g_`)
@@ -405,13 +434,16 @@ The repository contains ~35+ clean, incremental commits documenting the developm
 - Filter execution with PowerShell commands (calculator, uppercase, lowercase)
 - Process pipe I/O with UTF-8 encoding
 - Error handling with stderr capture
+- INI file auto-creation on first run
+- Settings and filter loading from INI
+- Filter categories and output modes
 
 ## Future Enhancements
 
 ### High Priority (Phase 3)
-- [ ] Filter management dialog (add/edit/delete filters in GUI)
-- [ ] Save filter configuration back to INI file
-- [ ] Filter keyboard shortcuts (F1-F12 for quick access)
+- [ ] Additional filter examples and templates
+- [ ] Filter error recovery and debugging tools
+- [ ] Filter timeout configuration per-filter
 
 ### Medium Priority
 - [ ] Find/Replace dialog
@@ -455,7 +487,8 @@ Created with focus on:
 ---
 
 **Version:** 2.0.0 - Phase 2 Complete (December 2025)  
-**Build:** ~748KB universal executable (includes C++ string library for filter I/O)  
-**Lines of Code:** 1,556 lines (main.cpp), 1,817 total  
+**Build:** ~752KB universal executable (includes C++ string library for filter I/O)  
+**Lines of Code:** 1,753 lines (main.cpp), 2,014 total  
 **Languages:** English + Czech (universal build with automatic selection)  
-**Features:** Full text editing + external filter system with process pipes
+**Features:** Full text editing + INI-configurable filter system with categories and output modes  
+**Configuration:** Auto-created default INI with 3 example filters on first run
