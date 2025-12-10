@@ -1439,14 +1439,42 @@ void BuildFilterMenu(HWND hwnd)
     HMENU hMenu = GetMenu(hwnd);
     if (!hMenu) return;
     
-    // Find Tools menu (it's the 4th menu: File, Edit, View, Tools)
-    int toolsMenuPos = 3;  // 0=File, 1=Edit, 2=View, 3=Tools
+    // Find Tools menu by looking for the menu containing ID_TOOLS_EXECUTEFILTER
+    int toolsMenuPos = -1;
+    int menuCount = GetMenuItemCount(hMenu);
+    for (int i = 0; i < menuCount; i++) {
+        HMENU hSubMenu = GetSubMenu(hMenu, i);
+        if (hSubMenu) {
+            // Check if this submenu contains our Tools menu items
+            int subItemCount = GetMenuItemCount(hSubMenu);
+            for (int j = 0; j < subItemCount; j++) {
+                if (GetMenuItemID(hSubMenu, j) == ID_TOOLS_EXECUTEFILTER) {
+                    toolsMenuPos = i;
+                    break;
+                }
+            }
+            if (toolsMenuPos != -1) break;
+        }
+    }
+    
+    if (toolsMenuPos == -1) return;
     
     HMENU hToolsMenu = GetSubMenu(hMenu, toolsMenuPos);
     if (!hToolsMenu) return;
     
-    // Find "Select Filter" submenu (it's the 4th item after separator)
-    int selectFilterPos = 3;
+    // Find "Select Filter" submenu - it's the first submenu (popup) in Tools menu
+    int selectFilterPos = -1;
+    int toolsItemCount = GetMenuItemCount(hToolsMenu);
+    for (int i = 0; i < toolsItemCount; i++) {
+        HMENU hSubMenu = GetSubMenu(hToolsMenu, i);
+        if (hSubMenu) {
+            // This is the Select Filter submenu (first popup we find)
+            selectFilterPos = i;
+            break;
+        }
+    }
+    
+    if (selectFilterPos == -1) return;
     
     HMENU hFilterMenu = GetSubMenu(hToolsMenu, selectFilterPos);
     if (!hFilterMenu) return;
