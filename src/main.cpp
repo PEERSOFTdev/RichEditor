@@ -15,10 +15,13 @@
 //============================================================================
 // Global Variables
 //============================================================================
+// Extended path length for UNC and long paths (Windows maximum is 32767)
+#define EXTENDED_PATH_MAX 32767
+
 HWND g_hWndMain = NULL;           // Main window handle
 HWND g_hWndEdit = NULL;           // RichEdit control handle (to be added)
 HWND g_hWndStatus = NULL;         // Status bar handle (to be added)
-WCHAR g_szFileName[MAX_PATH];     // Current file path
+WCHAR g_szFileName[EXTENDED_PATH_MAX];     // Current file path
 WCHAR g_szFileTitle[MAX_PATH];    // Current file name only
 BOOL g_bModified = FALSE;         // Document modified flag
 BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
@@ -922,6 +925,168 @@ void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax)
 }
 
 //============================================================================
+// NormalizePathForINI - Not needed anymore, will read INI files directly
+// Keeping this for reference but replacing GetPrivateProfile* with direct file reading
+//============================================================================
+// Simple INI reader that works with UNC paths
+// Reads entire INI file into memory and parses it
+BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD cchValue, LPCWSTR pszDefault)
+{
+    // Read entire file
+    HANDLE hFile = CreateFile(pszIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        if (pszDefault) {
+            wcsncpy(pszValue, pszDefault, cchValue);
+            pszValue[cchValue - 1] = L'\0';
+        } else {
+            pszValue[0] = L'\0';
+        }
+        return FALSE;
+    }
+    
+    DWORD dwSize = GetFileSize(hFile, NULL);
+    if (dwSize == 0 || dwSize == INVALID_FILE_SIZE) {
+        CloseHandle(hFile);
+        if (pszDefault) {
+            wcsncpy(pszValue, pszDefault, cchValue);
+            pszValue[cchValue - 1] = L'\0';
+        } else {
+            pszValue[0] = L'\0';
+        }
+        return FALSE;
+    }
+    
+    char* pszFileData = (char*)malloc(dwSize + 1);
+    if (!pszFileData) {
+        CloseHandle(hFile);
+        pszValue[0] = L'\0';
+        return FALSE;
+    }
+    
+    DWORD dwRead;
+    if (!ReadFile(hFile, pszFileData, dwSize, &dwRead, NULL)) {
+        free(pszFileData);
+        CloseHandle(hFile);
+        if (pszDefault) {
+            wcsncpy(pszValue, pszDefault, cchValue);
+            pszValue[cchValue - 1] = L'\0';
+        } else {
+            pszValue[0] = L'\0';
+        }
+        return FALSE;
+    }
+    pszFileData[dwRead] = '\0';
+    CloseHandle(hFile);
+    
+    // Convert to wide string
+    int cchWide = MultiByteToWideChar(CP_UTF8, 0, pszFileData, -1, NULL, 0);
+    WCHAR* pszWideData = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
+    if (!pszWideData) {
+        free(pszFileData);
+        pszValue[0] = L'\0';
+        return FALSE;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, pszFileData, -1, pszWideData, cchWide);
+    free(pszFileData);
+    
+    // Parse INI: find [Section]
+    WCHAR szSectionHeader[256];
+    _snwprintf(szSectionHeader, 256, L"[%s]", pszSection);
+    
+    WCHAR* pszSectionStart = wcsstr(pszWideData, szSectionHeader);
+    if (!pszSectionStart) {
+        free(pszWideData);
+        if (pszDefault) {
+            wcsncpy(pszValue, pszDefault, cchValue);
+            pszValue[cchValue - 1] = L'\0';
+        } else {
+            pszValue[0] = L'\0';
+        }
+        return FALSE;
+    }
+    
+    // Move past section header to next line
+    pszSectionStart = wcschr(pszSectionStart, L'\n');
+    if (!pszSectionStart) {
+        free(pszWideData);
+        if (pszDefault) {
+            wcsncpy(pszValue, pszDefault, cchValue);
+            pszValue[cchValue - 1] = L'\0';
+        } else {
+            pszValue[0] = L'\0';
+        }
+        return FALSE;
+    }
+    pszSectionStart++;
+    
+    // Find key=value
+    WCHAR* pszLine = pszSectionStart;
+    while (pszLine && *pszLine) {
+        // Check if we hit another section
+        if (*pszLine == L'[') break;
+        
+        // Skip whitespace
+        while (*pszLine == L' ' || *pszLine == L'\t') pszLine++;
+        
+        // Skip comments and empty lines
+        if (*pszLine == L';' || *pszLine == L'#' || *pszLine == L'\r' || *pszLine == L'\n') {
+            pszLine = wcschr(pszLine, L'\n');
+            if (pszLine) pszLine++;
+            continue;
+        }
+        
+        // Check if this line starts with our key
+        size_t keyLen = wcslen(pszKey);
+        if (wcsncmp(pszLine, pszKey, keyLen) == 0) {
+            pszLine += keyLen;
+            // Skip whitespace and =
+            while (*pszLine == L' ' || *pszLine == L'\t') pszLine++;
+            if (*pszLine == L'=') {
+                pszLine++;
+                while (*pszLine == L' ' || *pszLine == L'\t') pszLine++;
+                
+                // Copy value until end of line or comment
+                DWORD i = 0;
+                while (i < cchValue - 1 && *pszLine && *pszLine != L'\r' && *pszLine != L'\n' && *pszLine != L';') {
+                    pszValue[i++] = *pszLine++;
+                }
+                pszValue[i] = L'\0';
+                
+                // Trim trailing whitespace
+                while (i > 0 && (pszValue[i-1] == L' ' || pszValue[i-1] == L'\t')) {
+                    pszValue[--i] = L'\0';
+                }
+                
+                free(pszWideData);
+                return TRUE;
+            }
+        }
+        
+        // Move to next line
+        pszLine = wcschr(pszLine, L'\n');
+        if (pszLine) pszLine++;
+    }
+    
+    free(pszWideData);
+    if (pszDefault) {
+        wcsncpy(pszValue, pszDefault, cchValue);
+        pszValue[cchValue - 1] = L'\0';
+    } else {
+        pszValue[0] = L'\0';
+    }
+    return FALSE;
+}
+
+int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault)
+{
+    WCHAR szValue[32];
+    if (ReadINIValue(pszIniPath, pszSection, pszKey, szValue, 32, NULL)) {
+        return _wtoi(szValue);
+    }
+    return nDefault;
+}
+
+//============================================================================
 // FileNew - Create new document
 //============================================================================
 void FileNew()
@@ -958,15 +1123,15 @@ void FileOpen()
     
     // Setup file dialog
     OPENFILENAME ofn = {};
-    WCHAR szFile[MAX_PATH] = L"";
-    WCHAR szInitialDir[MAX_PATH];
+    WCHAR szFile[EXTENDED_PATH_MAX] = L"";
+    WCHAR szInitialDir[EXTENDED_PATH_MAX];
     
-    GetDocumentsPath(szInitialDir, MAX_PATH);
+    GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
     ofn.lStructSize = sizeof(OPENFILENAME);
     ofn.hwndOwner = g_hWndMain;
     ofn.lpstrFile = szFile;
-    ofn.nMaxFile = MAX_PATH;
+    ofn.nMaxFile = EXTENDED_PATH_MAX;
     ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
     ofn.nFilterIndex = 1;
     ofn.lpstrInitialDir = szInitialDir;
@@ -998,20 +1163,20 @@ BOOL FileSaveAs()
 {
     // Setup file dialog
     OPENFILENAME ofn = {};
-    WCHAR szFile[MAX_PATH] = L"";
-    WCHAR szInitialDir[MAX_PATH];
+    WCHAR szFile[EXTENDED_PATH_MAX] = L"";
+    WCHAR szInitialDir[EXTENDED_PATH_MAX];
     
     // Copy current filename if exists
     if (g_szFileName[0]) {
-        wcscpy_s(szFile, MAX_PATH, g_szFileName);
+        wcscpy_s(szFile, EXTENDED_PATH_MAX, g_szFileName);
     }
     
-    GetDocumentsPath(szInitialDir, MAX_PATH);
+    GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
     ofn.lStructSize = sizeof(OPENFILENAME);
     ofn.hwndOwner = g_hWndMain;
     ofn.lpstrFile = szFile;
-    ofn.nMaxFile = MAX_PATH;
+    ofn.nMaxFile = EXTENDED_PATH_MAX;
     ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
     ofn.nFilterIndex = 1;
     ofn.lpstrInitialDir = szInitialDir;
@@ -1470,8 +1635,8 @@ void ExecuteFilter()
 void CreateDefaultINI()
 {
     // Get path to INI file (in same directory as executable)
-    WCHAR szIniPath[MAX_PATH];
-    GetModuleFileName(NULL, szIniPath, MAX_PATH);
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
     
     // Replace .exe with .ini
     LPWSTR pszExt = wcsrchr(szIniPath, L'.');
@@ -1541,8 +1706,8 @@ void CreateDefaultINI()
 void LoadSettings()
 {
     // Get path to INI file (in same directory as executable)
-    WCHAR szIniPath[MAX_PATH];
-    GetModuleFileName(NULL, szIniPath, MAX_PATH);
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
     
     // Replace .exe with .ini
     LPWSTR pszExt = wcsrchr(szIniPath, L'.');
@@ -1550,11 +1715,11 @@ void LoadSettings()
         wcscpy(pszExt, L".ini");
     }
     
-    // Load settings from [Settings] section
-    g_bWordWrap = GetPrivateProfileInt(L"Settings", L"WordWrap", 1, szIniPath);
-    g_bAutosaveEnabled = GetPrivateProfileInt(L"Settings", L"AutosaveEnabled", 1, szIniPath);
-    g_nAutosaveIntervalMinutes = GetPrivateProfileInt(L"Settings", L"AutosaveIntervalMinutes", 1, szIniPath);
-    g_bAutosaveOnFocusLoss = GetPrivateProfileInt(L"Settings", L"AutosaveOnFocusLoss", 1, szIniPath);
+    // Load settings from [Settings] section using direct file reading
+    g_bWordWrap = ReadINIInt(szIniPath, L"Settings", L"WordWrap", 1);
+    g_bAutosaveEnabled = ReadINIInt(szIniPath, L"Settings", L"AutosaveEnabled", 1);
+    g_nAutosaveIntervalMinutes = ReadINIInt(szIniPath, L"Settings", L"AutosaveIntervalMinutes", 1);
+    g_bAutosaveOnFocusLoss = ReadINIInt(szIniPath, L"Settings", L"AutosaveOnFocusLoss", 1);
 }
 
 //============================================================================
@@ -1563,8 +1728,8 @@ void LoadSettings()
 void LoadFilters()
 {
     // Get path to INI file (in same directory as executable)
-    WCHAR szIniPath[MAX_PATH];
-    GetModuleFileName(NULL, szIniPath, MAX_PATH);
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
     
     // Replace .exe with .ini
     LPWSTR pszExt = wcsrchr(szIniPath, L'.');
@@ -1572,8 +1737,8 @@ void LoadFilters()
         wcscpy(pszExt, L".ini");
     }
     
-    // Read filter count
-    g_nFilterCount = GetPrivateProfileInt(L"Filters", L"Count", 0, szIniPath);
+    // Read filter count using direct file reading
+    g_nFilterCount = ReadINIInt(szIniPath, L"Filters", L"Count", 0);
     if (g_nFilterCount > MAX_FILTERS) {
         g_nFilterCount = MAX_FILTERS;
     }
@@ -1583,19 +1748,19 @@ void LoadFilters()
         WCHAR szSection[32];
         swprintf(szSection, 32, L"Filter%d", i + 1);
         
-        GetPrivateProfileString(szSection, L"Name", L"", 
-                                g_Filters[i].szName, MAX_FILTER_NAME, szIniPath);
-        GetPrivateProfileString(szSection, L"Command", L"", 
-                                g_Filters[i].szCommand, MAX_FILTER_COMMAND, szIniPath);
-        GetPrivateProfileString(szSection, L"Description", L"", 
-                                g_Filters[i].szDescription, MAX_FILTER_DESC, szIniPath);
-        GetPrivateProfileString(szSection, L"Category", L"General", 
-                                g_Filters[i].szCategory, MAX_FILTER_CATEGORY, szIniPath);
+        ReadINIValue(szIniPath, szSection, L"Name", 
+                     g_Filters[i].szName, MAX_FILTER_NAME, L"");
+        ReadINIValue(szIniPath, szSection, L"Command", 
+                     g_Filters[i].szCommand, MAX_FILTER_COMMAND, L"");
+        ReadINIValue(szIniPath, szSection, L"Description", 
+                     g_Filters[i].szDescription, MAX_FILTER_DESC, L"");
+        ReadINIValue(szIniPath, szSection, L"Category", 
+                     g_Filters[i].szCategory, MAX_FILTER_CATEGORY, L"General");
         
         // Read output mode (Below, Replace, Append)
         WCHAR szMode[MAX_FILTER_MODE];
-        GetPrivateProfileString(szSection, L"Mode", L"Below", 
-                                szMode, MAX_FILTER_MODE, szIniPath);
+        ReadINIValue(szIniPath, szSection, L"Mode", 
+                     szMode, MAX_FILTER_MODE, L"Below");
         
         // Parse mode string
         if (_wcsicmp(szMode, L"Replace") == 0) {
