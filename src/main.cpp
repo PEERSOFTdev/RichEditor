@@ -1684,7 +1684,9 @@ void BuildFilterMenu(HWND hwnd)
     
     // Add filters or "No filters" message
     if (g_nFilterCount == 0) {
-        AppendMenu(hFilterMenu, MF_STRING | MF_GRAYED, ID_TOOLS_FILTER_BASE, L"(No filters configured)");
+        WCHAR szNoFilters[128];
+        LoadStringResource(IDS_NO_FILTERS_CONFIGURED, szNoFilters, 128);
+        AppendMenu(hFilterMenu, MF_STRING | MF_GRAYED, ID_TOOLS_FILTER_BASE, szNoFilters);
     } else {
         // Build category map: category name -> list of filter indices
         struct CategoryInfo {

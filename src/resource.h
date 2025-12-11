@@ -56,5 +56,6 @@
 #define IDS_FILTER_HELP_TITLE           2012
 #define IDS_FILTER_HELP_TEXT            2013
 #define IDS_UNTITLED                    2014
+#define IDS_NO_FILTERS_CONFIGURED       2015
 
 #endif // RESOURCE_H
