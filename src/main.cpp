@@ -1440,19 +1440,19 @@ void ExecuteFilter()
     CHARRANGE crSel;
     SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crSel);
     
-    // If no selection, select current line
+    // If no selection, select current line (excluding newline)
     if (crSel.cpMin == crSel.cpMax) {
         // Get line number
         LONG lineNum = SendMessage(g_hWndEdit, EM_LINEFROMCHAR, crSel.cpMin, 0);
-        // Get line start and end
+        // Get line start
         LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineNum, 0);
-        LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineNum + 1, 0);
-        if (lineEnd == -1) {
-            // Last line - get text length
-            lineEnd = GetWindowTextLength(g_hWndEdit);
-        }
+        // Get line length (excluding newline characters)
+        LONG lineLength = SendMessage(g_hWndEdit, EM_LINELENGTH, lineStart, 0);
+        
         crSel.cpMin = lineStart;
-        crSel.cpMax = lineEnd;
+        crSel.cpMax = lineStart + lineLength;
+        // Apply the selection to the editor
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
     }
     
     // Get selected text
@@ -1593,15 +1593,25 @@ void ExecuteFilter()
     if (!outputData.empty()) {
         LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
         if (pszOutput) {
+            // Strip trailing newline from filter output
+            // Many filters add a trailing newline - remove it so user controls formatting
+            size_t len = wcslen(pszOutput);
+            if (len > 0 && pszOutput[len - 1] == L'\n') {
+                pszOutput[len - 1] = L'\0';
+                if (len > 1 && pszOutput[len - 2] == L'\r') {
+                    pszOutput[len - 2] = L'\0';
+                }
+            }
+            
             // Get the output mode for current filter
             FilterOutputMode mode = g_Filters[g_nCurrentFilter].mode;
             
             if (mode == FILTER_MODE_REPLACE) {
-                // Replace: Just replace the selection with output
+                // Replace: Replace the selection with output
                 SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
                 
             } else if (mode == FILTER_MODE_APPEND) {
-                // Append: Move to end of selection and append (no newline)
+                // Append: Move to end of selection and append
                 crSel.cpMin = crSel.cpMax;
                 SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
                 SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
