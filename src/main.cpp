@@ -44,6 +44,9 @@ const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 #define MAX_FILTER_MODE 16
 #define MAX_FILTER_CATEGORY 32
 
+#define MAX_MRU 10                 // Maximum number of MRU items
+#define ID_FILE_MRU_BASE 5000      // Base ID for MRU menu items (5000-5009)
+
 enum FilterOutputMode {
     FILTER_MODE_BELOW = 0,    // Insert output below input (default)
     FILTER_MODE_REPLACE = 1,  // Replace input with output
@@ -61,6 +64,10 @@ struct FilterInfo {
 FilterInfo g_Filters[MAX_FILTERS];
 int g_nFilterCount = 0;
 int g_nCurrentFilter = -1;  // -1 = no filter selected, 0-99 = filter index
+
+// MRU list
+WCHAR g_MRU[MAX_MRU][EXTENDED_PATH_MAX];
+int g_nMRUCount = 0;
 
 //============================================================================
 // Function Declarations
@@ -101,6 +108,10 @@ void UpdateFilterDisplay();
 void BuildFilterMenu(HWND hwnd);
 void DoAutosave();
 void StartAutosaveTimer(HWND hwnd);
+void LoadMRU();
+void SaveMRU();
+void AddToMRU(LPCWSTR pszFilePath);
+void UpdateMRUMenu(HWND hwnd);
 
 //============================================================================
 // WinMain - Entry Point
@@ -257,6 +268,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             BuildFilterMenu(hwnd);
             UpdateFilterDisplay();
             
+            // Load MRU list
+            LoadMRU();
+            UpdateMRUMenu(hwnd);
+            
             // Set initial word wrap menu checkmark
             HMENU hMenu = GetMenu(hwnd);
             CheckMenuItem(hMenu, ID_VIEW_WORDWRAP, g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
@@ -393,7 +408,27 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 default:
                     {
                         int wmId = LOWORD(wParam);
-                        if (wmId >= ID_TOOLS_FILTER_BASE && wmId < ID_TOOLS_FILTER_BASE + 100) {
+                        
+                        // Handle MRU file clicks
+                        if (wmId >= ID_FILE_MRU_BASE && wmId < ID_FILE_MRU_BASE + MAX_MRU) {
+                            int mruIdx = wmId - ID_FILE_MRU_BASE;
+                            if (mruIdx >= 0 && mruIdx < g_nMRUCount) {
+                                // Check for unsaved changes
+                                if (!PromptSaveChanges()) {
+                                    break;
+                                }
+                                
+                                // Make a copy of the path before loading
+                                // (LoadTextFile->AddToMRU will modify the g_MRU array)
+                                WCHAR szMRUPath[EXTENDED_PATH_MAX];
+                                wcscpy_s(szMRUPath, EXTENDED_PATH_MAX, g_MRU[mruIdx]);
+                                
+                                // Load the MRU file (LoadTextFile handles everything)
+                                LoadTextFile(szMRUPath);
+                            }
+                        }
+                        // Handle filter selection
+                        else if (wmId >= ID_TOOLS_FILTER_BASE && wmId < ID_TOOLS_FILTER_BASE + 100) {
                             int filterIdx = wmId - ID_TOOLS_FILTER_BASE;
                             if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
                                 g_nCurrentFilter = filterIdx;
@@ -835,6 +870,9 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     UpdateTitle();
     UpdateStatusBar();
     
+    // Add to MRU list
+    AddToMRU(pszFileName);
+    
     return TRUE;
 }
 
@@ -902,6 +940,9 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
     g_bModified = FALSE;
     UpdateTitle();
     UpdateStatusBar();
+    
+    // Add to MRU list
+    AddToMRU(pszFileName);
     
     return TRUE;
 }
@@ -2023,6 +2064,257 @@ void UpdateFilterDisplay()
     }
     
     SendMessage(g_hWndStatus, SB_SETTEXT, (WPARAM)1, (LPARAM)szFilter);
+}
+
+//============================================================================
+// LoadMRU - Load Most Recently Used file list from INI
+//============================================================================
+void LoadMRU()
+{
+    // Get path to INI file
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    
+    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    // Load up to MAX_MRU files
+    g_nMRUCount = 0;
+    for (int i = 0; i < MAX_MRU; i++) {
+        WCHAR szKey[16];
+        _snwprintf(szKey, 16, L"File%d", i + 1);
+        
+        WCHAR szPath[EXTENDED_PATH_MAX];
+        ReadINIValue(szIniPath, L"MRU", szKey, szPath, EXTENDED_PATH_MAX, L"");
+        
+        if (szPath[0] != L'\0') {
+            wcscpy_s(g_MRU[g_nMRUCount], EXTENDED_PATH_MAX, szPath);
+            g_nMRUCount++;
+        }
+    }
+}
+
+//============================================================================
+// SaveMRU - Save Most Recently Used file list to INI
+//============================================================================
+void SaveMRU()
+{
+    // Get path to INI file
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    
+    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    // Read entire INI file
+    std::string existingData;
+    HANDLE hFile = CreateFile(szIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    
+    if (hFile != INVALID_HANDLE_VALUE) {
+        DWORD dwSize = GetFileSize(hFile, NULL);
+        if (dwSize > 0 && dwSize != INVALID_FILE_SIZE) {
+            char* pszFileData = (char*)malloc(dwSize + 1);
+            if (pszFileData) {
+                DWORD dwRead;
+                if (ReadFile(hFile, pszFileData, dwSize, &dwRead, NULL)) {
+                    pszFileData[dwRead] = '\0';
+                    existingData.assign(pszFileData, dwRead);
+                }
+                free(pszFileData);
+            }
+        }
+        CloseHandle(hFile);
+    }
+    
+    // Convert to wide string
+    std::wstring wideData;
+    if (!existingData.empty()) {
+        int cchWide = MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, NULL, 0);
+        if (cchWide > 0) {
+            WCHAR* pszWideData = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
+            if (pszWideData) {
+                MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, pszWideData, cchWide);
+                wideData = pszWideData;
+                free(pszWideData);
+            }
+        }
+    }
+    
+    // Find and remove existing [MRU] section
+    size_t mruSectionPos = wideData.find(L"[MRU]");
+    if (mruSectionPos != std::wstring::npos) {
+        // Find the start of the next section or end of file
+        size_t nextSectionPos = wideData.find(L"\n[", mruSectionPos + 5);
+        if (nextSectionPos != std::wstring::npos) {
+            // Remove from [MRU] to start of next section
+            wideData.erase(mruSectionPos, nextSectionPos - mruSectionPos + 1);
+        } else {
+            // Remove from [MRU] to end of file
+            wideData.erase(mruSectionPos);
+        }
+    }
+    
+    // Build new [MRU] section
+    std::wstring mruSection = L"[MRU]\r\n";
+    for (int i = 0; i < g_nMRUCount; i++) {
+        WCHAR szLine[EXTENDED_PATH_MAX + 32];
+        _snwprintf(szLine, EXTENDED_PATH_MAX + 32, L"File%d=%s\r\n", i + 1, g_MRU[i]);
+        mruSection += szLine;
+    }
+    
+    // Append new [MRU] section at the end
+    if (!wideData.empty() && wideData[wideData.length() - 1] != L'\n') {
+        wideData += L"\r\n";
+    }
+    wideData += mruSection;
+    
+    // Convert back to UTF-8
+    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, NULL, 0, NULL, NULL);
+    if (cbUTF8 <= 0) return;
+    
+    char* pszUTF8 = (char*)malloc(cbUTF8);
+    if (!pszUTF8) return;
+    
+    WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, pszUTF8, cbUTF8, NULL, NULL);
+    
+    // Write to file
+    hFile = CreateFile(szIniPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        free(pszUTF8);
+        return;
+    }
+    
+    DWORD dwWritten;
+    WriteFile(hFile, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
+    CloseHandle(hFile);
+    free(pszUTF8);
+}
+
+//============================================================================
+// AddToMRU - Add a file path to the MRU list
+//============================================================================
+void AddToMRU(LPCWSTR pszFilePath)
+{
+    if (!pszFilePath || pszFilePath[0] == L'\0') {
+        return;
+    }
+    
+    // Check if file already exists in MRU and remove it
+    int existingIndex = -1;
+    for (int i = 0; i < g_nMRUCount; i++) {
+        if (_wcsicmp(g_MRU[i], pszFilePath) == 0) {
+            existingIndex = i;
+            break;
+        }
+    }
+    
+    // If found, remove it (we'll add it to the top)
+    if (existingIndex != -1) {
+        for (int i = existingIndex; i < g_nMRUCount - 1; i++) {
+            wcscpy_s(g_MRU[i], EXTENDED_PATH_MAX, g_MRU[i + 1]);
+        }
+        g_nMRUCount--;
+    }
+    
+    // Shift everything down to make room at the top
+    if (g_nMRUCount >= MAX_MRU) {
+        g_nMRUCount = MAX_MRU - 1;
+    }
+    
+    for (int i = g_nMRUCount; i > 0; i--) {
+        wcscpy_s(g_MRU[i], EXTENDED_PATH_MAX, g_MRU[i - 1]);
+    }
+    
+    // Add new file at the top
+    wcscpy_s(g_MRU[0], EXTENDED_PATH_MAX, pszFilePath);
+    g_nMRUCount++;
+    
+    // Save to INI
+    SaveMRU();
+    
+    // Update menu
+    UpdateMRUMenu(g_hWndMain);
+}
+
+//============================================================================
+// UpdateMRUMenu - Update the File menu with MRU items
+//============================================================================
+void UpdateMRUMenu(HWND hwnd)
+{
+    HMENU hMenu = GetMenu(hwnd);
+    if (!hMenu) return;
+    
+    // Find File menu (first submenu)
+    HMENU hFileMenu = GetSubMenu(hMenu, 0);
+    if (!hFileMenu) return;
+    
+    // Remove existing MRU items and separator
+    // Work backwards to avoid index shifting issues
+    int itemCount = GetMenuItemCount(hFileMenu);
+    for (int i = itemCount - 1; i >= 0; i--) {
+        UINT itemID = GetMenuItemID(hFileMenu, i);
+        if (itemID >= ID_FILE_MRU_BASE && itemID < ID_FILE_MRU_BASE + MAX_MRU) {
+            DeleteMenu(hFileMenu, i, MF_BYPOSITION);
+        } else if (itemID == (UINT)-1) {
+            // Check if this is a separator just before Exit
+            if (i < itemCount - 1) {
+                UINT nextID = GetMenuItemID(hFileMenu, i + 1);
+                if (nextID == ID_FILE_EXIT) {
+                    DeleteMenu(hFileMenu, i, MF_BYPOSITION);
+                }
+            }
+        }
+    }
+    
+    // If no MRU items, nothing more to do
+    if (g_nMRUCount == 0) {
+        DrawMenuBar(hwnd);
+        return;
+    }
+    
+    // Find position of Exit menu item
+    itemCount = GetMenuItemCount(hFileMenu);
+    int exitPos = -1;
+    for (int i = 0; i < itemCount; i++) {
+        if (GetMenuItemID(hFileMenu, i) == ID_FILE_EXIT) {
+            exitPos = i;
+            break;
+        }
+    }
+    
+    if (exitPos == -1) return; // Exit not found
+    
+    // Add separator before Exit
+    InsertMenu(hFileMenu, exitPos, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    exitPos++; // Adjust for the separator we just added
+    
+    // Add MRU items (up to 10)
+    for (int i = 0; i < g_nMRUCount; i++) {
+        // Extract just the filename for display
+        WCHAR szDisplay[MAX_PATH];
+        LPCWSTR pszFileName = wcsrchr(g_MRU[i], L'\\');
+        if (!pszFileName) {
+            pszFileName = wcsrchr(g_MRU[i], L'/');
+        }
+        if (pszFileName) {
+            pszFileName++; // Skip the slash
+        } else {
+            pszFileName = g_MRU[i]; // No path separator found
+        }
+        
+        // Format as "&1 filename.txt" (with accelerator)
+        _snwprintf(szDisplay, MAX_PATH, L"&%d %s", i + 1, pszFileName);
+        
+        // Insert before Exit
+        InsertMenu(hFileMenu, exitPos + i, MF_BYPOSITION | MF_STRING, 
+                   ID_FILE_MRU_BASE + i, szDisplay);
+    }
+    
+    DrawMenuBar(hwnd);
 }
 
 //============================================================================
