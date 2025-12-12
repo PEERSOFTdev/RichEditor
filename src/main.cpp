@@ -96,6 +96,7 @@ void ExecuteFilter();
 void CreateDefaultINI();
 void LoadSettings();
 void LoadFilters();
+void SaveCurrentFilter();
 void UpdateFilterDisplay();
 void BuildFilterMenu(HWND hwnd);
 void DoAutosave();
@@ -245,6 +246,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Resize status bar
             if (g_hWndStatus) {
                 SendMessage(g_hWndStatus, WM_SIZE, 0, 0);
+                
+                // Update status bar parts based on new window size
+                RECT rcStatus;
+                GetClientRect(g_hWndStatus, &rcStatus);
+                int parts[] = {rcStatus.right - 200, -1}; // Part 0 takes all but 200px, part 1 gets 200px
+                SendMessage(g_hWndStatus, SB_SETPARTS, 2, (LPARAM)parts);
             }
             
             // Resize RichEdit control to fill client area minus status bar
@@ -362,6 +369,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             int filterIdx = wmId - ID_TOOLS_FILTER_BASE;
                             if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
                                 g_nCurrentFilter = filterIdx;
+                                SaveCurrentFilter();
                                 BuildFilterMenu(hwnd);
                                 UpdateFilterDisplay();
                             }
@@ -482,9 +490,16 @@ HWND CreateStatusBar(HWND hwndParent)
     );
     
     if (hwndStatus) {
-        // Set parts (will be updated dynamically in UpdateStatusBar)
-        int parts[] = {-1}; // Single part initially
-        SendMessage(hwndStatus, SB_SETPARTS, 1, (LPARAM)parts);
+        // Get the actual window size to set parts correctly
+        RECT rcParent;
+        GetClientRect(hwndParent, &rcParent);
+        
+        // Set parts: part 0 for main status, part 1 (200px) for filter
+        // Parts array contains right edge positions of each part
+        int parts[2];
+        parts[0] = rcParent.right - 200;  // Part 0 ends 200px from right
+        parts[1] = -1;                     // Part 1 extends to right edge
+        SendMessage(hwndStatus, SB_SETPARTS, 2, (LPARAM)parts);
     }
     
     return hwndStatus;
@@ -645,16 +660,19 @@ void UpdateStatusBar()
     
     LoadStringResource(IDS_UNTITLED, szUntitled, 64);
     
-    // Display status with filename or Untitled
+    // Display status with filename or Untitled (removed hardcoded filter display)
     if (g_szFileTitle[0]) {
-        _snwprintf(szStatus, 512, L"%s    %s    %s    [Filter: None]",
+        _snwprintf(szStatus, 512, L"%s    %s    %s",
                    g_szFileTitle, posInfo, charInfo);
     } else {
-        _snwprintf(szStatus, 512, L"%s    %s    %s    [Filter: None]",
+        _snwprintf(szStatus, 512, L"%s    %s    %s",
                    szUntitled, posInfo, charInfo);
     }
     
     SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
+    
+    // Update filter display in separate status bar part
+    UpdateFilterDisplay();
 }
 
 //============================================================================
@@ -1084,6 +1102,155 @@ int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefa
         return _wtoi(szValue);
     }
     return nDefault;
+}
+
+//============================================================================
+// WriteINIValue - Write value to INI file (works with UNC paths)
+//============================================================================
+BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue)
+{
+    // Read entire file if it exists
+    std::string existingData;
+    HANDLE hFile = CreateFile(pszIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    
+    if (hFile != INVALID_HANDLE_VALUE) {
+        DWORD dwSize = GetFileSize(hFile, NULL);
+        if (dwSize > 0 && dwSize != INVALID_FILE_SIZE) {
+            char* pszFileData = (char*)malloc(dwSize + 1);
+            if (pszFileData) {
+                DWORD dwRead;
+                if (ReadFile(hFile, pszFileData, dwSize, &dwRead, NULL)) {
+                    pszFileData[dwRead] = '\0';
+                    existingData.assign(pszFileData, dwRead);
+                }
+                free(pszFileData);
+            }
+        }
+        CloseHandle(hFile);
+    }
+    
+    // Convert existing data to wide string for easier manipulation
+    std::wstring wideData;
+    if (!existingData.empty()) {
+        int cchWide = MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, NULL, 0);
+        if (cchWide > 0) {
+            WCHAR* pszWideData = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
+            if (pszWideData) {
+                MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, pszWideData, cchWide);
+                wideData = pszWideData;
+                free(pszWideData);
+            }
+        }
+    }
+    
+    // Build section header
+    WCHAR szSectionHeader[256];
+    _snwprintf(szSectionHeader, 256, L"[%s]", pszSection);
+    
+    // Find or create section
+    size_t sectionPos = wideData.find(szSectionHeader);
+    std::wstring result;
+    
+    if (sectionPos == std::wstring::npos) {
+        // Section doesn't exist - add it at the end
+        if (!wideData.empty() && wideData[wideData.length() - 1] != L'\n') {
+            wideData += L"\r\n";
+        }
+        wideData += szSectionHeader;
+        wideData += L"\r\n";
+        wideData += pszKey;
+        wideData += L"=";
+        wideData += pszValue;
+        wideData += L"\r\n";
+        result = wideData;
+    } else {
+        // Section exists - find the key or insert it
+        size_t lineStart = sectionPos + wcslen(szSectionHeader);
+        
+        // Skip to next line after section header
+        size_t nextLine = wideData.find(L'\n', lineStart);
+        if (nextLine != std::wstring::npos) {
+            lineStart = nextLine + 1;
+        }
+        
+        // Look for the key in this section
+        WCHAR szKeyPrefix[256];
+        _snwprintf(szKeyPrefix, 256, L"%s=", pszKey);
+        size_t keyLen = wcslen(pszKey);
+        
+        bool keyFound = false;
+        size_t searchPos = lineStart;
+        
+        while (searchPos < wideData.length()) {
+            // Check if we hit another section
+            if (wideData[searchPos] == L'[') break;
+            
+            // Check if this line starts with our key
+            if (wideData.compare(searchPos, keyLen, pszKey) == 0) {
+                // Skip whitespace after key
+                size_t afterKey = searchPos + keyLen;
+                while (afterKey < wideData.length() && (wideData[afterKey] == L' ' || wideData[afterKey] == L'\t')) {
+                    afterKey++;
+                }
+                
+                if (afterKey < wideData.length() && wideData[afterKey] == L'=') {
+                    // Found the key - replace the value
+                    size_t lineEnd = wideData.find(L'\n', searchPos);
+                    if (lineEnd == std::wstring::npos) lineEnd = wideData.length();
+                    
+                    result = wideData.substr(0, searchPos);
+                    result += pszKey;
+                    result += L"=";
+                    result += pszValue;
+                    if (lineEnd < wideData.length()) {
+                        result += wideData.substr(lineEnd);
+                    } else {
+                        result += L"\r\n";
+                    }
+                    keyFound = true;
+                    break;
+                }
+            }
+            
+            // Move to next line
+            size_t nextLinePos = wideData.find(L'\n', searchPos);
+            if (nextLinePos == std::wstring::npos) break;
+            searchPos = nextLinePos + 1;
+        }
+        
+        if (!keyFound) {
+            // Key not found in section - add it after section header
+            result = wideData.substr(0, lineStart);
+            result += pszKey;
+            result += L"=";
+            result += pszValue;
+            result += L"\r\n";
+            result += wideData.substr(lineStart);
+        }
+    }
+    
+    // Convert back to UTF-8
+    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, result.c_str(), -1, NULL, 0, NULL, NULL);
+    if (cbUTF8 <= 0) return FALSE;
+    
+    char* pszUTF8 = (char*)malloc(cbUTF8);
+    if (!pszUTF8) return FALSE;
+    
+    WideCharToMultiByte(CP_UTF8, 0, result.c_str(), -1, pszUTF8, cbUTF8, NULL, NULL);
+    
+    // Write to file
+    hFile = CreateFile(pszIniPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        free(pszUTF8);
+        return FALSE;
+    }
+    
+    DWORD dwWritten;
+    BOOL success = WriteFile(hFile, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
+    CloseHandle(hFile);
+    free(pszUTF8);
+    
+    return success;
 }
 
 //============================================================================
@@ -1782,10 +1949,45 @@ void LoadFilters()
         }
     }
     
-    // Set current filter to first one if available
-    if (g_nFilterCount > 0) {
-        g_nCurrentFilter = 0;
+    // Load last selected filter from settings (by name, defaulting to None)
+    WCHAR szLastFilter[MAX_FILTER_NAME] = L"";
+    ReadINIValue(szIniPath, L"Settings", L"CurrentFilter", szLastFilter, MAX_FILTER_NAME, L"");
+    
+    // Try to find filter by name
+    g_nCurrentFilter = -1; // Default to None
+    if (szLastFilter[0] != L'\0') {
+        for (int i = 0; i < g_nFilterCount; i++) {
+            if (wcscmp(g_Filters[i].szName, szLastFilter) == 0) {
+                g_nCurrentFilter = i;
+                break;
+            }
+        }
     }
+}
+
+//============================================================================
+// SaveCurrentFilter - Save currently selected filter to INI file
+//============================================================================
+void SaveCurrentFilter()
+{
+    // Get path to INI file
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    
+    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    // Determine filter name to save
+    WCHAR szFilterName[MAX_FILTER_NAME] = L"";
+    if (g_nCurrentFilter >= 0 && g_nCurrentFilter < g_nFilterCount) {
+        wcscpy_s(szFilterName, MAX_FILTER_NAME, g_Filters[g_nCurrentFilter].szName);
+    }
+    // If g_nCurrentFilter is -1 or invalid, szFilterName stays empty (means "None")
+    
+    // Use our custom WriteINIValue to save (works with UNC paths)
+    WriteINIValue(szIniPath, L"Settings", L"CurrentFilter", szFilterName);
 }
 
 //============================================================================
@@ -1793,15 +1995,17 @@ void LoadFilters()
 //============================================================================
 void UpdateFilterDisplay()
 {
+    if (!g_hWndStatus) return;
+    
     WCHAR szFilter[128];
     
     if (g_nCurrentFilter >= 0 && g_nCurrentFilter < g_nFilterCount) {
-        swprintf(szFilter, 128, L"[Filter: %s]", g_Filters[g_nCurrentFilter].szName);
+        _snwprintf(szFilter, 128, L"[Filter: %s]", g_Filters[g_nCurrentFilter].szName);
     } else {
         wcscpy(szFilter, L"[Filter: None]");
     }
     
-    SendMessage(g_hWndStatus, SB_SETTEXT, 3, (LPARAM)szFilter);
+    SendMessage(g_hWndStatus, SB_SETTEXT, (WPARAM)1, (LPARAM)szFilter);
 }
 
 //============================================================================
