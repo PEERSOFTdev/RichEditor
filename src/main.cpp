@@ -123,6 +123,29 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
         return 1;
     }
     
+    // Parse command line arguments
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    WCHAR szCommandLineFile[EXTENDED_PATH_MAX] = L"";
+    
+    // If a filename was passed as argument, store it for later
+    if (argc > 1 && argv[1][0] != L'\0') {
+        wcscpy_s(szCommandLineFile, EXTENDED_PATH_MAX, argv[1]);
+    }
+    
+    if (argv) {
+        LocalFree(argv);
+    }
+    
+    // Load RichEdit library
+    if (!InitRichEditLibrary()) {
+        WCHAR szError[256], szTitle[64];
+        LoadStringResource(IDS_RICHEDIT_LOAD_FAILED, szError, 256);
+        LoadStringResource(IDS_ERROR, szTitle, 64);
+        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
+        return 1;
+    }
+    
     // Register window class
     WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
@@ -175,6 +198,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     // Show window
     ShowWindow(g_hWndMain, nCmdShow);
     UpdateWindow(g_hWndMain);
+    
+    // Load file from command line if provided
+    if (szCommandLineFile[0] != L'\0') {
+        LoadTextFile(szCommandLineFile);
+    }
     
     // Message loop
     MSG msg;
