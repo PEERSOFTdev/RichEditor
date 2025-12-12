@@ -673,30 +673,54 @@ void UpdateStatusBar()
         physicalCol = visualCol;
     }
     
-    // Get character at cursor
-    WCHAR charAtCursor = 0;
-    WCHAR charInfo[64] = L"";
+    // Get character at cursor (handle surrogate pairs for characters > U+FFFF)
+    WCHAR charInfo[128] = L"";
     int textLen = GetWindowTextLength(g_hWndEdit);
     
     if (cr.cpMin < textLen) {
-        // Get the character at cursor position
+        // Get up to 2 WCHARs to handle surrogate pairs
         TEXTRANGE tr;
-        WCHAR buffer[2] = {0};
+        WCHAR buffer[3] = {0};
         tr.chrg.cpMin = cr.cpMin;
-        tr.chrg.cpMax = cr.cpMin + 1;
+        tr.chrg.cpMax = cr.cpMin + 2;
         tr.lpstrText = buffer;
-        SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
-        charAtCursor = buffer[0];
+        int charsRead = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
         
-        // Format character info (dec and hex)
-        if (charAtCursor >= 32 && charAtCursor != 127) {
-            // Printable character
-            _snwprintf(charInfo, 64, L"Char: '%lc' (Dec: %d, Hex: 0x%04X)",
-                       charAtCursor, (int)charAtCursor, (unsigned int)charAtCursor);
+        WCHAR firstChar = buffer[0];
+        
+        // Check if this is a high surrogate (U+D800 to U+DBFF)
+        if (firstChar >= 0xD800 && firstChar <= 0xDBFF && charsRead >= 2) {
+            WCHAR secondChar = buffer[1];
+            // Check if followed by low surrogate (U+DC00 to U+DFFF)
+            if (secondChar >= 0xDC00 && secondChar <= 0xDFFF) {
+                // This is a surrogate pair - calculate the full Unicode code point
+                unsigned int codepoint = 0x10000 + 
+                    ((firstChar - 0xD800) << 10) + 
+                    (secondChar - 0xDC00);
+                
+                // Format with the surrogate pair displayed as the character
+                _snwprintf(charInfo, 128, L"Char: '%c%c' (Dec: %u, U+%X)",
+                           firstChar, secondChar, codepoint, codepoint);
+            } else {
+                // High surrogate without low surrogate (invalid)
+                _snwprintf(charInfo, 128, L"Char: (Invalid surrogate: 0x%04X)",
+                           (unsigned int)firstChar);
+            }
+        } else if (firstChar >= 0xDC00 && firstChar <= 0xDFFF) {
+            // Low surrogate without high surrogate (invalid)
+            _snwprintf(charInfo, 128, L"Char: (Invalid surrogate: 0x%04X)",
+                       (unsigned int)firstChar);
         } else {
-            // Control character or non-printable
-            _snwprintf(charInfo, 64, L"Char: (Dec: %d, Hex: 0x%04X)",
-                       (int)charAtCursor, (unsigned int)charAtCursor);
+            // Regular BMP character (U+0000 to U+FFFF, excluding surrogates)
+            if (firstChar >= 32 && firstChar != 127) {
+                // Printable character
+                _snwprintf(charInfo, 128, L"Char: '%lc' (Dec: %u, U+%04X)",
+                           firstChar, (unsigned int)firstChar, (unsigned int)firstChar);
+            } else {
+                // Control character or non-printable
+                _snwprintf(charInfo, 128, L"Char: (Dec: %u, U+%04X)",
+                           (unsigned int)firstChar, (unsigned int)firstChar);
+            }
         }
     } else {
         // Cursor is at end of file or empty file
