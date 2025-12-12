@@ -654,20 +654,9 @@ void UpdateStatusBar()
                    visualLine, visualCol);
     }
     
-    // Format status text
+    // Format status text (without filename - it's already in title bar)
     WCHAR szStatus[512];
-    WCHAR szUntitled[64];
-    
-    LoadStringResource(IDS_UNTITLED, szUntitled, 64);
-    
-    // Display status with filename or Untitled (removed hardcoded filter display)
-    if (g_szFileTitle[0]) {
-        _snwprintf(szStatus, 512, L"%s    %s    %s",
-                   g_szFileTitle, posInfo, charInfo);
-    } else {
-        _snwprintf(szStatus, 512, L"%s    %s    %s",
-                   szUntitled, posInfo, charInfo);
-    }
+    _snwprintf(szStatus, 512, L"%s    %s", posInfo, charInfo);
     
     SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
     
