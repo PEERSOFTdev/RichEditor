@@ -16,9 +16,12 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 
 **Display & Navigation:**
 - Status bar showing:
-  - File name (or "Untitled")
   - Line and column position
-  - Character at cursor (decimal and hex: e.g., 'A' Dec: 65, Hex: 0x0041)
+  - Character at cursor with Unicode support:
+    - BMP characters: `Char: 'A' (Dec: 65, U+0041)`
+    - Emoji/supplementary: `Char: '😀' (Dec: 128512, U+1F600)`
+    - Handles UTF-16 surrogate pairs correctly
+    - Control characters: `Char: (Dec: 10, U+000A)`
   - Current active filter (e.g., "[Filter: Calculator]")
 - Word wrap toggle (Ctrl+W) with dual position display:
   - Visual position: includes soft-wrapped lines
@@ -26,6 +29,11 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
   - Format: `Ln X, Col Y / A,B` when word wrap is on
 - Modified state tracking with asterisk (*) in title bar
 - Proper focus management (returns to editor after dialogs)
+- MRU (Most Recently Used) file list:
+  - Up to 10 recent files in File menu
+  - Numbered 1-10 with keyboard accelerators
+  - Most recent file always at top (File1)
+  - Auto-updates on open/save operations
 
 **Autosave:**
 - Timer-based autosave (default: 1 minute interval)
@@ -119,7 +127,7 @@ make clean
 make CROSS=x86_64-w64-mingw32.static-
 ```
 
-**Output:** `RichEditor.exe` (universal executable with English and Czech, ~752KB)
+**Output:** `RichEditor.exe` (universal executable with English and Czech, ~1.1MB)
 
 ### Localization
 
@@ -204,6 +212,7 @@ The `Makefile` uses:
 **First Run:**
 On first launch, RichEditor automatically creates a default `RichEditor.ini` file with:
 - Sensible default settings (word wrap on, autosave enabled)
+- Empty MRU list (populated as you open/save files)
 - 3 example filters to get you started:
   - Uppercase (Transform category, Replace mode)
   - Lowercase (Transform category, Replace mode)
@@ -222,6 +231,16 @@ WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)
 AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)
 AutosaveIntervalMinutes=1     ; Autosave interval in minutes, 0=disabled (default: 1)
 AutosaveOnFocusLoss=1         ; 1=save when window loses focus, 0=don't (default: 1)
+
+; Most recently used files (auto-managed)
+CurrentFilter=Calculator      ; Last selected filter (auto-saved)
+
+[MRU]
+; Most recently used files (auto-populated, up to 10 entries)
+File1=C:\path\to\most\recent.txt
+File2=C:\path\to\second.txt
+File3=C:\path\to\third.txt
+; ... entries managed automatically by the application
 ```
 
 **Filter Configuration** (`RichEditor.ini`):
@@ -292,13 +311,15 @@ The `Mode=` setting controls how filter output is inserted:
 ### Status Bar Information
 
 The status bar displays (from left to right):
-1. **Filename:** Current file or "Untitled"
-2. **Position:**
+1. **Position:**
    - Word wrap OFF: `Ln X, Col Y`
    - Word wrap ON: `Ln X, Col Y / A,B` (visual / physical)
-3. **Character:** Character at cursor (e.g., `Char: 'A' (Dec: 65, Hex: 0x0041)`)
-   - Shows `Char: EOF` at end of file
-4. **Filter:** Current active filter name (e.g., `[Filter: Calculator]` or `[Filter: None]`)
+2. **Character:** Character at cursor with full Unicode support
+   - BMP characters: `Char: 'A' (Dec: 65, U+0041)`
+   - Emoji (surrogate pairs): `Char: '😀' (Dec: 128512, U+1F600)`
+   - Control characters: `Char: (Dec: 10, U+000A)`
+   - End of file: `Char: EOF`
+3. **Filter:** Current active filter name (e.g., `[Filter: Calculator]` or `[Filter: None]`)
 
 ### Word Wrap Position Display
 
@@ -315,12 +336,12 @@ When word wrap is enabled:
 ```
 RichEditor/
 ├── src/
-│   ├── main.cpp       (~1,750 lines) - Main application logic + filter system
+│   ├── main.cpp       (~2,320 lines) - Main application logic + filter system + MRU
 │   ├── resource.h     - Resource IDs and constants
 │   └── resource.rc    - Universal resources (English + Czech UI)
 ├── Makefile           - Build configuration
 ├── README.md          - This file
-├── RichEditor.ini     - Filter configuration (auto-created on first run)
+├── RichEditor.ini     - Configuration file (auto-created on first run)
 └── .gitignore         - Git ignore patterns
 ```
 
@@ -330,6 +351,7 @@ RichEditor/
 - Message handling: WM_CREATE, WM_SIZE, WM_COMMAND, WM_NOTIFY, WM_TIMER
 - Focus management: WM_SETFOCUS, WM_KILLFOCUS
 - Autosave triggers
+- MRU list management
 
 **RichEdit Control:**
 - Class: `MSFTEDIT_CLASS` (RichEdit 4.1)
@@ -340,7 +362,15 @@ RichEditor/
 
 **Status Bar:**
 - Updated on: `EN_SELCHANGE`, file operations, window activation
-- Multiple parts for different information sections
+- Two parts: main info (left) and filter name (200px right)
+- Unicode surrogate pair support for character display
+
+**MRU System:**
+- Storage: `[MRU]` section in INI file
+- Format: `File1=path` (File1 is most recent)
+- Atomic section writing (replaces entire [MRU] section)
+- Menu integration: Inserts before Exit with separator
+- Keyboard accelerators: 1-9, 0 for quick access
 
 **Autosave Timer:**
 - Timer ID: `IDT_AUTOSAVE` (1)
@@ -402,7 +432,7 @@ RichEditor/
 ## Development Notes
 
 ### Commit History
-The repository contains ~46 clean, incremental commits documenting the development process:
+The repository contains ~48 clean, incremental commits documenting the development process:
 - Initial Win32 window and RichEdit setup
 - File I/O with UTF-8 support
 - Edit menu implementation
@@ -418,6 +448,8 @@ The repository contains ~46 clean, incremental commits documenting the developme
 - Configurable application settings via INI
 - Auto-creation of default INI on first run
 - Filter Help dialog with comprehensive documentation
+- MRU (Most Recently Used) file list implementation
+- Unicode surrogate pair support in status bar
 
 ### Coding Style
 - Hungarian notation for Win32 types (e.g., `hwnd`, `sz`, `g_`)
@@ -428,6 +460,7 @@ The repository contains ~46 clean, incremental commits documenting the developme
 ### Testing Methodology
 - Manual testing with various text files
 - UTF-8 files with Czech characters (multi-byte UTF-8)
+- Unicode characters beyond BMP (emojis, supplementary planes)
 - Long lines for word wrap testing
 - Focus management testing with dialogs
 - Autosave testing with timer and focus loss
@@ -437,6 +470,8 @@ The repository contains ~46 clean, incremental commits documenting the developme
 - INI file auto-creation on first run
 - Settings and filter loading from INI
 - Filter categories and output modes
+- MRU list persistence and menu updates
+- UTF-16 surrogate pair handling in status bar
 
 ## Future Enhancements
 
@@ -450,8 +485,8 @@ The repository contains ~46 clean, incremental commits documenting the developme
 - [ ] Font selection dialog
 - [ ] Print support
 - [ ] Status bar click to jump to line/column
-- [ ] Recent files list (MRU)
 - [ ] Drag & drop file support
+- [ ] Command-line arguments for opening files
 
 ### Low Priority
 - [ ] RTF format support
@@ -486,9 +521,9 @@ Created with focus on:
 
 ---
 
-**Version:** 2.0.0 - Phase 2 Complete (December 2025)  
-**Build:** ~752KB universal executable (includes C++ string library for filter I/O)  
-**Lines of Code:** 1,753 lines (main.cpp), 2,014 total  
+**Version:** 2.1.0 - Phase 2+ Complete (December 2024)  
+**Build:** ~1.1MB universal executable (includes C++ string library)  
+**Lines of Code:** ~2,320 lines (main.cpp), ~2,580 total  
 **Languages:** English + Czech (universal build with automatic selection)  
-**Features:** Full text editing + INI-configurable filter system with categories and output modes  
+**Features:** Full text editing + MRU list + Unicode surrogate pairs + INI-configurable filter system  
 **Configuration:** Auto-created default INI with 3 example filters on first run
