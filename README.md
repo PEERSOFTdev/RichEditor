@@ -9,6 +9,7 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 **Core Editing:**
 - Plain text editing with UTF-8 support (no BOM)
 - File operations: New, Open, Save, Save As
+- Command-line support: Open files via command line or file associations
 - Edit operations: Undo, Redo, Cut, Copy, Paste, Select All
 - Time/Date insertion (F5) with locale-specific formatting
 - Full keyboard shortcut support
@@ -189,6 +190,28 @@ The `Makefile` uses:
 - Required libraries: `comctl32`, `comdlg32`, `ole32`, `oleaut32`, `shell32`
 
 ## Usage
+
+### Command-Line Arguments
+
+RichEditor supports opening files from the command line:
+
+```bash
+# Open a file
+RichEditor.exe "C:\path\to\file.txt"
+
+# Works with UNC paths
+RichEditor.exe "\\server\share\document.txt"
+
+# Works with extended paths
+RichEditor.exe "\\?\C:\very\long\path\to\file.txt"
+```
+
+**Features:**
+- Opens the specified file automatically on startup
+- Works with file associations (double-click .txt files)
+- Supports drag & drop onto the executable
+- Handles Windows, UNC, and extended path formats
+- Prompts to save unsaved changes before opening
 
 ### Keyboard Shortcuts
 | Shortcut | Action |
@@ -432,7 +455,7 @@ RichEditor/
 ## Development Notes
 
 ### Commit History
-The repository contains ~48 clean, incremental commits documenting the development process:
+The repository contains ~49 clean, incremental commits documenting the development process:
 - Initial Win32 window and RichEdit setup
 - File I/O with UTF-8 support
 - Edit menu implementation
@@ -448,6 +471,7 @@ The repository contains ~48 clean, incremental commits documenting the developme
 - Configurable application settings via INI
 - Auto-creation of default INI on first run
 - Filter Help dialog with comprehensive documentation
+- Command-line argument support for opening files
 - MRU (Most Recently Used) file list implementation
 - Unicode surrogate pair support in status bar
 
@@ -486,7 +510,6 @@ The repository contains ~48 clean, incremental commits documenting the developme
 - [ ] Print support
 - [ ] Status bar click to jump to line/column
 - [ ] Drag & drop file support
-- [ ] Command-line arguments for opening files
 
 ### Low Priority
 - [ ] RTF format support
