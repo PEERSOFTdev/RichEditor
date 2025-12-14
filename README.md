@@ -9,10 +9,11 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 **Core Editing:**
 - Plain text editing with UTF-8 support (no BOM)
 - File operations: New, Open, Save, Save As
-- Command-line support: Open files via command line or file associations
+- Command-line argument support (open file on startup)
 - Edit operations: Undo, Redo, Cut, Copy, Paste, Select All
 - Time/Date insertion (F5) with locale-specific formatting
 - Full keyboard shortcut support
+- RichEdit built-in shortcuts (Alt+X for Unicode conversion, Ctrl+Up/Down for paragraph navigation, etc.)
 - Accessibility support for screen readers (MSAA/UI Automation)
 
 **Display & Navigation:**
@@ -35,28 +36,32 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
   - Numbered 1-10 with keyboard accelerators
   - Most recent file always at top (File1)
   - Auto-updates on open/save operations
+  - Supports UNC paths
 
 **Autosave:**
-- Timer-based autosave (default: 1 minute interval)
+- Timer-based autosave (configurable interval, default: 1 minute)
 - Autosave on focus loss (when switching to another application)
 - Only autosaves files with a filename (skips "Untitled")
-- Configurable interval via `g_nAutosaveIntervalMinutes` constant
+- Configurable via INI file (AutosaveEnabled, AutosaveIntervalMinutes, AutosaveOnFocusLoss)
 
 **File Format:**
 - UTF-8 encoding without BOM
 - Handles Windows (CRLF), Unix (LF), and Mac (CR) line endings
 - Default save format: Windows CRLF
+- UNC path support throughout
 
 ### Phase 2 (Complete)
 
 **INI Configuration System:**
 - Auto-creation of default `RichEditor.ini` on first run
-- 3 example filters included (Uppercase, Lowercase, Line Count)
+- 8 example filters included demonstrating all action types
 - All application settings configurable via INI file:
   - Word wrap default state
   - Autosave enable/disable
   - Autosave interval (minutes)
   - Autosave on focus loss behavior
+  - Show menu descriptions (accessibility)
+- Auto-generation of missing settings with defaults (self-documenting)
 - Filter Help dialog (Tools → Filter Help) with comprehensive documentation
 - No need to edit source code for customization
 
@@ -66,12 +71,25 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Process input/output via stdin/stdout pipes with UTF-8 encoding
 - INI-based filter configuration (`RichEditor.ini`)
 - Dynamic categorized menu (Transform, Statistics, Extract, Web)
-- Three output modes: Replace, Append, Below
+- Four action types: Insert (replace/below/append), Display (statusbar/messagebox), Clipboard (copy/append), None (side effects)
+- Context menu integration (right-click to access filters)
+- Configurable context menu appearance (ContextMenu=1, ContextMenuOrder=N)
 - Error handling with stderr capture and display
 - Selected text (or current line if no selection) sent to filter
 - Up to 100 filters supported (Tools → Select Filter menu)
 - Process timeout (30 seconds) to prevent hanging
 - Proper pipe and process handle cleanup
+- INI validation with helpful error messages
+
+**Accessibility Features:**
+- Screen reader friendly menu descriptions (configurable)
+- Filter descriptions announced automatically by NVDA, JAWS, and Windows Narrator
+- `ShowMenuDescriptions` setting (enabled by default for accessibility)
+- When enabled: menu items show "Filter Name: Description"
+- When disabled: menu items show only "Filter Name" for clean appearance
+- No manual status bar querying required
+- Auto-generation of missing INI settings with defaults
+- All settings self-documenting in INI file
 
 **Example Use Cases:**
 - **Calculator**: `2 + 2 + 3` → evaluates to `7`
@@ -196,24 +214,25 @@ The `Makefile` uses:
 RichEditor supports opening files from the command line:
 
 ```bash
-# Open a file
-RichEditor.exe "C:\path\to\file.txt"
-
-# Works with UNC paths
-RichEditor.exe "\\server\share\document.txt"
-
-# Works with extended paths
-RichEditor.exe "\\?\C:\very\long\path\to\file.txt"
+RichEditor.exe [filename]
 ```
 
-**Features:**
-- Opens the specified file automatically on startup
-- Works with file associations (double-click .txt files)
-- Supports drag & drop onto the executable
-- Handles Windows, UNC, and extended path formats
-- Prompts to save unsaved changes before opening
+**Examples:**
+```bash
+RichEditor.exe document.txt
+RichEditor.exe "C:\My Documents\notes.txt"
+RichEditor.exe \\server\share\file.txt    # UNC paths supported
+```
+
+**Behavior:**
+- If a filename is provided, it will be opened on startup
+- Relative paths are resolved from the current working directory
+- Supports UNC network paths
+- File is opened with UTF-8 encoding (no BOM)
 
 ### Keyboard Shortcuts
+
+**Application Shortcuts:**
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+N` | New file |
@@ -228,20 +247,51 @@ RichEditor.exe "\\?\C:\very\long\path\to\file.txt"
 | `Ctrl+W` | Toggle word wrap |
 | `F5` | Insert time/date |
 | `Ctrl+Enter` | Execute current filter |
+| `Context Menu Key` | Open context menu with filters |
 | `Alt+F4` | Exit |
+
+**RichEdit Control Built-in Shortcuts:**
+
+These shortcuts are provided by the Windows RichEdit control and work automatically:
+
+| Shortcut | Action |
+|----------|--------|
+| `Alt+X` | Convert hex to Unicode / Unicode to hex |
+| `Ctrl+Up` | Move to previous paragraph |
+| `Ctrl+Down` | Move to next paragraph |
+| `Ctrl+Left` | Move to previous word |
+| `Ctrl+Right` | Move to next word |
+| `Ctrl+Home` | Move to start of document |
+| `Ctrl+End` | Move to end of document |
+| `Shift+Arrow` | Extend selection |
+| `Ctrl+Shift+Arrow` | Extend selection by word/paragraph |
+| `Home` | Move to start of line |
+| `End` | Move to end of line |
+| `Page Up` | Scroll up one page |
+| `Page Down` | Scroll down one page |
+
+**Unicode Conversion (Alt+X):**
+- Type hex code (e.g., `03B1`) then press `Alt+X` → converts to `α`
+- Place cursor after character and press `Alt+X` → converts to hex code
+- Supports full Unicode range including emoji:
+  - `1F600` + `Alt+X` → 😀
+  - Works with BMP and supplementary planes
 
 ### Configuration
 
 **First Run:**
 On first launch, RichEditor automatically creates a default `RichEditor.ini` file with:
-- Sensible default settings (word wrap on, autosave enabled)
+- Sensible default settings (word wrap on, autosave enabled, menu descriptions on)
 - Empty MRU list (populated as you open/save files)
-- 3 example filters to get you started:
-  - Uppercase (Transform category, Replace mode)
-  - Lowercase (Transform category, Replace mode)
-  - Line Count (Statistics category, Append mode)
-
-You can customize this file or replace it with the full 20-filter collection included in the repository.
+- 8 example filters demonstrating all action types:
+  - Uppercase (Transform, Insert/Replace, Context Menu)
+  - Lowercase (Transform, Insert/Replace, Context Menu)
+  - Sort Lines (Transform, Insert/Replace, Context Menu)
+  - Add Line Numbers (Transform, Insert/Below, Context Menu)
+  - Line Count (Statistics, Display/MessageBox)
+  - Word Count (Statistics, Display/StatusBar)
+  - Copy Reversed (Clipboard, Clipboard/Copy)
+  - Speak Text (Utility, None - uses text-to-speech)
 
 **Application Settings** (`RichEditor.ini`):
 
@@ -249,6 +299,9 @@ You can customize this file or replace it with the full 20-filter collection inc
 [Settings]
 ; Editor settings
 WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)
+
+; Accessibility settings
+ShowMenuDescriptions=1        ; 1=show filter descriptions in menus (accessible), 0=names only (default: 1)
 
 ; Autosave settings
 AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)
@@ -266,62 +319,89 @@ File3=C:\path\to\third.txt
 ; ... entries managed automatically by the application
 ```
 
+**Note on Settings:**
+- All settings are automatically written to the INI file with defaults if missing
+- This makes the configuration self-documenting
+- You can always see what settings are available by opening the INI file
+
 **Filter Configuration** (`RichEditor.ini`):
 
 The filter system reads from `RichEditor.ini` in the same directory as the executable. Filters are organized into categories that appear as submenus.
 
 ```ini
 [Filters]
-Count=20
+Count=8
 
 [Filter1]
-Name=Calculator
-Command=powershell -NoProfile -Command "$input | Invoke-Expression"
-Description=Evaluates mathematical expressions
+Name=Uppercase
+Command=powershell -NoProfile -Command "$input | ForEach-Object { $_.ToUpper() }"
+Description=Converts selected text to UPPERCASE letters
 Category=Transform
-Mode=Replace
+Action=insert
+Insert=replace
+ContextMenu=1
+ContextMenuOrder=1
 
-# ... more filters (see included RichEditor.ini for full collection)
+[Filter2]
+Name=Lowercase
+Command=powershell -NoProfile -Command "$input | ForEach-Object { $_.ToLower() }"
+Description=Converts selected text to lowercase letters
+Category=Transform
+Action=insert
+Insert=replace
+ContextMenu=1
+ContextMenuOrder=2
+
+# ... more filters (see auto-generated RichEditor.ini for full collection)
 ```
+
+**Filter Actions:**
+
+Filters use an action-based architecture. The `Action=` setting determines what happens with the output:
+
+- **`Action=insert`** - Modifies the document by inserting filter output
+  - `Insert=replace` - Replaces selected text
+  - `Insert=below` - Inserts output on new line below selection
+  - `Insert=append` - Appends output to end of selection
+
+- **`Action=display`** - Shows output without modifying document
+  - `Display=messagebox` - Shows output in a message box dialog
+  - `Display=statusbar` - Shows output in status bar for 30 seconds
+
+- **`Action=clipboard`** - Copies output to clipboard silently
+  - `Clipboard=copy` - Replaces clipboard contents
+  - `Clipboard=append` - Appends to existing clipboard contents
+
+- **`Action=none`** - Executes command for side effects (e.g., logging, text-to-speech)
+
+**Context Menu Integration:**
+
+- `ContextMenu=1` - Filter appears in right-click context menu
+- `ContextMenu=0` - Filter only in Tools menu (default)
+- `ContextMenuOrder=N` - Sort order in context menu (lower numbers first)
 
 **Filter Categories:**
 
 Filters are automatically organized into submenus based on their `Category=` setting:
 
-- **Transform** - Text manipulation (11 filters)
-  - Uppercase, Lowercase, Title Case
-  - Reverse Lines, Reverse Each Line
-  - Sort Lines, Remove Duplicates
-  - Remove Empty Lines, Trim Whitespace
-  - Number Lines, Calculator
-
-- **Statistics** - Analysis tools (3 filters)
-  - Line Count, Word Count, Character Count
-
-- **Extract** - Data extraction (4 filters)
-  - Extract URLs, Extract Email Addresses
-  - Base64 Encode/Decode
-
-- **Web** - Network operations (2 filters)
-  - Download URL Content, JSON Format
-
-**Filter Output Modes:**
-
-The `Mode=` setting controls how filter output is inserted:
-- `Mode=Replace` - Replaces selected text with output
-- `Mode=Append` - Appends output on same line (no newline)
-- `Mode=Below` - Inserts output below with newline separator (default)
+- **Transform** - Text manipulation
+- **Statistics** - Analysis tools
+- **Clipboard** - Clipboard operations
+- **Utility** - Miscellaneous utilities
 
 **Filter Usage:**
-1. On first run, RichEditor creates `RichEditor.ini` with 3 example filters
-2. Edit the INI file to add more filters or copy the full collection from the repository
-3. Restart RichEditor to load the filters
-4. Click Tools → Filter Help for comprehensive documentation
-5. Navigate to Tools → Select Filter → [Category] → [Filter Name]
-6. Checkmark shows the currently active filter
+1. On first run, RichEditor creates `RichEditor.ini` with 8 example filters demonstrating all action types
+2. Edit the INI file to add more filters
+3. Restart RichEditor to load the filters (or use Tools → Filter Help for documentation)
+4. Navigate to Tools → Select Filter → [Category] → [Filter Name]
+5. Checkmark shows the currently active filter
 7. Select text or place cursor on a line
 8. Press `Ctrl+Enter` to execute the filter
-9. Output behavior depends on the filter's `Mode=` setting (Replace/Append/Below)
+9. Output behavior depends on the filter's `Action=` and action-specific settings:
+   - Insert: Replace/Below/Append
+   - Display: MessageBox/StatusBar
+   - Clipboard: Copy/Append
+   - None: Command executes for side effects only
 
 **Filter Requirements:**
 - Command must read from stdin (pipe input)
@@ -455,7 +535,7 @@ RichEditor/
 ## Development Notes
 
 ### Commit History
-The repository contains ~49 clean, incremental commits documenting the development process:
+The repository contains ~48 clean, incremental commits documenting the development process:
 - Initial Win32 window and RichEdit setup
 - File I/O with UTF-8 support
 - Edit menu implementation
@@ -471,7 +551,6 @@ The repository contains ~49 clean, incremental commits documenting the developme
 - Configurable application settings via INI
 - Auto-creation of default INI on first run
 - Filter Help dialog with comprehensive documentation
-- Command-line argument support for opening files
 - MRU (Most Recently Used) file list implementation
 - Unicode surrogate pair support in status bar
 
@@ -510,6 +589,7 @@ The repository contains ~49 clean, incremental commits documenting the developme
 - [ ] Print support
 - [ ] Status bar click to jump to line/column
 - [ ] Drag & drop file support
+- [ ] Command-line arguments for opening files
 
 ### Low Priority
 - [ ] RTF format support

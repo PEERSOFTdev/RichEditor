@@ -8,6 +8,10 @@
 RichEditor.exe
 main.o
 
+# Auto-generated configuration files
+*.ini
+RichEditor.ini
+
 # Windows shortcuts
 *.lnk
 

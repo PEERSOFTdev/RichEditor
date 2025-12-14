@@ -33,24 +33,45 @@ BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
 UINT g_nAutosaveIntervalMinutes = 1;         // Autosave interval in minutes (0 = disabled)
 BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
+const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar display
+
+// Accessibility settings
+BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menus (for accessibility)
 
 //============================================================================
-// Filter System (Phase 2)
+// Filter System (Phase 2+)
 //============================================================================
 #define MAX_FILTERS 100
 #define MAX_FILTER_NAME 64
 #define MAX_FILTER_COMMAND 512
 #define MAX_FILTER_DESC 256
-#define MAX_FILTER_MODE 16
 #define MAX_FILTER_CATEGORY 32
 
 #define MAX_MRU 10                 // Maximum number of MRU items
 #define ID_FILE_MRU_BASE 5000      // Base ID for MRU menu items (5000-5009)
+#define ID_CONTEXT_FILTER_BASE 6000  // Base ID for context menu filter items (6000-6099)
 
-enum FilterOutputMode {
-    FILTER_MODE_BELOW = 0,    // Insert output below input (default)
-    FILTER_MODE_REPLACE = 1,  // Replace input with output
-    FILTER_MODE_APPEND = 2    // Append output after input on same line
+enum FilterAction {
+    FILTER_ACTION_INSERT = 0,
+    FILTER_ACTION_DISPLAY = 1,
+    FILTER_ACTION_CLIPBOARD = 2,
+    FILTER_ACTION_NONE = 3
+};
+
+enum FilterInsertMode {
+    FILTER_INSERT_REPLACE = 0,
+    FILTER_INSERT_BELOW = 1,
+    FILTER_INSERT_APPEND = 2
+};
+
+enum FilterDisplayMode {
+    FILTER_DISPLAY_STATUSBAR = 0,
+    FILTER_DISPLAY_MESSAGEBOX = 1
+};
+
+enum FilterClipboardMode {
+    FILTER_CLIPBOARD_COPY = 0,
+    FILTER_CLIPBOARD_APPEND = 1
 };
 
 struct FilterInfo {
@@ -58,12 +79,23 @@ struct FilterInfo {
     WCHAR szCommand[MAX_FILTER_COMMAND];
     WCHAR szDescription[MAX_FILTER_DESC];
     WCHAR szCategory[MAX_FILTER_CATEGORY];
-    FilterOutputMode mode;
+    
+    FilterAction action;
+    FilterInsertMode insertMode;
+    FilterDisplayMode displayMode;
+    FilterClipboardMode clipboardMode;
+    
+    BOOL bContextMenu;
+    int nContextMenuOrder;
 };
 
 FilterInfo g_Filters[MAX_FILTERS];
 int g_nFilterCount = 0;
 int g_nCurrentFilter = -1;  // -1 = no filter selected, 0-99 = filter index
+
+// Status bar filter display
+WCHAR g_szFilterStatusBarText[512] = L"";
+BOOL g_bFilterStatusBarActive = FALSE;
 
 // MRU list
 WCHAR g_MRU[MAX_MRU][EXTENDED_PATH_MAX];
@@ -103,6 +135,7 @@ void ExecuteFilter();
 void CreateDefaultINI();
 void LoadSettings();
 void LoadFilters();
+BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize);
 void SaveCurrentFilter();
 void UpdateFilterDisplay();
 void BuildFilterMenu(HWND hwnd);
@@ -331,6 +364,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 OutputDebugString(L"WM_TIMER: Autosave timer fired\n");
                 DoAutosave();
             }
+            // Handle filter status bar timer (30-second display)
+            else if (wParam == IDT_FILTER_STATUSBAR) {
+                KillTimer(hwnd, IDT_FILTER_STATUSBAR);
+                g_bFilterStatusBarActive = FALSE;
+                UpdateStatusBar();  // Revert to normal display
+            }
             return 0;
             
         case WM_COMMAND:
@@ -427,7 +466,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 LoadTextFile(szMRUPath);
                             }
                         }
-                        // Handle filter selection
+                        // Handle filter selection from Tools menu
                         else if (wmId >= ID_TOOLS_FILTER_BASE && wmId < ID_TOOLS_FILTER_BASE + 100) {
                             int filterIdx = wmId - ID_TOOLS_FILTER_BASE;
                             if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
@@ -435,6 +474,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 SaveCurrentFilter();
                                 BuildFilterMenu(hwnd);
                                 UpdateFilterDisplay();
+                            }
+                        }
+                        // Handle filter execution from context menu
+                        else if (wmId >= ID_CONTEXT_FILTER_BASE && wmId < ID_CONTEXT_FILTER_BASE + 100) {
+                            int filterIdx = wmId - ID_CONTEXT_FILTER_BASE;
+                            if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
+                                g_nCurrentFilter = filterIdx;
+                                ExecuteFilter();
                             }
                         }
                     }
@@ -462,6 +509,101 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
             
+        case WM_CONTEXTMENU:
+            // Handle context menu on RichEdit control
+            if ((HWND)wParam == g_hWndEdit) {
+                // Get cursor position (extract x and y from lParam)
+                int xPos = (short)LOWORD(lParam);
+                int yPos = (short)HIWORD(lParam);
+                
+                // Create context menu
+                HMENU hMenu = CreatePopupMenu();
+                if (hMenu) {
+                    // Add filters with ContextMenu=1, sorted by ContextMenuOrder
+                    // Build array of filters to show in context menu
+                    struct ContextMenuFilter {
+                        int filterIdx;
+                        int order;
+                    };
+                    ContextMenuFilter contextFilters[MAX_FILTERS];
+                    int contextFilterCount = 0;
+                    
+                    for (int i = 0; i < g_nFilterCount; i++) {
+                        if (g_Filters[i].bContextMenu) {
+                            contextFilters[contextFilterCount].filterIdx = i;
+                            contextFilters[contextFilterCount].order = g_Filters[i].nContextMenuOrder;
+                            contextFilterCount++;
+                        }
+                    }
+                    
+                    // Simple bubble sort by order
+                    for (int i = 0; i < contextFilterCount - 1; i++) {
+                        for (int j = 0; j < contextFilterCount - i - 1; j++) {
+                            if (contextFilters[j].order > contextFilters[j + 1].order) {
+                                ContextMenuFilter temp = contextFilters[j];
+                                contextFilters[j] = contextFilters[j + 1];
+                                contextFilters[j + 1] = temp;
+                            }
+                        }
+                    }
+                    
+                    // Add sorted filters to menu with descriptions for accessibility
+                    for (int i = 0; i < contextFilterCount; i++) {
+                        int filterIdx = contextFilters[i].filterIdx;
+                        
+                        // Build accessible menu text: "Name - Description"
+                        WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 4];
+                        if (g_bShowMenuDescriptions && g_Filters[filterIdx].szDescription[0] != L'\0') {
+                            // Build menu text: "Name: Description"
+                            wcscpy(szMenuText, g_Filters[filterIdx].szName);
+                            wcscat(szMenuText, L": ");
+                            wcscat(szMenuText, g_Filters[filterIdx].szDescription);
+                        } else {
+                            // Just show the name
+                            wcscpy(szMenuText, g_Filters[filterIdx].szName);
+                        }
+                        
+                        AppendMenu(hMenu, MF_STRING, 
+                                   ID_CONTEXT_FILTER_BASE + filterIdx, 
+                                   szMenuText);
+                    }
+                    
+                    // Add separator if we added any filters
+                    if (contextFilterCount > 0) {
+                        AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+                    }
+                    
+                    // Add standard edit menu items
+                    // Check if operations are available
+                    BOOL canUndo = SendMessage(g_hWndEdit, EM_CANUNDO, 0, 0);
+                    BOOL canPaste = SendMessage(g_hWndEdit, EM_CANPASTE, 0, 0);
+                    
+                    CHARRANGE cr;
+                    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                    BOOL hasSelection = (cr.cpMin != cr.cpMax);
+                    
+                    AppendMenu(hMenu, canUndo ? MF_STRING : MF_STRING | MF_GRAYED, 
+                               ID_EDIT_UNDO, L"Undo");
+                    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+                    AppendMenu(hMenu, hasSelection ? MF_STRING : MF_STRING | MF_GRAYED, 
+                               ID_EDIT_CUT, L"Cut");
+                    AppendMenu(hMenu, hasSelection ? MF_STRING : MF_STRING | MF_GRAYED, 
+                               ID_EDIT_COPY, L"Copy");
+                    AppendMenu(hMenu, canPaste ? MF_STRING : MF_STRING | MF_GRAYED, 
+                               ID_EDIT_PASTE, L"Paste");
+                    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+                    AppendMenu(hMenu, MF_STRING, ID_EDIT_SELECTALL, L"Select All");
+                    
+                    // Show menu
+                    TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
+                                   xPos, yPos, 0, hwnd, NULL);
+                    
+                    DestroyMenu(hMenu);
+                }
+                return 0;
+            }
+            break;
+            
         case WM_CLOSE:
             // Check for unsaved changes
             if (!PromptSaveChanges()) {
@@ -471,8 +613,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
             
         case WM_DESTROY:
-            // Kill autosave timer
+            // Kill timers
             KillTimer(hwnd, IDT_AUTOSAVE);
+            KillTimer(hwnd, IDT_FILTER_STATUSBAR);
             PostQuitMessage(0);
             return 0;
     }
@@ -741,11 +884,17 @@ void UpdateStatusBar()
                    visualLine, visualCol);
     }
     
-    // Format status text (without filename - it's already in title bar)
-    WCHAR szStatus[512];
-    _snwprintf(szStatus, 512, L"%s    %s", posInfo, charInfo);
-    
-    SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
+    // Check if filter status bar is active
+    if (g_bFilterStatusBarActive) {
+        // Show filter result instead of normal position/char info
+        SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)g_szFilterStatusBarText);
+    } else {
+        // Format status text (without filename - it's already in title bar)
+        WCHAR szStatus[512];
+        _snwprintf(szStatus, 512, L"%s    %s", posInfo, charInfo);
+        
+        SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
+    }
     
     // Update filter display in separate status bar part
     UpdateFilterDisplay();
@@ -1672,6 +1821,283 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
 //============================================================================
 
 //============================================================================
+// RunFilterCommand - Execute filter command and capture output
+// Returns: true on success, false on failure
+//============================================================================
+bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8, 
+                      std::string& outputData, std::string& errorData, DWORD& dwExitCode)
+{
+    // Create pipes for stdin, stdout, stderr
+    HANDLE hStdinRead, hStdinWrite;
+    HANDLE hStdoutRead, hStdoutWrite;
+    HANDLE hStderrRead, hStderrWrite;
+    
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+    
+    if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0) ||
+        !CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0) ||
+        !CreatePipe(&hStderrRead, &hStderrWrite, &sa, 0)) {
+        WCHAR szError[256], szTitle[64];
+        LoadStringResource(IDS_PIPE_CREATE_FAILED, szError, 256);
+        LoadStringResource(IDS_ERROR, szTitle, 64);
+        MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
+        return false;
+    }
+    
+    // Ensure write handles aren't inherited
+    SetHandleInformation(hStdinWrite, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(hStdoutRead, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(hStderrRead, HANDLE_FLAG_INHERIT, 0);
+    
+    // Setup process startup info
+    STARTUPINFO si = {};
+    si.cb = sizeof(STARTUPINFO);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = hStdinRead;
+    si.hStdOutput = hStdoutWrite;
+    si.hStdError = hStderrWrite;
+    
+    PROCESS_INFORMATION pi = {};
+    
+    // Create process
+    WCHAR szCommandCopy[MAX_FILTER_COMMAND + 100];
+    wcscpy(szCommandCopy, pszCommand);
+    
+    if (!CreateProcess(NULL, szCommandCopy, NULL, NULL, TRUE, 
+                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        WCHAR szError[512], szTitle[64];
+        swprintf(szError, 512, L"Failed to execute filter command.\n\nError code: %d", GetLastError());
+        LoadStringResource(IDS_FILTER_EXEC_ERROR, szTitle, 64);
+        MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
+        CloseHandle(hStdinRead);
+        CloseHandle(hStdinWrite);
+        CloseHandle(hStdoutRead);
+        CloseHandle(hStdoutWrite);
+        CloseHandle(hStderrRead);
+        CloseHandle(hStderrWrite);
+        return false;
+    }
+    
+    // Close unused pipe ends
+    CloseHandle(hStdinRead);
+    CloseHandle(hStdoutWrite);
+    CloseHandle(hStderrWrite);
+    
+    // Write input to process stdin
+    DWORD dwWritten;
+    WriteFile(hStdinWrite, pszInputUTF8, strlen(pszInputUTF8), &dwWritten, NULL);
+    CloseHandle(hStdinWrite);
+    
+    // Read stdout
+    char bufferOut[4096];
+    DWORD dwRead;
+    outputData.clear();
+    while (ReadFile(hStdoutRead, bufferOut, sizeof(bufferOut) - 1, &dwRead, NULL) && dwRead > 0) {
+        bufferOut[dwRead] = '\0';
+        outputData.append(bufferOut, dwRead);
+    }
+    CloseHandle(hStdoutRead);
+    
+    // Read stderr
+    char bufferErr[4096];
+    errorData.clear();
+    while (ReadFile(hStderrRead, bufferErr, sizeof(bufferErr) - 1, &dwRead, NULL) && dwRead > 0) {
+        bufferErr[dwRead] = '\0';
+        errorData.append(bufferErr, dwRead);
+    }
+    CloseHandle(hStderrRead);
+    
+    // Wait for process to complete (with timeout)
+    WaitForSingleObject(pi.hProcess, 30000);
+    
+    // Get exit code
+    GetExitCodeProcess(pi.hProcess, &dwExitCode);
+    
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    
+    return true;
+}
+
+//============================================================================
+// ExecuteFilterInsert - Handle insert action (replace, below, append)
+//============================================================================
+void ExecuteFilterInsert(const std::string& outputData, CHARRANGE crSel)
+{
+    if (outputData.empty()) return;
+    
+    LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
+    if (!pszOutput) return;
+    
+    // Strip trailing newline from filter output
+    size_t len = wcslen(pszOutput);
+    if (len > 0 && pszOutput[len - 1] == L'\n') {
+        pszOutput[len - 1] = L'\0';
+        if (len > 1 && pszOutput[len - 2] == L'\r') {
+            pszOutput[len - 2] = L'\0';
+        }
+    }
+    
+    FilterInsertMode insertMode = g_Filters[g_nCurrentFilter].insertMode;
+    
+    if (insertMode == FILTER_INSERT_REPLACE) {
+        // Replace: Replace the selection with output
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+        
+    } else if (insertMode == FILTER_INSERT_APPEND) {
+        // Append: Move to end of selection and append
+        crSel.cpMin = crSel.cpMax;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+        
+    } else {  // FILTER_INSERT_BELOW (default)
+        // Below: Position cursor at end of selection, add newline, then output
+        crSel.cpMin = crSel.cpMax;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+        
+        // Insert newline
+        WCHAR szNewline[] = L"\r\n";
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szNewline);
+        
+        // Insert output
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+    }
+    
+    free(pszOutput);
+}
+
+//============================================================================
+// ExecuteFilterDisplay - Handle display action (statusbar, messagebox)
+//============================================================================
+void ExecuteFilterDisplay(const std::string& outputData)
+{
+    if (outputData.empty()) return;
+    
+    LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
+    if (!pszOutput) return;
+    
+    // Strip trailing newline
+    size_t len = wcslen(pszOutput);
+    if (len > 0 && pszOutput[len - 1] == L'\n') {
+        pszOutput[len - 1] = L'\0';
+        if (len > 1 && pszOutput[len - 2] == L'\r') {
+            pszOutput[len - 2] = L'\0';
+        }
+    }
+    
+    FilterDisplayMode displayMode = g_Filters[g_nCurrentFilter].displayMode;
+    
+    if (displayMode == FILTER_DISPLAY_STATUSBAR) {
+        // Show in status bar for 30 seconds
+        _snwprintf(g_szFilterStatusBarText, 512, L"[%s]: %s", 
+                   g_Filters[g_nCurrentFilter].szName, pszOutput);
+        g_szFilterStatusBarText[511] = L'\0';  // Ensure null termination
+        
+        g_bFilterStatusBarActive = TRUE;
+        UpdateStatusBar();
+        
+        // Start 30-second timer
+        SetTimer(g_hWndMain, IDT_FILTER_STATUSBAR, 30000, NULL);
+        
+    } else {  // FILTER_DISPLAY_MESSAGEBOX
+        // Show in message box
+        WCHAR szTitle[128];
+        _snwprintf(szTitle, 128, L"%s Result", g_Filters[g_nCurrentFilter].szName);
+        szTitle[127] = L'\0';
+        
+        MessageBox(g_hWndMain, pszOutput, szTitle, MB_ICONINFORMATION);
+    }
+    
+    free(pszOutput);
+}
+
+//============================================================================
+// ExecuteFilterClipboard - Handle clipboard action (copy, append)
+//============================================================================
+void ExecuteFilterClipboard(const std::string& outputData)
+{
+    if (outputData.empty()) return;
+    
+    LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
+    if (!pszOutput) return;
+    
+    // Strip trailing newline
+    size_t len = wcslen(pszOutput);
+    if (len > 0 && pszOutput[len - 1] == L'\n') {
+        pszOutput[len - 1] = L'\0';
+        if (len > 1 && pszOutput[len - 2] == L'\r') {
+            pszOutput[len - 2] = L'\0';
+        }
+    }
+    
+    FilterClipboardMode clipboardMode = g_Filters[g_nCurrentFilter].clipboardMode;
+    
+    if (!OpenClipboard(g_hWndMain)) {
+        free(pszOutput);
+        return;
+    }
+    
+    if (clipboardMode == FILTER_CLIPBOARD_APPEND) {
+        // Append mode: Get existing clipboard text and append
+        HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+        if (hData) {
+            LPWSTR pszExisting = (LPWSTR)GlobalLock(hData);
+            if (pszExisting) {
+                size_t existingLen = wcslen(pszExisting);
+                size_t newLen = wcslen(pszOutput);
+                size_t totalLen = existingLen + newLen + 1;
+                
+                LPWSTR pszCombined = (LPWSTR)malloc(totalLen * sizeof(WCHAR));
+                if (pszCombined) {
+                    wcscpy(pszCombined, pszExisting);
+                    wcscat(pszCombined, pszOutput);
+                    
+                    GlobalUnlock(hData);
+                    
+                    // Set combined text to clipboard
+                    HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, totalLen * sizeof(WCHAR));
+                    if (hGlobal) {
+                        LPWSTR pszGlobal = (LPWSTR)GlobalLock(hGlobal);
+                        if (pszGlobal) {
+                            wcscpy(pszGlobal, pszCombined);
+                            GlobalUnlock(hGlobal);
+                            
+                            EmptyClipboard();
+                            SetClipboardData(CF_UNICODETEXT, hGlobal);
+                        }
+                    }
+                    
+                    free(pszCombined);
+                } else {
+                    GlobalUnlock(hData);
+                }
+            }
+        }
+    } else {  // FILTER_CLIPBOARD_COPY
+        // Copy mode: Replace clipboard contents
+        size_t textLen = wcslen(pszOutput) + 1;
+        HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, textLen * sizeof(WCHAR));
+        if (hGlobal) {
+            LPWSTR pszGlobal = (LPWSTR)GlobalLock(hGlobal);
+            if (pszGlobal) {
+                wcscpy(pszGlobal, pszOutput);
+                GlobalUnlock(hGlobal);
+                
+                EmptyClipboard();
+                SetClipboardData(CF_UNICODETEXT, hGlobal);
+            }
+        }
+    }
+    
+    CloseClipboard();
+    free(pszOutput);
+}
+
+//============================================================================
 // ExecuteFilter - Execute current filter on selected text or current line
 //============================================================================
 void ExecuteFilter()
@@ -1728,103 +2154,17 @@ void ExecuteFilter()
     free(pszInput);
     if (!pszInputUTF8) return;
     
-    // Create pipes for stdin, stdout, stderr
-    HANDLE hStdinRead, hStdinWrite;
-    HANDLE hStdoutRead, hStdoutWrite;
-    HANDLE hStderrRead, hStderrWrite;
-    
-    SECURITY_ATTRIBUTES sa;
-    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-    sa.bInheritHandle = TRUE;
-    sa.lpSecurityDescriptor = NULL;
-    
-    if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0) ||
-        !CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0) ||
-        !CreatePipe(&hStderrRead, &hStderrWrite, &sa, 0)) {
-        WCHAR szError[256], szTitle[64];
-        LoadStringResource(IDS_PIPE_CREATE_FAILED, szError, 256);
-        LoadStringResource(IDS_ERROR, szTitle, 64);
-        MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
-        free(pszInputUTF8);
-        return;
-    }
-    
-    // Ensure write handles aren't inherited
-    SetHandleInformation(hStdinWrite, HANDLE_FLAG_INHERIT, 0);
-    SetHandleInformation(hStdoutRead, HANDLE_FLAG_INHERIT, 0);
-    SetHandleInformation(hStderrRead, HANDLE_FLAG_INHERIT, 0);
-    
-    // Setup process startup info
-    STARTUPINFO si = {};
-    si.cb = sizeof(STARTUPINFO);
-    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    si.hStdInput = hStdinRead;
-    si.hStdOutput = hStdoutWrite;
-    si.hStdError = hStderrWrite;
-    
-    PROCESS_INFORMATION pi = {};
-    
-    // Create process
-    WCHAR szCommand[MAX_FILTER_COMMAND + 100];
-    wcscpy(szCommand, g_Filters[g_nCurrentFilter].szCommand);
-    
-    if (!CreateProcess(NULL, szCommand, NULL, NULL, TRUE, 
-                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WCHAR szError[512], szTitle[64];
-        swprintf(szError, 512, L"Failed to execute filter:\n%s\n\nError code: %d",
-                 g_Filters[g_nCurrentFilter].szName, GetLastError());
-        LoadStringResource(IDS_FILTER_EXEC_ERROR, szTitle, 64);
-        MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
-        CloseHandle(hStdinRead);
-        CloseHandle(hStdinWrite);
-        CloseHandle(hStdoutRead);
-        CloseHandle(hStdoutWrite);
-        CloseHandle(hStderrRead);
-        CloseHandle(hStderrWrite);
-        free(pszInputUTF8);
-        return;
-    }
-    
-    // Close unused pipe ends
-    CloseHandle(hStdinRead);
-    CloseHandle(hStdoutWrite);
-    CloseHandle(hStderrWrite);
-    
-    // Write input to process stdin
-    DWORD dwWritten;
-    WriteFile(hStdinWrite, pszInputUTF8, strlen(pszInputUTF8), &dwWritten, NULL);
-    CloseHandle(hStdinWrite);
-    free(pszInputUTF8);
-    
-    // Read stdout
-    char bufferOut[4096];
-    DWORD dwRead;
-    std::string outputData;
-    while (ReadFile(hStdoutRead, bufferOut, sizeof(bufferOut) - 1, &dwRead, NULL) && dwRead > 0) {
-        bufferOut[dwRead] = '\0';
-        outputData.append(bufferOut, dwRead);
-    }
-    CloseHandle(hStdoutRead);
-    
-    // Read stderr
-    char bufferErr[4096];
-    std::string errorData;
-    while (ReadFile(hStderrRead, bufferErr, sizeof(bufferErr) - 1, &dwRead, NULL) && dwRead > 0) {
-        bufferErr[dwRead] = '\0';
-        errorData.append(bufferErr, dwRead);
-    }
-    CloseHandle(hStderrRead);
-    
-    // Wait for process to complete (with timeout)
-    WaitForSingleObject(pi.hProcess, 30000);
-    
-    // Get exit code
+    // Run the filter command
+    std::string outputData, errorData;
     DWORD dwExitCode;
-    GetExitCodeProcess(pi.hProcess, &dwExitCode);
     
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
+    if (!RunFilterCommand(g_Filters[g_nCurrentFilter].szCommand, pszInputUTF8, 
+                          outputData, errorData, dwExitCode)) {
+        free(pszInputUTF8);
+        return;
+    }
+    
+    free(pszInputUTF8);
     
     // Show errors if any
     if (!errorData.empty()) {
@@ -1838,49 +2178,29 @@ void ExecuteFilter()
         }
     }
     
-    // Insert output after selection if we have output
-    if (!outputData.empty()) {
-        LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
-        if (pszOutput) {
-            // Strip trailing newline from filter output
-            // Many filters add a trailing newline - remove it so user controls formatting
-            size_t len = wcslen(pszOutput);
-            if (len > 0 && pszOutput[len - 1] == L'\n') {
-                pszOutput[len - 1] = L'\0';
-                if (len > 1 && pszOutput[len - 2] == L'\r') {
-                    pszOutput[len - 2] = L'\0';
-                }
-            }
+    // Dispatch based on action type
+    FilterAction action = g_Filters[g_nCurrentFilter].action;
+    
+    switch (action) {
+        case FILTER_ACTION_INSERT:
+            ExecuteFilterInsert(outputData, crSel);
+            break;
             
-            // Get the output mode for current filter
-            FilterOutputMode mode = g_Filters[g_nCurrentFilter].mode;
+        case FILTER_ACTION_DISPLAY:
+            ExecuteFilterDisplay(outputData);
+            break;
             
-            if (mode == FILTER_MODE_REPLACE) {
-                // Replace: Replace the selection with output
-                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
-                
-            } else if (mode == FILTER_MODE_APPEND) {
-                // Append: Move to end of selection and append
-                crSel.cpMin = crSel.cpMax;
-                SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
-                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
-                
-            } else {  // FILTER_MODE_BELOW (default)
-                // Below: Position cursor at end of selection, add newline, then output
-                crSel.cpMin = crSel.cpMax;
-                SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
-                
-                // Insert newline
-                WCHAR szNewline[] = L"\r\n";
-                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szNewline);
-                
-                // Insert output
-                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
-            }
+        case FILTER_ACTION_CLIPBOARD:
+            ExecuteFilterClipboard(outputData);
+            break;
             
-            free(pszOutput);
-        }
-    } else if (dwExitCode != 0) {
+        case FILTER_ACTION_NONE:
+            // Do nothing with output - command was run for side effects
+            break;
+    }
+    
+    // Handle case where filter produced no output and exited with error
+    if (outputData.empty() && dwExitCode != 0 && action == FILTER_ACTION_INSERT) {
         WCHAR szMsg[256], szTitle[64];
         swprintf(szMsg, 256, L"Filter completed with exit code: %d\nNo output produced.", dwExitCode);
         LoadStringResource(IDS_FILTER_RESULT, szTitle, 64);
@@ -1931,29 +2251,112 @@ void CreateDefaultINI()
         "AutosaveIntervalMinutes=1     ; Autosave interval in minutes, 0=disabled (default: 1)\r\n"
         "AutosaveOnFocusLoss=1         ; 1=save when window loses focus, 0=don't (default: 1)\r\n"
         "\r\n"
+        "; Accessibility settings\r\n"
+        "ShowMenuDescriptions=1        ; 1=show descriptions in menus (accessible), 0=names only (default: 1)\r\n"
+        "\r\n"
+        "; Filter System\r\n"
+        "; Filters transform text using external commands\r\n"
+        "; Action types: insert, display, clipboard, none\r\n"
+        "; Insert modes: replace, below, append\r\n"
+        "; Display modes: statusbar, messagebox\r\n"
+        "; Clipboard modes: copy, append\r\n"
+        "; ContextMenu: 1=show in right-click menu, 0=Tools menu only\r\n"
+        "; ContextMenuOrder: Sort order in context menu (lower numbers first)\r\n"
+        "\r\n"
         "[Filters]\r\n"
-        "Count=3\r\n"
+        "Count=8\r\n"
+        "\r\n"
+        "; === INSERT ACTION EXAMPLES ===\r\n"
+        "; Filters that modify the document\r\n"
         "\r\n"
         "[Filter1]\r\n"
         "Name=Uppercase\r\n"
         "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToUpper() }\"\r\n"
-        "Description=Converts text to UPPERCASE\r\n"
+        "Description=Converts selected text to UPPERCASE letters\r\n"
         "Category=Transform\r\n"
-        "Mode=Replace\r\n"
+        "Action=insert\r\n"
+        "Insert=replace\r\n"
+        "ContextMenu=1\r\n"
+        "ContextMenuOrder=1\r\n"
         "\r\n"
         "[Filter2]\r\n"
         "Name=Lowercase\r\n"
         "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToLower() }\"\r\n"
-        "Description=Converts text to lowercase\r\n"
+        "Description=Converts selected text to lowercase letters\r\n"
         "Category=Transform\r\n"
-        "Mode=Replace\r\n"
+        "Action=insert\r\n"
+        "Insert=replace\r\n"
+        "ContextMenu=1\r\n"
+        "ContextMenuOrder=2\r\n"
         "\r\n"
         "[Filter3]\r\n"
+        "Name=Sort Lines\r\n"
+        "Command=powershell -NoProfile -Command \"$input -split '\\r?\\n' | Sort-Object | Out-String\"\r\n"
+        "Description=Sorts selected lines alphabetically\r\n"
+        "Category=Transform\r\n"
+        "Action=insert\r\n"
+        "Insert=replace\r\n"
+        "ContextMenu=1\r\n"
+        "ContextMenuOrder=3\r\n"
+        "\r\n"
+        "[Filter4]\r\n"
+        "Name=Add Line Numbers\r\n"
+        "Command=powershell -NoProfile -Command \"$i=1; $input -split '\\r?\\n' | ForEach-Object { \\\"{0,4}: {1}\\\" -f $i++,$_ } | Out-String\"\r\n"
+        "Description=Inserts line numbers before each line\r\n"
+        "Category=Transform\r\n"
+        "Action=insert\r\n"
+        "Insert=below\r\n"
+        "ContextMenu=1\r\n"
+        "ContextMenuOrder=4\r\n"
+        "\r\n"
+        "; === DISPLAY ACTION EXAMPLES ===\r\n"
+        "; Filters that show information without modifying the document\r\n"
+        "\r\n"
+        "[Filter5]\r\n"
         "Name=Line Count\r\n"
         "Command=powershell -NoProfile -Command \"($input | Measure-Object -Line).Lines\"\r\n"
-        "Description=Counts the number of lines\r\n"
+        "Description=Displays the number of lines in selected text\r\n"
         "Category=Statistics\r\n"
-        "Mode=Append\r\n";
+        "Action=display\r\n"
+        "Display=messagebox\r\n"
+        "ContextMenu=0\r\n"
+        "ContextMenuOrder=999\r\n"
+        "\r\n"
+        "[Filter6]\r\n"
+        "Name=Word Count\r\n"
+        "Command=powershell -NoProfile -Command \"($input -split '\\s+' | Where-Object {$_ -ne ''} | Measure-Object).Count\"\r\n"
+        "Description=Shows word count in status bar for 30 seconds\r\n"
+        "Category=Statistics\r\n"
+        "Action=display\r\n"
+        "Display=statusbar\r\n"
+        "ContextMenu=0\r\n"
+        "ContextMenuOrder=999\r\n"
+        "\r\n"
+        "; === CLIPBOARD ACTION EXAMPLES ===\r\n"
+        "; Filters that copy results to clipboard silently\r\n"
+        "\r\n"
+        "[Filter7]\r\n"
+        "Name=Copy Reversed\r\n"
+        "Command=powershell -NoProfile -Command \"$text=$input; -join ($text.ToCharArray() | Sort-Object {Get-Random})\"\r\n"
+        "Description=Reverses text and copies result to clipboard\r\n"
+        "Category=Clipboard\r\n"
+        "Action=clipboard\r\n"
+        "Clipboard=copy\r\n"
+        "ContextMenu=0\r\n"
+        "ContextMenuOrder=999\r\n"
+        "\r\n"
+        "; === NONE ACTION EXAMPLE ===\r\n"
+        "; Filters that execute commands for side effects (no output used)\r\n"
+        "\r\n"
+        "[Filter8]\r\n"
+        "Name=Speak Text\r\n"
+        "Command=powershell -NoProfile -Command \"Add-Type -AssemblyName System.Speech; $synth=New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Speak($input); $synth.Dispose()\"\r\n"
+        "Description=Uses text-to-speech to read selected text aloud\r\n"
+        "Category=Utility\r\n"
+        "Action=none\r\n"
+        "ContextMenu=0\r\n"
+        "ContextMenuOrder=999\r\n";
+    
     
     WriteFile(hFile, szDefaultINI, strlen(szDefaultINI), &dwWritten, NULL);
     CloseHandle(hFile);
@@ -1975,10 +2378,55 @@ void LoadSettings()
     }
     
     // Load settings from [Settings] section using direct file reading
-    g_bWordWrap = ReadINIInt(szIniPath, L"Settings", L"WordWrap", 1);
-    g_bAutosaveEnabled = ReadINIInt(szIniPath, L"Settings", L"AutosaveEnabled", 1);
-    g_nAutosaveIntervalMinutes = ReadINIInt(szIniPath, L"Settings", L"AutosaveIntervalMinutes", 1);
-    g_bAutosaveOnFocusLoss = ReadINIInt(szIniPath, L"Settings", L"AutosaveOnFocusLoss", 1);
+    // Also ensure each setting exists in the INI file with its default value
+    
+    // Check if settings exist; if not, write defaults
+    WCHAR szValue[256];
+    
+    // WordWrap
+    ReadINIValue(szIniPath, L"Settings", L"WordWrap", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"WordWrap", L"1");
+        g_bWordWrap = TRUE;
+    } else {
+        g_bWordWrap = ReadINIInt(szIniPath, L"Settings", L"WordWrap", 1);
+    }
+    
+    // AutosaveEnabled
+    ReadINIValue(szIniPath, L"Settings", L"AutosaveEnabled", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"AutosaveEnabled", L"1");
+        g_bAutosaveEnabled = TRUE;
+    } else {
+        g_bAutosaveEnabled = ReadINIInt(szIniPath, L"Settings", L"AutosaveEnabled", 1);
+    }
+    
+    // AutosaveIntervalMinutes
+    ReadINIValue(szIniPath, L"Settings", L"AutosaveIntervalMinutes", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"AutosaveIntervalMinutes", L"1");
+        g_nAutosaveIntervalMinutes = 1;
+    } else {
+        g_nAutosaveIntervalMinutes = ReadINIInt(szIniPath, L"Settings", L"AutosaveIntervalMinutes", 1);
+    }
+    
+    // AutosaveOnFocusLoss
+    ReadINIValue(szIniPath, L"Settings", L"AutosaveOnFocusLoss", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"AutosaveOnFocusLoss", L"1");
+        g_bAutosaveOnFocusLoss = TRUE;
+    } else {
+        g_bAutosaveOnFocusLoss = ReadINIInt(szIniPath, L"Settings", L"AutosaveOnFocusLoss", 1);
+    }
+    
+    // ShowMenuDescriptions
+    ReadINIValue(szIniPath, L"Settings", L"ShowMenuDescriptions", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"ShowMenuDescriptions", L"1");
+        g_bShowMenuDescriptions = TRUE;
+    } else {
+        g_bShowMenuDescriptions = ReadINIInt(szIniPath, L"Settings", L"ShowMenuDescriptions", 1);
+    }
 }
 
 //============================================================================
@@ -2016,18 +2464,108 @@ void LoadFilters()
         ReadINIValue(szIniPath, szSection, L"Category", 
                      g_Filters[i].szCategory, MAX_FILTER_CATEGORY, L"General");
         
-        // Read output mode (Below, Replace, Append)
-        WCHAR szMode[MAX_FILTER_MODE];
-        ReadINIValue(szIniPath, szSection, L"Mode", 
-                     szMode, MAX_FILTER_MODE, L"Below");
+        // Read action type (insert, display, clipboard, none)
+        WCHAR szAction[32];
+        ReadINIValue(szIniPath, szSection, L"Action", 
+                     szAction, 32, L"insert");
         
-        // Parse mode string
-        if (_wcsicmp(szMode, L"Replace") == 0) {
-            g_Filters[i].mode = FILTER_MODE_REPLACE;
-        } else if (_wcsicmp(szMode, L"Append") == 0) {
-            g_Filters[i].mode = FILTER_MODE_APPEND;
+        // Parse action and read action-specific parameters
+        if (_wcsicmp(szAction, L"display") == 0) {
+            g_Filters[i].action = FILTER_ACTION_DISPLAY;
+            
+            // Read Display parameter (statusbar or messagebox)
+            WCHAR szDisplay[32];
+            ReadINIValue(szIniPath, szSection, L"Display", 
+                         szDisplay, 32, L"messagebox");
+            
+            if (_wcsicmp(szDisplay, L"statusbar") == 0) {
+                g_Filters[i].displayMode = FILTER_DISPLAY_STATUSBAR;
+            } else if (_wcsicmp(szDisplay, L"messagebox") == 0) {
+                g_Filters[i].displayMode = FILTER_DISPLAY_MESSAGEBOX;
+            } else {
+                // Invalid value - show warning and use default
+                WCHAR szWarning[256];
+                swprintf(szWarning, 256, 
+                         L"Filter %d: Invalid Display value '%s', using 'messagebox'. Valid values: statusbar, messagebox", 
+                         i + 1, szDisplay);
+                OutputDebugString(szWarning);
+                OutputDebugString(L"\n");
+                g_Filters[i].displayMode = FILTER_DISPLAY_MESSAGEBOX;
+            }
+            
+        } else if (_wcsicmp(szAction, L"clipboard") == 0) {
+            g_Filters[i].action = FILTER_ACTION_CLIPBOARD;
+            
+            // Read Clipboard parameter (copy or append)
+            WCHAR szClipboard[32];
+            ReadINIValue(szIniPath, szSection, L"Clipboard", 
+                         szClipboard, 32, L"copy");
+            
+            if (_wcsicmp(szClipboard, L"append") == 0) {
+                g_Filters[i].clipboardMode = FILTER_CLIPBOARD_APPEND;
+            } else if (_wcsicmp(szClipboard, L"copy") == 0) {
+                g_Filters[i].clipboardMode = FILTER_CLIPBOARD_COPY;
+            } else {
+                // Invalid value - show warning and use default
+                WCHAR szWarning[256];
+                swprintf(szWarning, 256, 
+                         L"Filter %d: Invalid Clipboard value '%s', using 'copy'. Valid values: copy, append", 
+                         i + 1, szClipboard);
+                OutputDebugString(szWarning);
+                OutputDebugString(L"\n");
+                g_Filters[i].clipboardMode = FILTER_CLIPBOARD_COPY;
+            }
+            
+        } else if (_wcsicmp(szAction, L"none") == 0) {
+            g_Filters[i].action = FILTER_ACTION_NONE;
+            
         } else {
-            g_Filters[i].mode = FILTER_MODE_BELOW;  // Default
+            // Default: insert action
+            g_Filters[i].action = FILTER_ACTION_INSERT;
+            
+            // Read Insert parameter (replace, below, or append)
+            WCHAR szInsert[32];
+            ReadINIValue(szIniPath, szSection, L"Insert", 
+                         szInsert, 32, L"below");
+            
+            if (_wcsicmp(szInsert, L"replace") == 0) {
+                g_Filters[i].insertMode = FILTER_INSERT_REPLACE;
+            } else if (_wcsicmp(szInsert, L"append") == 0) {
+                g_Filters[i].insertMode = FILTER_INSERT_APPEND;
+            } else if (_wcsicmp(szInsert, L"below") == 0) {
+                g_Filters[i].insertMode = FILTER_INSERT_BELOW;
+            } else {
+                // Invalid value - show warning and use default
+                WCHAR szWarning[256];
+                swprintf(szWarning, 256, 
+                         L"Filter %d: Invalid Insert value '%s', using 'below'. Valid values: replace, below, append", 
+                         i + 1, szInsert);
+                OutputDebugString(szWarning);
+                OutputDebugString(L"\n");
+                g_Filters[i].insertMode = FILTER_INSERT_BELOW;
+            }
+        }
+        
+        // Read context menu settings
+        g_Filters[i].bContextMenu = (ReadINIInt(szIniPath, szSection, L"ContextMenu", 0) != 0);
+        g_Filters[i].nContextMenuOrder = ReadINIInt(szIniPath, szSection, L"ContextMenuOrder", 999);
+        
+        // Validate filter configuration
+        WCHAR szValidationError[512];
+        if (!ValidateFilter(&g_Filters[i], i, szValidationError, 512)) {
+            // Show error message for invalid filters
+            WCHAR szTitle[64];
+            LoadStringResource(IDS_ERROR, szTitle, 64);
+            MessageBox(g_hWndMain, szValidationError, szTitle, MB_ICONWARNING | MB_OK);
+            
+            // Skip this filter (mark as invalid by clearing name)
+            g_Filters[i].szName[0] = L'\0';
+        } else if (wcslen(szValidationError) > 0) {
+            // Show warning message (e.g., missing description)
+            // We'll log this to debug output but not show a dialog for warnings
+            OutputDebugString(L"Filter warning: ");
+            OutputDebugString(szValidationError);
+            OutputDebugString(L"\n");
         }
     }
     
@@ -2045,6 +2583,62 @@ void LoadFilters()
             }
         }
     }
+}
+
+//============================================================================
+// ValidateFilter - Validates a filter configuration and returns error message
+//============================================================================
+BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize)
+{
+    // Check if filter has a name
+    if (filter->szName[0] == L'\0') {
+        swprintf(errorMsg, errorMsgSize, 
+                 L"Filter %d: Missing required 'Name' parameter", filterIndex + 1);
+        return FALSE;
+    }
+    
+    // Check if filter has a command
+    if (filter->szCommand[0] == L'\0') {
+        swprintf(errorMsg, errorMsgSize, 
+                 L"Filter %d (%s): Missing required 'Command' parameter", 
+                 filterIndex + 1, filter->szName);
+        return FALSE;
+    }
+    
+    // Validate action-specific parameters
+    switch (filter->action) {
+        case FILTER_ACTION_INSERT:
+            // Insert mode should be valid (already validated during parsing)
+            break;
+            
+        case FILTER_ACTION_DISPLAY:
+            // Display mode should be valid (already validated during parsing)
+            break;
+            
+        case FILTER_ACTION_CLIPBOARD:
+            // Clipboard mode should be valid (already validated during parsing)
+            break;
+            
+        case FILTER_ACTION_NONE:
+            // No additional validation needed
+            break;
+            
+        default:
+            swprintf(errorMsg, errorMsgSize, 
+                     L"Filter %d (%s): Invalid action type", 
+                     filterIndex + 1, filter->szName);
+            return FALSE;
+    }
+    
+    // Warn if description is missing (not an error, but recommended for accessibility)
+    if (filter->szDescription[0] == L'\0') {
+        swprintf(errorMsg, errorMsgSize, 
+                 L"Filter %d (%s): Warning - Missing 'Description' parameter (recommended for accessibility)", 
+                 filterIndex + 1, filter->szName);
+        // Return TRUE anyway - this is just a warning
+    }
+    
+    return TRUE;
 }
 
 //============================================================================
@@ -2442,8 +3036,21 @@ void BuildFilterMenu(HWND hwnd)
                 if (filterIndex == g_nCurrentFilter) {
                     flags |= MF_CHECKED;
                 }
+                
+                // Build accessible menu text: "Name - Description"
+                WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 4];
+                if (g_bShowMenuDescriptions && g_Filters[filterIndex].szDescription[0] != L'\0') {
+                    // Build menu text: "Name: Description"
+                    wcscpy(szMenuText, g_Filters[filterIndex].szName);
+                    wcscat(szMenuText, L": ");
+                    wcscat(szMenuText, g_Filters[filterIndex].szDescription);
+                } else {
+                    // Just show the name
+                    wcscpy(szMenuText, g_Filters[filterIndex].szName);
+                }
+                
                 AppendMenu(hCategoryMenu, flags, ID_TOOLS_FILTER_BASE + filterIndex, 
-                           g_Filters[filterIndex].szName);
+                           szMenuText);
             }
             
             // Add category submenu to main filter menu
