@@ -69,7 +69,7 @@
 #define IDS_ERROR_WRITE_FILE            2023
 #define IDS_ERROR_PREFIX                2024
 
-// Filter execution strings (2025-2035)
+// Filter execution strings (2025-2034)
 #define IDS_NO_FILTER_SELECTED          2025
 #define IDS_NO_FILTER_SELECTED_MSG      2026
 #define IDS_FILTER_EXEC_FAILED          2027
@@ -80,5 +80,17 @@
 #define IDS_CONTEXT_COPY                2032
 #define IDS_CONTEXT_PASTE               2033
 #define IDS_CONTEXT_SELECT_ALL          2034
+
+// File dialog strings (2035-2036)
+#define IDS_FILE_FILTER_TEXT            2035
+#define IDS_FILE_FILTER_ALL             2036
+
+// Status bar strings (2037-2044)
+#define IDS_STATUS_LINE                 2037
+#define IDS_STATUS_COLUMN               2038
+#define IDS_STATUS_CHAR                 2039
+#define IDS_STATUS_DEC                  2040
+#define IDS_STATUS_EOF                  2041
+#define IDS_STATUS_INVALID_SURROGATE    2042
 
 #endif // RESOURCE_H

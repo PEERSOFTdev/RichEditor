@@ -171,6 +171,14 @@ BEGIN
     IDS_CONTEXT_COPY             "Copy"
     IDS_CONTEXT_PASTE            "Paste"
     IDS_CONTEXT_SELECT_ALL       "Select All"
+    IDS_FILE_FILTER_TEXT         "Text Files (*.txt)"
+    IDS_FILE_FILTER_ALL          "All Files (*.*)"
+    IDS_STATUS_LINE              "Ln"
+    IDS_STATUS_COLUMN            "Col"
+    IDS_STATUS_CHAR              "Char"
+    IDS_STATUS_DEC               "Dec"
+    IDS_STATUS_EOF               "EOF"
+    IDS_STATUS_INVALID_SURROGATE "Invalid surrogate"
 END
 
 // ============================================================================
@@ -295,4 +303,12 @@ BEGIN
     IDS_CONTEXT_COPY             "Kopírovat"
     IDS_CONTEXT_PASTE            "Vložit"
     IDS_CONTEXT_SELECT_ALL       "Vybrat vše"
+    IDS_FILE_FILTER_TEXT         "Textové soubory (*.txt)"
+    IDS_FILE_FILTER_ALL          "Všechny soubory (*.*)"
+    IDS_STATUS_LINE              "Ř"
+    IDS_STATUS_COLUMN            "Sl"
+    IDS_STATUS_CHAR              "Znak"
+    IDS_STATUS_DEC               "Des"
+    IDS_STATUS_EOF               "EOF"
+    IDS_STATUS_INVALID_SURROGATE "Neplatný zástupný znak"
 END

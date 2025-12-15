@@ -854,46 +854,65 @@ void UpdateStatusBar()
                     (secondChar - 0xDC00);
                 
                 // Format with the surrogate pair displayed as the character
-                _snwprintf(charInfo, 128, L"Char: '%c%c' (Dec: %u, U+%X)",
-                           firstChar, secondChar, codepoint, codepoint);
+                WCHAR szChar[32], szDec[32];
+                LoadStringResource(IDS_STATUS_CHAR, szChar, 32);
+                LoadStringResource(IDS_STATUS_DEC, szDec, 32);
+                _snwprintf(charInfo, 128, L"%s: '%c%c' (%s: %u, U+%X)",
+                           szChar, firstChar, secondChar, szDec, codepoint, codepoint);
             } else {
                 // High surrogate without low surrogate (invalid)
-                _snwprintf(charInfo, 128, L"Char: (Invalid surrogate: 0x%04X)",
-                           (unsigned int)firstChar);
+                WCHAR szChar[32], szInvalid[64];
+                LoadStringResource(IDS_STATUS_CHAR, szChar, 32);
+                LoadStringResource(IDS_STATUS_INVALID_SURROGATE, szInvalid, 64);
+                _snwprintf(charInfo, 128, L"%s: (%s: 0x%04X)",
+                           szChar, szInvalid, (unsigned int)firstChar);
             }
         } else if (firstChar >= 0xDC00 && firstChar <= 0xDFFF) {
             // Low surrogate without high surrogate (invalid)
-            _snwprintf(charInfo, 128, L"Char: (Invalid surrogate: 0x%04X)",
-                       (unsigned int)firstChar);
+            WCHAR szChar[32], szInvalid[64];
+            LoadStringResource(IDS_STATUS_CHAR, szChar, 32);
+            LoadStringResource(IDS_STATUS_INVALID_SURROGATE, szInvalid, 64);
+            _snwprintf(charInfo, 128, L"%s: (%s: 0x%04X)",
+                       szChar, szInvalid, (unsigned int)firstChar);
         } else {
             // Regular BMP character (U+0000 to U+FFFF, excluding surrogates)
+            WCHAR szChar[32], szDec[32];
+            LoadStringResource(IDS_STATUS_CHAR, szChar, 32);
+            LoadStringResource(IDS_STATUS_DEC, szDec, 32);
             if (firstChar >= 32 && firstChar != 127) {
                 // Printable character
-                _snwprintf(charInfo, 128, L"Char: '%lc' (Dec: %u, U+%04X)",
-                           firstChar, (unsigned int)firstChar, (unsigned int)firstChar);
+                _snwprintf(charInfo, 128, L"%s: '%lc' (%s: %u, U+%04X)",
+                           szChar, firstChar, szDec, (unsigned int)firstChar, (unsigned int)firstChar);
             } else {
                 // Control character or non-printable
-                _snwprintf(charInfo, 128, L"Char: (Dec: %u, U+%04X)",
-                           (unsigned int)firstChar, (unsigned int)firstChar);
+                _snwprintf(charInfo, 128, L"%s: (%s: %u, U+%04X)",
+                           szChar, szDec, (unsigned int)firstChar, (unsigned int)firstChar);
             }
         }
     } else {
         // Cursor is at end of file or empty file
-        wcscpy(charInfo, L"Char: EOF");
+        WCHAR szChar[32], szEOF[32];
+        LoadStringResource(IDS_STATUS_CHAR, szChar, 32);
+        LoadStringResource(IDS_STATUS_EOF, szEOF, 32);
+        _snwprintf(charInfo, 128, L"%s: %s", szChar, szEOF);
     }
     
     // Format position string
     WCHAR posInfo[128];
+    WCHAR szLn[32], szCol[32];
+    LoadStringResource(IDS_STATUS_LINE, szLn, 32);
+    LoadStringResource(IDS_STATUS_COLUMN, szCol, 32);
+    
     if (g_bWordWrap) {
         // When word wrap is on, always show both visual and physical positions
         // visualLine/visualCol: includes soft wraps (displayed lines)
         // physicalLine/physicalCol: count only hard line breaks
-        _snwprintf(posInfo, 128, L"Ln %d, Col %d / %d,%d",
-                   visualLine, visualCol, physicalLine, physicalCol);
+        _snwprintf(posInfo, 128, L"%s %d, %s %d / %d,%d",
+                   szLn, visualLine, szCol, visualCol, physicalLine, physicalCol);
     } else {
         // When word wrap is off, show only one position
-        _snwprintf(posInfo, 128, L"Ln %d, Col %d",
-                   visualLine, visualCol);
+        _snwprintf(posInfo, 128, L"%s %d, %s %d",
+                   szLn, visualLine, szCol, visualCol);
     }
     
     // Check if filter status bar is active
@@ -1582,11 +1601,29 @@ void FileOpen()
     
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
+    // Build localized filter string: "Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+    WCHAR szFilterText[64], szFilterAll[64];
+    WCHAR szFilter[256];
+    LoadStringResource(IDS_FILE_FILTER_TEXT, szFilterText, 64);
+    LoadStringResource(IDS_FILE_FILTER_ALL, szFilterAll, 64);
+    
+    // Manually build the double-null-terminated filter string
+    int pos = 0;
+    wcscpy(szFilter + pos, szFilterText);
+    pos += wcslen(szFilterText) + 1;
+    wcscpy(szFilter + pos, L"*.txt");
+    pos += wcslen(L"*.txt") + 1;
+    wcscpy(szFilter + pos, szFilterAll);
+    pos += wcslen(szFilterAll) + 1;
+    wcscpy(szFilter + pos, L"*.*");
+    pos += wcslen(L"*.*") + 1;
+    szFilter[pos] = L'\0';  // Double null terminator
+    
     ofn.lStructSize = sizeof(OPENFILENAME);
     ofn.hwndOwner = g_hWndMain;
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = EXTENDED_PATH_MAX;
-    ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFilter = szFilter;
     ofn.nFilterIndex = 1;
     ofn.lpstrInitialDir = szInitialDir;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
@@ -1627,11 +1664,29 @@ BOOL FileSaveAs()
     
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
+    // Build localized filter string
+    WCHAR szFilterText[64], szFilterAll[64];
+    WCHAR szFilter[256];
+    LoadStringResource(IDS_FILE_FILTER_TEXT, szFilterText, 64);
+    LoadStringResource(IDS_FILE_FILTER_ALL, szFilterAll, 64);
+    
+    // Manually build the double-null-terminated filter string
+    int pos = 0;
+    wcscpy(szFilter + pos, szFilterText);
+    pos += wcslen(szFilterText) + 1;
+    wcscpy(szFilter + pos, L"*.txt");
+    pos += wcslen(L"*.txt") + 1;
+    wcscpy(szFilter + pos, szFilterAll);
+    pos += wcslen(szFilterAll) + 1;
+    wcscpy(szFilter + pos, L"*.*");
+    pos += wcslen(L"*.*") + 1;
+    szFilter[pos] = L'\0';  // Double null terminator
+    
     ofn.lStructSize = sizeof(OPENFILENAME);
     ofn.hwndOwner = g_hWndMain;
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = EXTENDED_PATH_MAX;
-    ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFilter = szFilter;
     ofn.nFilterIndex = 1;
     ofn.lpstrInitialDir = szInitialDir;
     ofn.lpstrDefExt = L"txt";
