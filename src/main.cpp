@@ -587,17 +587,24 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
                     BOOL hasSelection = (cr.cpMin != cr.cpMax);
                     
+                    WCHAR szUndo[32], szCut[32], szCopy[32], szPaste[32], szSelectAll[32];
+                    LoadStringResource(IDS_CONTEXT_UNDO, szUndo, 32);
+                    LoadStringResource(IDS_CONTEXT_CUT, szCut, 32);
+                    LoadStringResource(IDS_CONTEXT_COPY, szCopy, 32);
+                    LoadStringResource(IDS_CONTEXT_PASTE, szPaste, 32);
+                    LoadStringResource(IDS_CONTEXT_SELECT_ALL, szSelectAll, 32);
+                    
                     AppendMenu(hMenu, canUndo ? MF_STRING : MF_STRING | MF_GRAYED, 
-                               ID_EDIT_UNDO, L"Undo");
+                               ID_EDIT_UNDO, szUndo);
                     AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
                     AppendMenu(hMenu, hasSelection ? MF_STRING : MF_STRING | MF_GRAYED, 
-                               ID_EDIT_CUT, L"Cut");
+                               ID_EDIT_CUT, szCut);
                     AppendMenu(hMenu, hasSelection ? MF_STRING : MF_STRING | MF_GRAYED, 
-                               ID_EDIT_COPY, L"Copy");
+                               ID_EDIT_COPY, szCopy);
                     AppendMenu(hMenu, canPaste ? MF_STRING : MF_STRING | MF_GRAYED, 
-                               ID_EDIT_PASTE, L"Paste");
+                               ID_EDIT_PASTE, szPaste);
                     AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
-                    AppendMenu(hMenu, MF_STRING, ID_EDIT_SELECTALL, L"Select All");
+                    AppendMenu(hMenu, MF_STRING, ID_EDIT_SELECTALL, szSelectAll);
                     
                     // Show menu
                     TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
@@ -1918,8 +1925,9 @@ bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8,
     
     if (!CreateProcess(NULL, szCommandCopy, NULL, NULL, TRUE, 
                        CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WCHAR szError[512], szTitle[64];
-        swprintf(szError, 512, L"Failed to execute filter command.\n\nError code: %d", GetLastError());
+        WCHAR szError[512], szTitle[64], szTemplate[256];
+        LoadStringResource(IDS_FILTER_EXEC_FAILED, szTemplate, 256);
+        _snwprintf(szError, 512, szTemplate, GetLastError());
         LoadStringResource(IDS_FILTER_EXEC_ERROR, szTitle, 64);
         MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
         CloseHandle(hStdinRead);
@@ -2153,10 +2161,10 @@ void ExecuteFilter()
 {
     // Check if a filter is selected
     if (g_nCurrentFilter < 0 || g_nCurrentFilter >= g_nFilterCount) {
-        MessageBox(g_hWndMain,
-                   L"No filter selected.\n\nUse Tools → Select Filter to choose a filter.",
-                   L"Filter Execution",
-                   MB_ICONEXCLAMATION);
+        WCHAR szMessage[256], szTitle[64];
+        LoadStringResource(IDS_NO_FILTER_SELECTED_MSG, szMessage, 256);
+        LoadStringResource(IDS_NO_FILTER_SELECTED, szTitle, 64);
+        MessageBox(g_hWndMain, szMessage, szTitle, MB_ICONEXCLAMATION);
         return;
     }
     
@@ -2219,8 +2227,9 @@ void ExecuteFilter()
     if (!errorData.empty()) {
         LPWSTR pszError = UTF8ToUTF16(errorData.c_str());
         if (pszError) {
-            WCHAR szMsg[2048], szTitle[64];
-            swprintf(szMsg, 2048, L"Filter stderr output:\n\n%s", pszError);
+            WCHAR szMsg[2048], szTitle[64], szTemplate[256];
+            LoadStringResource(IDS_FILTER_STDERR_OUTPUT, szTemplate, 256);
+            _snwprintf(szMsg, 2048, szTemplate, pszError);
             LoadStringResource(IDS_FILTER_ERROR, szTitle, 64);
             MessageBox(g_hWndMain, szMsg, szTitle, MB_ICONWARNING);
             free(pszError);
@@ -2250,8 +2259,9 @@ void ExecuteFilter()
     
     // Handle case where filter produced no output and exited with error
     if (outputData.empty() && dwExitCode != 0 && action == FILTER_ACTION_INSERT) {
-        WCHAR szMsg[256], szTitle[64];
-        swprintf(szMsg, 256, L"Filter completed with exit code: %d\nNo output produced.", dwExitCode);
+        WCHAR szMsg[256], szTitle[64], szTemplate[256];
+        LoadStringResource(IDS_FILTER_EXIT_CODE, szTemplate, 256);
+        _snwprintf(szMsg, 256, szTemplate, dwExitCode);
         LoadStringResource(IDS_FILTER_RESULT, szTitle, 64);
         MessageBox(g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
     }

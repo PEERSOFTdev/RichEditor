@@ -161,6 +161,16 @@ BEGIN
     IDS_ERROR_CREATE_FILE        "Could not create file"
     IDS_ERROR_WRITE_FILE         "Could not write file"
     IDS_ERROR_PREFIX             "Error"
+    IDS_NO_FILTER_SELECTED       "Filter Execution"
+    IDS_NO_FILTER_SELECTED_MSG   "No filter selected.\n\nUse Tools → Select Filter to choose a filter."
+    IDS_FILTER_EXEC_FAILED       "Failed to execute filter command.\n\nError code: %d"
+    IDS_FILTER_STDERR_OUTPUT     "Filter stderr output:\n\n%s"
+    IDS_FILTER_EXIT_CODE         "Filter completed with exit code: %d\nNo output produced."
+    IDS_CONTEXT_UNDO             "Undo"
+    IDS_CONTEXT_CUT              "Cut"
+    IDS_CONTEXT_COPY             "Copy"
+    IDS_CONTEXT_PASTE            "Paste"
+    IDS_CONTEXT_SELECT_ALL       "Select All"
 END
 
 // ============================================================================
@@ -275,4 +285,14 @@ BEGIN
     IDS_ERROR_CREATE_FILE        "Nelze vytvořit soubor"
     IDS_ERROR_WRITE_FILE         "Nelze zapsat soubor"
     IDS_ERROR_PREFIX             "Chyba"
+    IDS_NO_FILTER_SELECTED       "Spuštění filtru"
+    IDS_NO_FILTER_SELECTED_MSG   "Není vybrán žádný filtr.\n\nPoužijte Nástroje → Vybrat filtr pro výběr filtru."
+    IDS_FILTER_EXEC_FAILED       "Nelze spustit příkaz filtru.\n\nKód chyby: %d"
+    IDS_FILTER_STDERR_OUTPUT     "Chybový výstup filtru:\n\n%s"
+    IDS_FILTER_EXIT_CODE         "Filtr skončil s návratovým kódem: %d\nNebyl vytvořen žádný výstup."
+    IDS_CONTEXT_UNDO             "Zpět"
+    IDS_CONTEXT_CUT              "Vyjmout"
+    IDS_CONTEXT_COPY             "Kopírovat"
+    IDS_CONTEXT_PASTE            "Vložit"
+    IDS_CONTEXT_SELECT_ALL       "Vybrat vše"
 END

@@ -69,4 +69,16 @@
 #define IDS_ERROR_WRITE_FILE            2023
 #define IDS_ERROR_PREFIX                2024
 
+// Filter execution strings (2025-2035)
+#define IDS_NO_FILTER_SELECTED          2025
+#define IDS_NO_FILTER_SELECTED_MSG      2026
+#define IDS_FILTER_EXEC_FAILED          2027
+#define IDS_FILTER_STDERR_OUTPUT        2028
+#define IDS_FILTER_EXIT_CODE            2029
+#define IDS_CONTEXT_UNDO                2030
+#define IDS_CONTEXT_CUT                 2031
+#define IDS_CONTEXT_COPY                2032
+#define IDS_CONTEXT_PASTE               2033
+#define IDS_CONTEXT_SELECT_ALL          2034
+
 #endif // RESOURCE_H
