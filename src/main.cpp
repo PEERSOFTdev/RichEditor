@@ -80,6 +80,10 @@ struct FilterInfo {
     WCHAR szDescription[MAX_FILTER_DESC];
     WCHAR szCategory[MAX_FILTER_CATEGORY];
     
+    // Localized display strings (for UI only, not for identification)
+    WCHAR szLocalizedName[MAX_FILTER_NAME];
+    WCHAR szLocalizedDescription[MAX_FILTER_DESC];
+    
     FilterAction action;
     FilterInsertMode insertMode;
     FilterDisplayMode displayMode;
@@ -145,6 +149,7 @@ void LoadMRU();
 void SaveMRU();
 void AddToMRU(LPCWSTR pszFilePath);
 void UpdateMRUMenu(HWND hwnd);
+void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
 
 //============================================================================
 // WinMain - Entry Point
@@ -547,20 +552,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         }
                     }
                     
-                    // Add sorted filters to menu with descriptions for accessibility
+                    // Add sorted filters to menu with descriptions for accessibility (using localized strings)
                     for (int i = 0; i < contextFilterCount; i++) {
                         int filterIdx = contextFilters[i].filterIdx;
                         
-                        // Build accessible menu text: "Name - Description"
+                        // Build accessible menu text: "LocalizedName: LocalizedDescription"
                         WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 4];
-                        if (g_bShowMenuDescriptions && g_Filters[filterIdx].szDescription[0] != L'\0') {
-                            // Build menu text: "Name: Description"
-                            wcscpy(szMenuText, g_Filters[filterIdx].szName);
+                        if (g_bShowMenuDescriptions && g_Filters[filterIdx].szLocalizedDescription[0] != L'\0') {
+                            // Build menu text: "LocalizedName: LocalizedDescription"
+                            wcscpy(szMenuText, g_Filters[filterIdx].szLocalizedName);
                             wcscat(szMenuText, L": ");
-                            wcscat(szMenuText, g_Filters[filterIdx].szDescription);
+                            wcscat(szMenuText, g_Filters[filterIdx].szLocalizedDescription);
                         } else {
-                            // Just show the name
-                            wcscpy(szMenuText, g_Filters[filterIdx].szName);
+                            // Just show the localized name
+                            wcscpy(szMenuText, g_Filters[filterIdx].szLocalizedName);
                         }
                         
                         AppendMenu(hMenu, MF_STRING, 
@@ -1189,6 +1194,32 @@ void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax)
         // Fallback to empty string if resource not found
         lpBuffer[0] = L'\0';
     }
+}
+
+//============================================================================
+// GetSystemLanguageCode - Get current system language code (e.g., "cs_CZ")
+//============================================================================
+void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode)
+{
+    // Get user's default locale
+    LCID lcid = GetUserDefaultLCID();
+    
+    // Get language code (ISO 639-1, e.g., "cs", "en")
+    WCHAR szLang[10];
+    if (GetLocaleInfo(lcid, LOCALE_SISO639LANGNAME, szLang, 10) == 0) {
+        wcscpy_s(pszLangCode, cchLangCode, L"en_US");
+        return;
+    }
+    
+    // Get country code (ISO 3166-1, e.g., "CZ", "US")
+    WCHAR szCountry[10];
+    if (GetLocaleInfo(lcid, LOCALE_SISO3166CTRYNAME, szCountry, 10) == 0) {
+        wcscpy_s(pszLangCode, cchLangCode, L"en_US");
+        return;
+    }
+    
+    // Combine into "xx_YY" format
+    _snwprintf(pszLangCode, cchLangCode, L"%s_%s", szLang, szCountry);
 }
 
 //============================================================================
@@ -2289,8 +2320,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter1]\r\n"
         "Name=Uppercase\r\n"
+        "Name.cs=Velká písmena\r\n"
         "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToUpper() }\"\r\n"
         "Description=Converts selected text to UPPERCASE letters\r\n"
+        "Description.cs=Převede vybraný text na VELKÁ PÍSMENA\r\n"
         "Category=Transform\r\n"
         "Action=insert\r\n"
         "Insert=replace\r\n"
@@ -2299,8 +2332,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter2]\r\n"
         "Name=Lowercase\r\n"
+        "Name.cs=Malá písmena\r\n"
         "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToLower() }\"\r\n"
         "Description=Converts selected text to lowercase letters\r\n"
+        "Description.cs=Převede vybraný text na malá písmena\r\n"
         "Category=Transform\r\n"
         "Action=insert\r\n"
         "Insert=replace\r\n"
@@ -2309,8 +2344,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter3]\r\n"
         "Name=Sort Lines\r\n"
+        "Name.cs=Seřadit řádky\r\n"
         "Command=powershell -NoProfile -Command \"$input -split '\\r?\\n' | Sort-Object | Out-String\"\r\n"
         "Description=Sorts selected lines alphabetically\r\n"
+        "Description.cs=Seřadí vybrané řádky abecedně\r\n"
         "Category=Transform\r\n"
         "Action=insert\r\n"
         "Insert=replace\r\n"
@@ -2319,8 +2356,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter4]\r\n"
         "Name=Add Line Numbers\r\n"
+        "Name.cs=Přidat čísla řádků\r\n"
         "Command=powershell -NoProfile -Command \"$i=1; $input -split '\\r?\\n' | ForEach-Object { \\\"{0,4}: {1}\\\" -f $i++,$_ } | Out-String\"\r\n"
         "Description=Inserts line numbers before each line\r\n"
+        "Description.cs=Vloží čísla řádků před každý řádek\r\n"
         "Category=Transform\r\n"
         "Action=insert\r\n"
         "Insert=below\r\n"
@@ -2332,8 +2371,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter5]\r\n"
         "Name=Line Count\r\n"
+        "Name.cs=Počet řádků\r\n"
         "Command=powershell -NoProfile -Command \"($input | Measure-Object -Line).Lines\"\r\n"
         "Description=Displays the number of lines in selected text\r\n"
+        "Description.cs=Zobrazí počet řádků ve vybraném textu\r\n"
         "Category=Statistics\r\n"
         "Action=display\r\n"
         "Display=messagebox\r\n"
@@ -2342,8 +2383,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter6]\r\n"
         "Name=Word Count\r\n"
+        "Name.cs=Počet slov\r\n"
         "Command=powershell -NoProfile -Command \"($input -split '\\s+' | Where-Object {$_ -ne ''} | Measure-Object).Count\"\r\n"
         "Description=Shows word count in status bar for 30 seconds\r\n"
+        "Description.cs=Zobrazí počet slov ve stavovém řádku na 30 sekund\r\n"
         "Category=Statistics\r\n"
         "Action=display\r\n"
         "Display=statusbar\r\n"
@@ -2355,8 +2398,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter7]\r\n"
         "Name=Copy Reversed\r\n"
+        "Name.cs=Kopírovat obrácený text\r\n"
         "Command=powershell -NoProfile -Command \"$text=$input; -join ($text.ToCharArray() | Sort-Object {Get-Random})\"\r\n"
         "Description=Reverses text and copies result to clipboard\r\n"
+        "Description.cs=Obrátí text a zkopíruje výsledek do schránky\r\n"
         "Category=Clipboard\r\n"
         "Action=clipboard\r\n"
         "Clipboard=copy\r\n"
@@ -2368,8 +2413,10 @@ void CreateDefaultINI()
         "\r\n"
         "[Filter8]\r\n"
         "Name=Speak Text\r\n"
+        "Name.cs=Přečíst text\r\n"
         "Command=powershell -NoProfile -Command \"Add-Type -AssemblyName System.Speech; $synth=New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Speak($input); $synth.Dispose()\"\r\n"
         "Description=Uses text-to-speech to read selected text aloud\r\n"
+        "Description.cs=Použije převod textu na řeč pro přečtení vybraného textu nahlas\r\n"
         "Category=Utility\r\n"
         "Action=none\r\n"
         "ContextMenu=0\r\n"
@@ -2481,6 +2528,51 @@ void LoadFilters()
                      g_Filters[i].szDescription, MAX_FILTER_DESC, L"");
         ReadINIValue(szIniPath, szSection, L"Category", 
                      g_Filters[i].szCategory, MAX_FILTER_CATEGORY, L"General");
+        
+        // Get system language code for localized strings
+        WCHAR szLangCode[16];
+        GetSystemLanguageCode(szLangCode, 16);
+        
+        // Try to load localized name (e.g., "Name.cs_CZ")
+        WCHAR szLocalizedKey[64];
+        _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
+        ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                     g_Filters[i].szLocalizedName, MAX_FILTER_NAME, L"");
+        
+        // If not found, try just language code without country (e.g., "Name.cs")
+        if (g_Filters[i].szLocalizedName[0] == L'\0') {
+            WCHAR szLangOnly[4] = L"";
+            wcsncpy(szLangOnly, szLangCode, 2);
+            szLangOnly[2] = L'\0';
+            _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangOnly);
+            ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                         g_Filters[i].szLocalizedName, MAX_FILTER_NAME, L"");
+        }
+        
+        // If still not found, use English name as fallback
+        if (g_Filters[i].szLocalizedName[0] == L'\0') {
+            wcscpy(g_Filters[i].szLocalizedName, g_Filters[i].szName);
+        }
+        
+        // Try to load localized description (e.g., "Description.cs_CZ")
+        _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangCode);
+        ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                     g_Filters[i].szLocalizedDescription, MAX_FILTER_DESC, L"");
+        
+        // If not found, try just language code without country
+        if (g_Filters[i].szLocalizedDescription[0] == L'\0') {
+            WCHAR szLangOnly[4] = L"";
+            wcsncpy(szLangOnly, szLangCode, 2);
+            szLangOnly[2] = L'\0';
+            _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangOnly);
+            ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                         g_Filters[i].szLocalizedDescription, MAX_FILTER_DESC, L"");
+        }
+        
+        // If still not found, use English description as fallback
+        if (g_Filters[i].szLocalizedDescription[0] == L'\0') {
+            wcscpy(g_Filters[i].szLocalizedDescription, g_Filters[i].szDescription);
+        }
         
         // Read action type (insert, display, clipboard, none)
         WCHAR szAction[32];
@@ -2694,7 +2786,7 @@ void UpdateFilterDisplay()
     WCHAR szFilter[128];
     
     if (g_nCurrentFilter >= 0 && g_nCurrentFilter < g_nFilterCount) {
-        _snwprintf(szFilter, 128, L"[Filter: %s]", g_Filters[g_nCurrentFilter].szName);
+        _snwprintf(szFilter, 128, L"[Filter: %s]", g_Filters[g_nCurrentFilter].szLocalizedName);
     } else {
         wcscpy(szFilter, L"[Filter: None]");
     }
@@ -3055,16 +3147,16 @@ void BuildFilterMenu(HWND hwnd)
                     flags |= MF_CHECKED;
                 }
                 
-                // Build accessible menu text: "Name - Description"
+                // Build accessible menu text: "Name: Description" (using localized strings)
                 WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 4];
-                if (g_bShowMenuDescriptions && g_Filters[filterIndex].szDescription[0] != L'\0') {
-                    // Build menu text: "Name: Description"
-                    wcscpy(szMenuText, g_Filters[filterIndex].szName);
+                if (g_bShowMenuDescriptions && g_Filters[filterIndex].szLocalizedDescription[0] != L'\0') {
+                    // Build menu text: "LocalizedName: LocalizedDescription"
+                    wcscpy(szMenuText, g_Filters[filterIndex].szLocalizedName);
                     wcscat(szMenuText, L": ");
-                    wcscat(szMenuText, g_Filters[filterIndex].szDescription);
+                    wcscat(szMenuText, g_Filters[filterIndex].szLocalizedDescription);
                 } else {
-                    // Just show the name
-                    wcscpy(szMenuText, g_Filters[filterIndex].szName);
+                    // Just show the localized name
+                    wcscpy(szMenuText, g_Filters[filterIndex].szLocalizedName);
                 }
                 
                 AppendMenu(hCategoryMenu, flags, ID_TOOLS_FILTER_BASE + filterIndex, 
