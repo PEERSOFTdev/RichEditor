@@ -152,6 +152,15 @@ BEGIN
     IDS_FILTER_HELP_TEXT         "FILTER HELP\n\nFilters are configured in RichEditor.ini (same folder as .exe)\n\nFILTER STRUCTURE:\n[Filter1]\nName=Uppercase\nCommand=powershell -NoProfile -Command ""$input | ForEach-Object { $_.ToUpper() }""\nDescription=Converts text to UPPERCASE\nCategory=Transform     ; Submenu grouping\nMode=Replace           ; Replace/Append/Below\n\nCATEGORIES: Transform, Statistics, Extract, Web (or custom)\n\nOUTPUT MODES:\n• Replace - Replaces selected text\n• Append - Adds result on same line\n• Below - Inserts result on new line (default)\n\nUSAGE:\n1. Select text (or place cursor on line)\n2. Choose filter from Tools → Select Filter → [Category]\n3. Press Ctrl+Enter to execute\n\nSee included RichEditor.ini for 20 example filters!"
     IDS_UNTITLED                 "Untitled"
     IDS_NO_FILTERS_CONFIGURED    "(No filters configured)"
+    IDS_ERROR_OPEN_FILE          "Could not open file"
+    IDS_ERROR_GET_FILE_SIZE      "Could not get file size"
+    IDS_ERROR_OUT_OF_MEMORY      "Out of memory"
+    IDS_ERROR_READ_FILE          "Could not read file"
+    IDS_ERROR_CONVERT_ENCODING   "Could not convert file encoding"
+    IDS_ERROR_CONVERT_TEXT_ENCODING "Could not convert text encoding"
+    IDS_ERROR_CREATE_FILE        "Could not create file"
+    IDS_ERROR_WRITE_FILE         "Could not write file"
+    IDS_ERROR_PREFIX             "Error"
 END
 
 // ============================================================================
@@ -257,4 +266,13 @@ BEGIN
     IDS_FILTER_HELP_TEXT         "NÁPOVĚDA K FILTRŮM\n\nFiltry se konfigurují v RichEditor.ini (stejná složka jako .exe)\n\nSTRUKTURA FILTRU:\n[Filter1]\nName=Uppercase\nCommand=powershell -NoProfile -Command ""$input | ForEach-Object { $_.ToUpper() }""\nDescription=Převede text na VELKÁ PÍSMENA\nCategory=Transform     ; Seskupení do podmenu\nMode=Replace           ; Replace/Append/Below\n\nKATEGORIE: Transform, Statistics, Extract, Web (nebo vlastní)\n\nREŽIMY VÝSTUPU:\n• Replace - Nahradí vybraný text\n• Append - Přidá výsledek na stejný řádek\n• Below - Vloží výsledek na nový řádek (výchozí)\n\nPOUŽITÍ:\n1. Vyberte text (nebo umístěte kurzor na řádek)\n2. Zvolte filtr z Nástroje → Vybrat filtr → [Kategorie]\n3. Stiskněte Ctrl+Enter pro spuštění\n\nViz přiložený RichEditor.ini pro 20 ukázkových filtrů!"
     IDS_UNTITLED                 "Bez názvu"
     IDS_NO_FILTERS_CONFIGURED    "(Žádné filtry nejsou nakonfigurovány)"
+    IDS_ERROR_OPEN_FILE          "Nelze otevřít soubor"
+    IDS_ERROR_GET_FILE_SIZE      "Nelze získat velikost souboru"
+    IDS_ERROR_OUT_OF_MEMORY      "Nedostatek paměti"
+    IDS_ERROR_READ_FILE          "Nelze přečíst soubor"
+    IDS_ERROR_CONVERT_ENCODING   "Nelze převést kódování souboru"
+    IDS_ERROR_CONVERT_TEXT_ENCODING "Nelze převést kódování textu"
+    IDS_ERROR_CREATE_FILE        "Nelze vytvořit soubor"
+    IDS_ERROR_WRITE_FILE         "Nelze zapsat soubor"
+    IDS_ERROR_PREFIX             "Chyba"
 END

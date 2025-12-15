@@ -117,7 +117,7 @@ LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
 BOOL LoadTextFile(LPCWSTR pszFileName);
 BOOL SaveTextFile(LPCWSTR pszFileName);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
-void ShowError(LPCWSTR pszMessage, DWORD dwError);
+void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError);
 void FileNew();
 void FileOpen();
 BOOL FileSave();
@@ -982,7 +982,7 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     HANDLE hFile = CreateFile(pszFileName, GENERIC_READ, FILE_SHARE_READ, NULL,
                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
-        ShowError(L"Could not open file", GetLastError());
+        ShowError(IDS_ERROR_OPEN_FILE, L"Could not open file", GetLastError());
         return FALSE;
     }
     
@@ -990,7 +990,7 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     DWORD dwFileSize = GetFileSize(hFile, NULL);
     if (dwFileSize == INVALID_FILE_SIZE) {
         CloseHandle(hFile);
-        ShowError(L"Could not get file size", GetLastError());
+        ShowError(IDS_ERROR_GET_FILE_SIZE, L"Could not get file size", GetLastError());
         return FALSE;
     }
     
@@ -998,7 +998,7 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     LPSTR pszUTF8 = (LPSTR)malloc(dwFileSize + 1);
     if (!pszUTF8) {
         CloseHandle(hFile);
-        ShowError(L"Out of memory", 0);
+        ShowError(IDS_ERROR_OUT_OF_MEMORY, L"Out of memory", 0);
         return FALSE;
     }
     
@@ -1007,7 +1007,7 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     if (!ReadFile(hFile, pszUTF8, dwFileSize, &dwBytesRead, NULL)) {
         free(pszUTF8);
         CloseHandle(hFile);
-        ShowError(L"Could not read file", GetLastError());
+        ShowError(IDS_ERROR_READ_FILE, L"Could not read file", GetLastError());
         return FALSE;
     }
     pszUTF8[dwBytesRead] = '\0';
@@ -1018,7 +1018,7 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     free(pszUTF8);
     
     if (!pszUTF16) {
-        ShowError(L"Could not convert file encoding", 0);
+        ShowError(IDS_ERROR_CONVERT_ENCODING, L"Could not convert file encoding", 0);
         return FALSE;
     }
     
@@ -1061,7 +1061,7 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
     // Allocate buffer for UTF-16 text
     LPWSTR pszUTF16 = (LPWSTR)malloc((cchText + 1) * sizeof(WCHAR));
     if (!pszUTF16) {
-        ShowError(L"Out of memory", 0);
+        ShowError(IDS_ERROR_OUT_OF_MEMORY, L"Out of memory", 0);
         return FALSE;
     }
     
@@ -1073,7 +1073,7 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
     free(pszUTF16);
     
     if (!pszUTF8) {
-        ShowError(L"Could not convert text encoding", 0);
+        ShowError(IDS_ERROR_CONVERT_TEXT_ENCODING, L"Could not convert text encoding", 0);
         return FALSE;
     }
     
@@ -1082,7 +1082,7 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         free(pszUTF8);
-        ShowError(L"Could not create file", GetLastError());
+        ShowError(IDS_ERROR_CREATE_FILE, L"Could not create file", GetLastError());
         return FALSE;
     }
     
@@ -1092,7 +1092,7 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
     if (!WriteFile(hFile, pszUTF8, dwBytesToWrite, &dwBytesWritten, NULL)) {
         free(pszUTF8);
         CloseHandle(hFile);
-        ShowError(L"Could not write file", GetLastError());
+        ShowError(IDS_ERROR_WRITE_FILE, L"Could not write file", GetLastError());
         return FALSE;
     }
     
@@ -1133,28 +1133,46 @@ void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath)
 }
 
 //============================================================================
-// ShowError - Display error message with optional Win32 error code
+// ShowError - Display error message with Win32 error details
+// uMessageID: String resource ID for localized error message
+// pszEnglishMessage: English message for debug output
+// dwError: Win32 error code (0 if none)
 //============================================================================
-void ShowError(LPCWSTR pszMessage, DWORD dwError)
+void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError)
 {
     WCHAR szError[512];
+    WCHAR szLocalizedMessage[256];
+    
+    // Load localized error message from resources
+    LoadStringResource(uMessageID, szLocalizedMessage, 256);
     
     if (dwError != 0) {
-        // Format Win32 error message
+        // Format Win32 error message (this will be localized by Windows)
         WCHAR szErrorMsg[256];
         FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                      NULL, dwError, 0, szErrorMsg, 256, NULL);
         
-        _snwprintf(szError, 512, L"%s\n\nError: %s", pszMessage, szErrorMsg);
+        // Load localized "Error:" prefix
+        WCHAR szErrorPrefix[64];
+        LoadStringResource(IDS_ERROR_PREFIX, szErrorPrefix, 64);
         
-        // Also output to debugger
+        // Build localized message for UI
+        _snwprintf(szError, 512, L"%s\n\n%s: %s", szLocalizedMessage, szErrorPrefix, szErrorMsg);
+        
+        // Output English message to debugger for troubleshooting
         OutputDebugString(L"RichEditor Error: ");
-        OutputDebugString(pszMessage);
+        OutputDebugString(pszEnglishMessage);
         OutputDebugString(L" - ");
         OutputDebugString(szErrorMsg);
         OutputDebugString(L"\n");
     } else {
-        wcscpy_s(szError, 512, pszMessage);
+        // No Win32 error, just use the message
+        wcscpy_s(szError, 512, szLocalizedMessage);
+        
+        // Output English message to debugger
+        OutputDebugString(L"RichEditor Error: ");
+        OutputDebugString(pszEnglishMessage);
+        OutputDebugString(L"\n");
     }
     
     WCHAR szTitle[64];

@@ -58,4 +58,15 @@
 #define IDS_UNTITLED                    2014
 #define IDS_NO_FILTERS_CONFIGURED       2015
 
+// File error strings (2016-2024)
+#define IDS_ERROR_OPEN_FILE             2016
+#define IDS_ERROR_GET_FILE_SIZE         2017
+#define IDS_ERROR_OUT_OF_MEMORY         2018
+#define IDS_ERROR_READ_FILE             2019
+#define IDS_ERROR_CONVERT_ENCODING      2020
+#define IDS_ERROR_CONVERT_TEXT_ENCODING 2021
+#define IDS_ERROR_CREATE_FILE           2022
+#define IDS_ERROR_WRITE_FILE            2023
+#define IDS_ERROR_PREFIX                2024
+
 #endif // RESOURCE_H
