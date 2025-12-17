@@ -93,7 +93,7 @@
 #define IDS_STATUS_EOF                  2041
 #define IDS_STATUS_INVALID_SURROGATE    2042
 
-// Undo/Redo operation type strings (2043-2053)
+// Undo/Redo operation type strings (2043-2056)
 #define IDS_UNDO                        2043
 #define IDS_REDO                        2044
 #define IDS_UNDO_TYPING                 2045
@@ -101,10 +101,12 @@
 #define IDS_UNDO_PASTE                  2047
 #define IDS_UNDO_DELETE                 2048
 #define IDS_UNDO_FILTER                 2049
-#define IDS_REDO_TYPING                 2050
-#define IDS_REDO_CUT                    2051
-#define IDS_REDO_PASTE                  2052
-#define IDS_REDO_DELETE                 2053
-#define IDS_REDO_FILTER                 2054
+#define IDS_UNDO_DRAGDROP               2050
+#define IDS_REDO_TYPING                 2051
+#define IDS_REDO_CUT                    2052
+#define IDS_REDO_PASTE                  2053
+#define IDS_REDO_DELETE                 2054
+#define IDS_REDO_FILTER                 2055
+#define IDS_REDO_DRAGDROP               2056
 
 #endif // RESOURCE_H

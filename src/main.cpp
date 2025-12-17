@@ -41,17 +41,10 @@ BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menu
 //============================================================================
 // Undo/Redo Type Tracking
 //============================================================================
-enum UndoType {
-    UNDO_TYPE_UNKNOWN = 0,
-    UNDO_TYPE_TYPING = 1,
-    UNDO_TYPE_CUT = 2,
-    UNDO_TYPE_PASTE = 3,
-    UNDO_TYPE_DELETE = 4,
-    UNDO_TYPE_FILTER = 5
-};
-
-UndoType g_lastUndoType = UNDO_TYPE_UNKNOWN;   // Type of last operation (for undo menu)
-UndoType g_lastRedoType = UNDO_TYPE_UNKNOWN;   // Type of last undone operation (for redo menu)
+// We only need to track filter operations manually.
+// All standard operations (typing, delete, cut, paste, drag-drop) are
+// reported by RichEdit via EM_GETUNDONAME / EM_GETREDONAME messages.
+BOOL g_bLastOperationWasFilter = FALSE;  // TRUE if last operation was a filter
 
 //============================================================================
 // Filter System (Phase 2+)
@@ -400,11 +393,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     g_bModified = TRUE;
                     UpdateTitle();
                 }
-                // Track typing/delete if it's not cut/paste/filter
-                if (!g_bSettingText && g_lastUndoType != UNDO_TYPE_CUT && 
-                    g_lastUndoType != UNDO_TYPE_PASTE && g_lastUndoType != UNDO_TYPE_FILTER) {
-                    g_lastUndoType = UNDO_TYPE_TYPING;
-                }
+                // No need to track typing - RichEdit reports this via EM_GETUNDONAME
                 return 0;
             }
             
@@ -996,15 +985,22 @@ void UpdateMenuUndoRedo(HMENU hMenu)
     
     // Update Undo menu item
     WCHAR szUndoText[64];
-    if (canUndo && g_lastUndoType != UNDO_TYPE_UNKNOWN) {
+    if (canUndo) {
+        // Get undo type from RichEdit (or use filter flag)
+        LRESULT undoType = g_bLastOperationWasFilter ? 0 : SendMessage(g_hWndEdit, EM_GETUNDONAME, 0, 0);
+        
         UINT stringID = IDS_UNDO;
-        switch (g_lastUndoType) {
-            case UNDO_TYPE_TYPING: stringID = IDS_UNDO_TYPING; break;
-            case UNDO_TYPE_CUT:    stringID = IDS_UNDO_CUT;    break;
-            case UNDO_TYPE_PASTE:  stringID = IDS_UNDO_PASTE;  break;
-            case UNDO_TYPE_DELETE: stringID = IDS_UNDO_DELETE; break;
-            case UNDO_TYPE_FILTER: stringID = IDS_UNDO_FILTER; break;
-            default:               stringID = IDS_UNDO;        break;
+        if (g_bLastOperationWasFilter) {
+            stringID = IDS_UNDO_FILTER;
+        } else {
+            switch (undoType) {
+                case 1: stringID = IDS_UNDO_TYPING;   break; // UID_TYPING
+                case 2: stringID = IDS_UNDO_DELETE;   break; // UID_DELETE
+                case 3: stringID = IDS_UNDO_DRAGDROP; break; // UID_DRAGDROP
+                case 4: stringID = IDS_UNDO_CUT;      break; // UID_CUT
+                case 5: stringID = IDS_UNDO_PASTE;    break; // UID_PASTE
+                default: stringID = IDS_UNDO;         break; // UID_UNKNOWN
+            }
         }
         LoadStringResource(stringID, szUndoText, 64);
     } else {
@@ -1025,15 +1021,19 @@ void UpdateMenuUndoRedo(HMENU hMenu)
     
     // Update Redo menu item
     WCHAR szRedoText[64];
-    if (canRedo && g_lastRedoType != UNDO_TYPE_UNKNOWN) {
+    if (canRedo) {
+        // Get redo type from RichEdit
+        LRESULT redoType = SendMessage(g_hWndEdit, EM_GETREDONAME, 0, 0);
+        
         UINT stringID = IDS_REDO;
-        switch (g_lastRedoType) {
-            case UNDO_TYPE_TYPING: stringID = IDS_REDO_TYPING; break;
-            case UNDO_TYPE_CUT:    stringID = IDS_REDO_CUT;    break;
-            case UNDO_TYPE_PASTE:  stringID = IDS_REDO_PASTE;  break;
-            case UNDO_TYPE_DELETE: stringID = IDS_REDO_DELETE; break;
-            case UNDO_TYPE_FILTER: stringID = IDS_REDO_FILTER; break;
-            default:               stringID = IDS_REDO;        break;
+        switch (redoType) {
+            case 1: stringID = IDS_REDO_TYPING;   break; // UID_TYPING
+            case 2: stringID = IDS_REDO_DELETE;   break; // UID_DELETE
+            case 3: stringID = IDS_REDO_DRAGDROP; break; // UID_DRAGDROP
+            case 4: stringID = IDS_REDO_CUT;      break; // UID_CUT
+            case 5: stringID = IDS_REDO_PASTE;    break; // UID_PASTE
+            // Note: RichEdit doesn't know about filters, so filter redos will show as UID_UNKNOWN
+            default: stringID = IDS_REDO;         break; // UID_UNKNOWN or filter
         }
         LoadStringResource(stringID, szRedoText, 64);
     } else {
@@ -1845,8 +1845,8 @@ BOOL PromptSaveChanges()
 //============================================================================
 void EditUndo()
 {
-    // Move current undo type to redo type before undoing
-    g_lastRedoType = g_lastUndoType;
+    // Clear filter flag when undoing
+    g_bLastOperationWasFilter = FALSE;
     SendMessage(g_hWndEdit, EM_UNDO, 0, 0);
 }
 
@@ -1855,8 +1855,6 @@ void EditUndo()
 //============================================================================
 void EditRedo()
 {
-    // Move redo type back to undo type when redoing
-    g_lastUndoType = g_lastRedoType;
     SendMessage(g_hWndEdit, EM_REDO, 0, 0);
 }
 
@@ -1865,7 +1863,7 @@ void EditRedo()
 //============================================================================
 void EditCut()
 {
-    g_lastUndoType = UNDO_TYPE_CUT;
+    // No need to track - RichEdit reports this via EM_GETUNDONAME
     SendMessage(g_hWndEdit, WM_CUT, 0, 0);
 }
 
@@ -1882,7 +1880,7 @@ void EditCopy()
 //============================================================================
 void EditPaste()
 {
-    g_lastUndoType = UNDO_TYPE_PASTE;
+    // No need to track - RichEdit reports this via EM_GETUNDONAME
     SendMessage(g_hWndEdit, WM_PASTE, 0, 0);
 }
 
@@ -2143,7 +2141,7 @@ void ExecuteFilterInsert(const std::string& outputData, CHARRANGE crSel)
     if (outputData.empty()) return;
     
     // Track filter operation for undo
-    g_lastUndoType = UNDO_TYPE_FILTER;
+    g_bLastOperationWasFilter = TRUE;
     
     LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
     if (!pszOutput) return;
