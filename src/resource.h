@@ -85,12 +85,26 @@
 #define IDS_FILE_FILTER_TEXT            2035
 #define IDS_FILE_FILTER_ALL             2036
 
-// Status bar strings (2037-2044)
+// Status bar strings (2037-2042)
 #define IDS_STATUS_LINE                 2037
 #define IDS_STATUS_COLUMN               2038
 #define IDS_STATUS_CHAR                 2039
 #define IDS_STATUS_DEC                  2040
 #define IDS_STATUS_EOF                  2041
 #define IDS_STATUS_INVALID_SURROGATE    2042
+
+// Undo/Redo operation type strings (2043-2053)
+#define IDS_UNDO                        2043
+#define IDS_REDO                        2044
+#define IDS_UNDO_TYPING                 2045
+#define IDS_UNDO_CUT                    2046
+#define IDS_UNDO_PASTE                  2047
+#define IDS_UNDO_DELETE                 2048
+#define IDS_UNDO_FILTER                 2049
+#define IDS_REDO_TYPING                 2050
+#define IDS_REDO_CUT                    2051
+#define IDS_REDO_PASTE                  2052
+#define IDS_REDO_DELETE                 2053
+#define IDS_REDO_FILTER                 2054
 
 #endif // RESOURCE_H

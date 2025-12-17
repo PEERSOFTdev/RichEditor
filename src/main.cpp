@@ -39,6 +39,21 @@ const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar d
 BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menus (for accessibility)
 
 //============================================================================
+// Undo/Redo Type Tracking
+//============================================================================
+enum UndoType {
+    UNDO_TYPE_UNKNOWN = 0,
+    UNDO_TYPE_TYPING = 1,
+    UNDO_TYPE_CUT = 2,
+    UNDO_TYPE_PASTE = 3,
+    UNDO_TYPE_DELETE = 4,
+    UNDO_TYPE_FILTER = 5
+};
+
+UndoType g_lastUndoType = UNDO_TYPE_UNKNOWN;   // Type of last operation (for undo menu)
+UndoType g_lastRedoType = UNDO_TYPE_UNKNOWN;   // Type of last undone operation (for redo menu)
+
+//============================================================================
 // Filter System (Phase 2+)
 //============================================================================
 #define MAX_FILTERS 100
@@ -115,6 +130,7 @@ HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
 void UpdateStatusBar();
 void UpdateTitle(HWND hwnd = NULL);
+void UpdateMenuUndoRedo(HMENU hMenu);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
@@ -384,6 +400,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     g_bModified = TRUE;
                     UpdateTitle();
                 }
+                // Track typing/delete if it's not cut/paste/filter
+                if (!g_bSettingText && g_lastUndoType != UNDO_TYPE_CUT && 
+                    g_lastUndoType != UNDO_TYPE_PASTE && g_lastUndoType != UNDO_TYPE_FILTER) {
+                    g_lastUndoType = UNDO_TYPE_TYPING;
+                }
                 return 0;
             }
             
@@ -511,6 +532,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         UpdateStatusBar();
                         break;
                 }
+            }
+            return 0;
+            
+        case WM_INITMENUPOPUP:
+            // Update Undo/Redo menu items when Edit menu is opened
+            if (LOWORD(lParam) == 1) {  // Edit menu is at position 1
+                UpdateMenuUndoRedo((HMENU)wParam);
             }
             return 0;
             
@@ -954,6 +982,72 @@ void UpdateTitle(HWND hwnd)
     }
     
     SetWindowText(targetWnd, szTitle);
+}
+
+//============================================================================
+// UpdateMenuUndoRedo - Update Undo/Redo menu items with operation type
+//============================================================================
+void UpdateMenuUndoRedo(HMENU hMenu)
+{
+    if (!hMenu) return;
+    
+    BOOL canUndo = SendMessage(g_hWndEdit, EM_CANUNDO, 0, 0);
+    BOOL canRedo = SendMessage(g_hWndEdit, EM_CANREDO, 0, 0);
+    
+    // Update Undo menu item
+    WCHAR szUndoText[64];
+    if (canUndo && g_lastUndoType != UNDO_TYPE_UNKNOWN) {
+        UINT stringID = IDS_UNDO;
+        switch (g_lastUndoType) {
+            case UNDO_TYPE_TYPING: stringID = IDS_UNDO_TYPING; break;
+            case UNDO_TYPE_CUT:    stringID = IDS_UNDO_CUT;    break;
+            case UNDO_TYPE_PASTE:  stringID = IDS_UNDO_PASTE;  break;
+            case UNDO_TYPE_DELETE: stringID = IDS_UNDO_DELETE; break;
+            case UNDO_TYPE_FILTER: stringID = IDS_UNDO_FILTER; break;
+            default:               stringID = IDS_UNDO;        break;
+        }
+        LoadStringResource(stringID, szUndoText, 64);
+    } else {
+        LoadStringResource(IDS_UNDO, szUndoText, 64);
+    }
+    
+    // Add keyboard shortcut to text
+    WCHAR szUndoFinal[80];
+    wcscpy(szUndoFinal, szUndoText);
+    wcscat(szUndoFinal, L"\tCtrl+Z");
+    
+    MENUITEMINFO mii = {};
+    mii.cbSize = sizeof(MENUITEMINFO);
+    mii.fMask = MIIM_STRING | MIIM_STATE;
+    mii.dwTypeData = szUndoFinal;
+    mii.fState = canUndo ? MFS_ENABLED : MFS_GRAYED;
+    SetMenuItemInfo(hMenu, ID_EDIT_UNDO, FALSE, &mii);
+    
+    // Update Redo menu item
+    WCHAR szRedoText[64];
+    if (canRedo && g_lastRedoType != UNDO_TYPE_UNKNOWN) {
+        UINT stringID = IDS_REDO;
+        switch (g_lastRedoType) {
+            case UNDO_TYPE_TYPING: stringID = IDS_REDO_TYPING; break;
+            case UNDO_TYPE_CUT:    stringID = IDS_REDO_CUT;    break;
+            case UNDO_TYPE_PASTE:  stringID = IDS_REDO_PASTE;  break;
+            case UNDO_TYPE_DELETE: stringID = IDS_REDO_DELETE; break;
+            case UNDO_TYPE_FILTER: stringID = IDS_REDO_FILTER; break;
+            default:               stringID = IDS_REDO;        break;
+        }
+        LoadStringResource(stringID, szRedoText, 64);
+    } else {
+        LoadStringResource(IDS_REDO, szRedoText, 64);
+    }
+    
+    // Add keyboard shortcut to text
+    WCHAR szRedoFinal[80];
+    wcscpy(szRedoFinal, szRedoText);
+    wcscat(szRedoFinal, L"\tCtrl+Y");
+    
+    mii.dwTypeData = szRedoFinal;
+    mii.fState = canRedo ? MFS_ENABLED : MFS_GRAYED;
+    SetMenuItemInfo(hMenu, ID_EDIT_REDO, FALSE, &mii);
 }
 
 //============================================================================
@@ -1751,6 +1845,8 @@ BOOL PromptSaveChanges()
 //============================================================================
 void EditUndo()
 {
+    // Move current undo type to redo type before undoing
+    g_lastRedoType = g_lastUndoType;
     SendMessage(g_hWndEdit, EM_UNDO, 0, 0);
 }
 
@@ -1759,6 +1855,8 @@ void EditUndo()
 //============================================================================
 void EditRedo()
 {
+    // Move redo type back to undo type when redoing
+    g_lastUndoType = g_lastRedoType;
     SendMessage(g_hWndEdit, EM_REDO, 0, 0);
 }
 
@@ -1767,6 +1865,7 @@ void EditRedo()
 //============================================================================
 void EditCut()
 {
+    g_lastUndoType = UNDO_TYPE_CUT;
     SendMessage(g_hWndEdit, WM_CUT, 0, 0);
 }
 
@@ -1783,6 +1882,7 @@ void EditCopy()
 //============================================================================
 void EditPaste()
 {
+    g_lastUndoType = UNDO_TYPE_PASTE;
     SendMessage(g_hWndEdit, WM_PASTE, 0, 0);
 }
 
@@ -2041,6 +2141,9 @@ bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8,
 void ExecuteFilterInsert(const std::string& outputData, CHARRANGE crSel)
 {
     if (outputData.empty()) return;
+    
+    // Track filter operation for undo
+    g_lastUndoType = UNDO_TYPE_FILTER;
     
     LPWSTR pszOutput = UTF8ToUTF16(outputData.c_str());
     if (!pszOutput) return;
