@@ -38,6 +38,9 @@ const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar d
 // Accessibility settings
 BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menus (for accessibility)
 
+// Tab settings
+UINT g_nTabSize = 8;                          // Tab size in spaces (default 8)
+
 //============================================================================
 // Undo/Redo Type Tracking
 //============================================================================
@@ -124,6 +127,7 @@ HWND CreateStatusBar(HWND hwndParent);
 void UpdateStatusBar();
 void UpdateTitle(HWND hwnd = NULL);
 void UpdateMenuUndoRedo(HMENU hMenu);
+int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
@@ -741,6 +745,41 @@ HWND CreateStatusBar(HWND hwndParent)
 }
 
 //============================================================================
+// CalculateTabAwareColumn - Calculate visual column position with tab expansion
+// 
+// Parameters:
+//   pszLineText - text from start of line to cursor
+//   charPosition - number of characters from line start (buffer position)
+//
+// Returns: Visual column number (1-based), accounting for tab stops
+//
+// Tab behavior: Each tab moves to the next tab stop (multiple of g_nTabSize)
+// Example with TabSize=8:
+//   ""      -> column 1
+//   "a"     -> column 2
+//   "ahoj"  -> column 5
+//   "\t"    -> column 9 (jumps to next tab stop after column 1)
+//   "ahoj\t" -> column 9 (from column 5, jumps to next tab stop)
+//   "ahoj\ta" -> column 10
+//============================================================================
+int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition)
+{
+    int visualColumn = 1;  // Start at column 1
+    
+    for (int i = 0; i < charPosition; i++) {
+        if (pszLineText[i] == L'\t') {
+            // Move to next tab stop (next multiple of g_nTabSize)
+            visualColumn = ((visualColumn - 1) / g_nTabSize + 1) * g_nTabSize + 1;
+        } else {
+            // Regular character, advance one column
+            visualColumn++;
+        }
+    }
+    
+    return visualColumn;
+}
+
+//============================================================================
 // UpdateStatusBar - Update status bar with current position and info
 //============================================================================
 void UpdateStatusBar()
@@ -777,7 +816,30 @@ void UpdateStatusBar()
                 break;
             }
         }
-        visualCol = cr.cpMin - currentLineStart + 1;
+        
+        // Calculate tab-aware visual column
+        int charCount = cr.cpMin - currentLineStart;
+        if (charCount > 0) {
+            // Get line text from currentLineStart to cursor
+            LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
+            if (lineText) {
+                TEXTRANGE tr;
+                tr.chrg.cpMin = currentLineStart;
+                tr.chrg.cpMax = cr.cpMin;
+                tr.lpstrText = lineText;
+                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                if (retrieved > 0) {
+                    visualCol = CalculateTabAwareColumn(lineText, charCount);
+                } else {
+                    visualCol = 1;  // Fallback
+                }
+                free(lineText);
+            } else {
+                visualCol = charCount + 1;  // Fallback if malloc fails
+            }
+        } else {
+            visualCol = 1;  // At start of line
+        }
         
         // Get physical (unwrapped) line and column by manually counting hard newlines
         // Use EM_GETTEXTRANGE to get text up to cursor with exact character positions
@@ -827,8 +889,14 @@ void UpdateStatusBar()
                         }
                     }
                     
-                    // Calculate column: how many buffer positions from line start to end
-                    physicalCol = bufferPos - physicalLineStart + 1;
+                    // Calculate tab-aware physical column
+                    int lineCharCount = bufferPos - physicalLineStart;
+                    if (lineCharCount > 0) {
+                        // Extract line text from physicalLineStart to bufferPos
+                        physicalCol = CalculateTabAwareColumn(buffer + physicalLineStart, lineCharCount);
+                    } else {
+                        physicalCol = 1;  // At start of line
+                    }
                 }
                 
                 free(buffer);
@@ -839,7 +907,30 @@ void UpdateStatusBar()
         // When word wrap is OFF, visual = physical (no soft wraps)
         visualLine = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin) + 1;
         int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, visualLine - 1, 0);
-        visualCol = cr.cpMin - lineStart + 1;
+        
+        // Calculate tab-aware column
+        int charCount = cr.cpMin - lineStart;
+        if (charCount > 0) {
+            // Get line text from lineStart to cursor
+            LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
+            if (lineText) {
+                TEXTRANGE tr;
+                tr.chrg.cpMin = lineStart;
+                tr.chrg.cpMax = cr.cpMin;
+                tr.lpstrText = lineText;
+                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                if (retrieved > 0) {
+                    visualCol = CalculateTabAwareColumn(lineText, charCount);
+                } else {
+                    visualCol = 1;  // Fallback
+                }
+                free(lineText);
+            } else {
+                visualCol = charCount + 1;  // Fallback if malloc fails
+            }
+        } else {
+            visualCol = 1;  // At start of line
+        }
         
         physicalLine = visualLine;
         physicalCol = visualCol;
@@ -2469,6 +2560,9 @@ void CreateDefaultINI()
         "; Accessibility settings\r\n"
         "ShowMenuDescriptions=1        ; 1=show descriptions in menus (accessible), 0=names only (default: 1)\r\n"
         "\r\n"
+        "; Display settings\r\n"
+        "TabSize=8                     ; Tab size in spaces for column calculation (default: 8)\r\n"
+        "\r\n"
         "; Filter System\r\n"
         "; Filters transform text using external commands\r\n"
         "; Action types: insert, display, clipboard, none\r\n"
@@ -2657,6 +2751,21 @@ void LoadSettings()
         g_bShowMenuDescriptions = TRUE;
     } else {
         g_bShowMenuDescriptions = ReadINIInt(szIniPath, L"Settings", L"ShowMenuDescriptions", 1);
+    }
+    
+    // TabSize
+    ReadINIValue(szIniPath, L"Settings", L"TabSize", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"TabSize", L"8");
+        g_nTabSize = 8;
+    } else {
+        int tabSize = ReadINIInt(szIniPath, L"Settings", L"TabSize", 8);
+        // Validate tab size (1-32 is reasonable range)
+        if (tabSize < 1 || tabSize > 32) {
+            tabSize = 8;
+            WriteINIValue(szIniPath, L"Settings", L"TabSize", L"8");
+        }
+        g_nTabSize = tabSize;
     }
 }
 
