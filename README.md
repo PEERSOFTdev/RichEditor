@@ -10,7 +10,12 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Plain text editing with UTF-8 support (no BOM)
 - File operations: New, Open, Save, Save As
 - Command-line argument support (open file on startup)
-- Edit operations: Undo, Redo, Cut, Copy, Paste, Select All
+- Edit operations with context-aware menu labels:
+  - Undo/Redo with dynamic labels showing operation type:
+    - "Undo Typing", "Redo Paste", "Undo Delete", etc.
+    - Tracks both RichEdit operations (typing, paste, cut, delete, drag-drop) and filter actions
+    - Uses Windows RichEdit `EM_GETUNDONAME` API for standard operations
+  - Cut, Copy, Paste, Select All
 - Time/Date insertion (F5) with locale-specific formatting
 - Full keyboard shortcut support
 - RichEdit built-in shortcuts (Alt+X for Unicode conversion, Ctrl+Up/Down for paragraph navigation, etc.)
@@ -18,7 +23,10 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 
 **Display & Navigation:**
 - Status bar showing:
-  - Line and column position
+  - Line and column position with tab-aware calculation:
+    - Accounts for tab character expansion (configurable tab size, default: 8)
+    - Example: "ahoj\t" at column 5 → jumps to column 9
+    - Critical for accessibility: accurate positions in source code and tabular data
   - Character at cursor with Unicode support:
     - BMP characters: `Char: 'A' (Dec: 65, U+0041)`
     - Emoji/supplementary: `Char: '😀' (Dec: 128512, U+1F600)`
@@ -29,6 +37,7 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
   - Visual position: includes soft-wrapped lines
   - Physical position: actual line/column in file
   - Format: `Ln X, Col Y / A,B` when word wrap is on
+  - Both positions use tab-aware column calculation
 - Modified state tracking with asterisk (*) in title bar
 - Proper focus management (returns to editor after dialogs)
 - MRU (Most Recently Used) file list:
@@ -82,8 +91,14 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - INI validation with helpful error messages
 
 **Accessibility Features:**
+- Tab-aware column calculation for accurate position reporting:
+  - Status bar shows correct visual column positions accounting for tab expansion
+  - Configurable tab size (TabSize setting, default: 8)
+  - Critical for screen reader users working with source code and tabular data
+  - Enables proper understanding of column alignment via NVDA, JAWS, Narrator
 - Screen reader friendly menu descriptions (configurable)
 - Filter descriptions announced automatically by NVDA, JAWS, and Windows Narrator
+- Context-aware undo/redo labels for better operation tracking
 - `ShowMenuDescriptions` setting (enabled by default for accessibility)
 - When enabled: menu items show "Filter Name: Description"
 - When disabled: menu items show only "Filter Name" for clean appearance
@@ -158,7 +173,12 @@ The application is a **universal binary** containing both English and Czech reso
 
 **What's Localized:**
 - All menus (File/Soubor, Edit/Úpravy, View/Zobrazit, Tools/Nástroje, Help/Nápověda)
-- Dialog boxes (About dialog)
+- Context-aware menu labels (Undo/Redo with operation type)
+- Dialog boxes (About dialog, file open/save dialogs)
+- Status bar messages (line, column, character info, EOF)
+- Error messages (file operations, INI parsing, filter execution)
+- Filter system messages (execution success/failure, context menu)
+- Default filter names and descriptions with locale fallback (cs_CZ → cs → en)
 - Version information strings (visible in file properties)
 - Keyboard shortcuts remain universal (Ctrl+N, Ctrl+S, F5, etc.)
 
@@ -299,6 +319,7 @@ On first launch, RichEditor automatically creates a default `RichEditor.ini` fil
 [Settings]
 ; Editor settings
 WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)
+TabSize=8                     ; Tab size in spaces for column calculation (default: 8, range: 1-32)
 
 ; Accessibility settings
 ShowMenuDescriptions=1        ; 1=show filter descriptions in menus (accessible), 0=names only (default: 1)
