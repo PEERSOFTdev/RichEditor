@@ -106,6 +106,20 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Auto-generation of missing INI settings with defaults
 - All settings self-documenting in INI file
 
+**URL Autodetection:**
+- Automatic detection and highlighting of URLs as you type
+- Supported protocols: http, https, ftp, mailto, file, tel, callto
+- Visual feedback: blue underline and hand cursor on hover
+- Keyboard activation: Press `Enter` when cursor is in URL to open
+- Mouse activation: Click URL to open in default browser/handler
+- Context menu integration:
+  - Right-click on URL shows "Open URL" and "Copy URL" as first menu items
+  - Right-click outside URL shows standard context menu
+- Silent operation (no status bar messages)
+- Opens URLs with Windows default application via ShellExecute
+- Full accessibility: URLs announced as "link" by NVDA, JAWS, Narrator
+- Always enabled (no configuration needed)
+
 **Example Use Cases:**
 - **Calculator**: `2 + 2 + 3` → evaluates to `7`
 - **Text transformation**: UPPERCASE, lowercase, Title Case, reverse
@@ -267,6 +281,7 @@ RichEditor.exe \\server\share\file.txt    # UNC paths supported
 | `Ctrl+W` | Toggle word wrap |
 | `F5` | Insert time/date |
 | `Ctrl+Enter` | Execute current filter |
+| `Enter` | Open URL (when cursor is in URL) |
 | `Context Menu Key` | Open context menu with filters |
 | `Alt+F4` | Exit |
 

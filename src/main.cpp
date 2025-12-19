@@ -128,6 +128,10 @@ void UpdateStatusBar();
 void UpdateTitle(HWND hwnd = NULL);
 void UpdateMenuUndoRedo(HMENU hMenu);
 int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition);
+BOOL IsCharInURL(HWND hWndEdit, LONG charPos);
+BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange);
+void OpenURL(HWND hwnd, LPCWSTR pszURL);
+void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
@@ -485,6 +489,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 LoadTextFile(szMRUPath);
                             }
                         }
+                        // Handle URL actions from context menu
+                        else if (wmId == ID_URL_OPEN) {
+                            // Open URL from context menu
+                            WCHAR szURL[2048];
+                            if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
+                                OpenURL(hwnd, szURL);
+                            }
+                            return 0;
+                        }
+                        else if (wmId == ID_URL_COPY) {
+                            // Copy URL to clipboard
+                            WCHAR szURL[2048];
+                            if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
+                                CopyURLToClipboard(hwnd, szURL);
+                            }
+                            return 0;
+                        }
                         // Handle filter selection from Tools menu
                         else if (wmId >= ID_TOOLS_FILTER_BASE && wmId < ID_TOOLS_FILTER_BASE + 100) {
                             int filterIdx = wmId - ID_TOOLS_FILTER_BASE;
@@ -524,9 +545,52 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     case EN_SELCHANGE:
                         UpdateStatusBar();
                         break;
+                        
+                    case EN_LINK:
+                        // Handle URL link interactions
+                        {
+                            ENLINK* pEnLink = (ENLINK*)lParam;
+                            
+                            if (pEnLink->msg == WM_LBUTTONUP) {
+                                // Mouse click on URL - open it
+                                WCHAR szURL[2048];
+                                TEXTRANGE tr;
+                                tr.chrg = pEnLink->chrg;
+                                tr.lpstrText = szURL;
+                                
+                                if (tr.chrg.cpMax - tr.chrg.cpMin < 2048) {
+                                    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                                    OpenURL(hwnd, szURL);
+                                }
+                                
+                                return 1; // Prevent default handling
+                            }
+                            else if (pEnLink->msg == WM_SETCURSOR) {
+                                // Change cursor to hand pointer over URLs
+                                SetCursor(LoadCursor(NULL, IDC_HAND));
+                                return 1; // Prevent default handling
+                            }
+                        }
+                        break;
                 }
             }
             return 0;
+            
+        case WM_KEYDOWN:
+            // Handle keyboard shortcuts in RichEdit
+            if ((HWND)wParam == g_hWndEdit || GetFocus() == g_hWndEdit) {
+                if (wParam == VK_RETURN) {
+                    // Check if cursor is in a URL
+                    WCHAR szURL[2048];
+                    if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
+                        // Open URL
+                        OpenURL(hwnd, szURL);
+                        return 0; // Prevent default Enter behavior
+                    }
+                    // If not in URL, allow normal Enter key behavior (insert newline)
+                }
+            }
+            break;
             
         case WM_INITMENUPOPUP:
             // Update Undo/Redo menu items when Edit menu is opened
@@ -545,6 +609,43 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // Create context menu
                 HMENU hMenu = CreatePopupMenu();
                 if (hMenu) {
+                    // Check if cursor is in a URL
+                    BOOL isInURL = FALSE;
+                    WCHAR szURL[2048];
+                    LONG cursorPos = -1;
+                    
+                    // Determine cursor position for URL detection
+                    if (xPos == -1 && yPos == -1) {
+                        // Keyboard context menu (Shift+F10 or context menu key)
+                        // Use current cursor position
+                        CHARRANGE cr;
+                        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                        cursorPos = cr.cpMin;
+                    } else {
+                        // Mouse right-click - convert screen coords to client
+                        POINT pt = {xPos, yPos};
+                        ScreenToClient(g_hWndEdit, &pt);
+                        cursorPos = SendMessage(g_hWndEdit, EM_CHARFROMPOS, 0, (LPARAM)&pt);
+                    }
+                    
+                    // Check if this position is in a URL
+                    if (cursorPos >= 0 && IsCharInURL(g_hWndEdit, cursorPos)) {
+                        if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
+                            isInURL = TRUE;
+                        }
+                    }
+                    
+                    // Add URL menu items first (highest priority) if in URL
+                    if (isInURL) {
+                        WCHAR szOpenURL[64], szCopyURL[64];
+                        LoadStringResource(IDS_CONTEXT_OPEN_URL, szOpenURL, 64);
+                        LoadStringResource(IDS_CONTEXT_COPY_URL, szCopyURL, 64);
+                        
+                        AppendMenu(hMenu, MF_STRING, ID_URL_OPEN, szOpenURL);
+                        AppendMenu(hMenu, MF_STRING, ID_URL_COPY, szCopyURL);
+                        AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+                    }
+                    
                     // Add filters with ContextMenu=1, sorted by ContextMenuOrder
                     // Build array of filters to show in context menu
                     struct ContextMenuFilter {
@@ -657,6 +758,169 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 //============================================================================
+// URL Detection and Handling Functions
+//============================================================================
+
+//============================================================================
+// IsCharInURL - Check if character position is within a URL
+//
+// Returns: TRUE if the character at charPos has CFE_LINK effect
+//============================================================================
+BOOL IsCharInURL(HWND hWndEdit, LONG charPos)
+{
+    // Set selection to single character at position
+    CHARRANGE cr;
+    cr.cpMin = charPos;
+    cr.cpMax = charPos;
+    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+    
+    // Get character format at this position
+    CHARFORMAT2 cf;
+    ZeroMemory(&cf, sizeof(CHARFORMAT2));
+    cf.cbSize = sizeof(CHARFORMAT2);
+    cf.dwMask = CFM_LINK;
+    SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+    
+    return (cf.dwEffects & CFE_LINK) != 0;
+}
+
+//============================================================================
+// GetURLAtCursor - Extract URL text at cursor position
+//
+// Parameters:
+//   hWndEdit - RichEdit control handle
+//   pszURL - Buffer to receive URL text (must be at least cchMax WCHARs)
+//   cchMax - Maximum buffer size in WCHARs
+//   pRange - Optional, receives character range of the URL
+//
+// Returns: TRUE if URL found and extracted, FALSE otherwise
+//============================================================================
+BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
+{
+    // Get current selection
+    CHARRANGE cr;
+    SendMessage(hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    
+    // Check if cursor is in a URL
+    if (!IsCharInURL(hWndEdit, cr.cpMin)) {
+        return FALSE;
+    }
+    
+    // Find start of URL (walk backwards until no CFE_LINK)
+    LONG urlStart = cr.cpMin;
+    while (urlStart > 0 && IsCharInURL(hWndEdit, urlStart - 1)) {
+        urlStart--;
+    }
+    
+    // Find end of URL (walk forwards until no CFE_LINK)
+    int textLen = GetWindowTextLength(hWndEdit);
+    LONG urlEnd = cr.cpMin;
+    while (urlEnd < textLen && IsCharInURL(hWndEdit, urlEnd)) {
+        urlEnd++;
+    }
+    
+    // Extract URL text
+    int urlLen = urlEnd - urlStart;
+    if (urlLen <= 0 || urlLen >= cchMax) {
+        return FALSE;
+    }
+    
+    TEXTRANGE tr;
+    tr.chrg.cpMin = urlStart;
+    tr.chrg.cpMax = urlEnd;
+    tr.lpstrText = pszURL;
+    SendMessage(hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    
+    // Return range if requested
+    if (pRange) {
+        pRange->cpMin = urlStart;
+        pRange->cpMax = urlEnd;
+    }
+    
+    return TRUE;
+}
+
+//============================================================================
+// OpenURL - Open URL in default browser/handler
+//
+// Opens the URL using ShellExecute with no validation.
+// Shows error MessageBox on failure, writes error code to debug output.
+// Silent on success (no status bar message).
+//============================================================================
+void OpenURL(HWND hwnd, LPCWSTR pszURL)
+{
+    // Validate URL is not empty
+    if (!pszURL || pszURL[0] == L'\0') {
+        return;
+    }
+    
+    // Open URL with ShellExecute (no validation, trust the OS)
+    HINSTANCE result = ShellExecute(
+        hwnd,
+        L"open",
+        pszURL,
+        NULL,
+        NULL,
+        SW_SHOWNORMAL
+    );
+    
+    // ShellExecute returns value > 32 on success
+    INT_PTR errorCode = (INT_PTR)result;
+    if (errorCode <= 32) {
+        // Write error code to debug output
+        WCHAR szDebug[256];
+        _snwprintf(szDebug, 256, L"ShellExecute failed with error code: %d\n", (int)errorCode);
+        OutputDebugString(szDebug);
+        
+        // Show basic error message to user
+        WCHAR szError[128];
+        LoadStringResource(IDS_ERROR_OPEN_URL, szError, 128);
+        
+        WCHAR szMessage[512];
+        _snwprintf(szMessage, 512, L"%s\n\n%s", szError, pszURL);
+        
+        MessageBox(hwnd, szMessage, L"RichEditor", MB_OK | MB_ICONERROR);
+    }
+    // Silent on success - no status bar message, no feedback
+}
+
+//============================================================================
+// CopyURLToClipboard - Copy URL text to clipboard
+//
+// Silently copies the URL to clipboard with no visual feedback.
+//============================================================================
+void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL)
+{
+    if (!pszURL || pszURL[0] == L'\0') {
+        return;
+    }
+    
+    if (!OpenClipboard(hwnd)) {
+        return;
+    }
+    
+    EmptyClipboard();
+    
+    // Calculate size needed (length + null terminator)
+    size_t len = wcslen(pszURL);
+    HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, (len + 1) * sizeof(WCHAR));
+    
+    if (hGlob) {
+        LPWSTR pszCopy = (LPWSTR)GlobalLock(hGlob);
+        if (pszCopy) {
+            wcscpy(pszCopy, pszURL);
+            GlobalUnlock(hGlob);
+            SetClipboardData(CF_UNICODETEXT, hGlob);
+        } else {
+            GlobalFree(hGlob);
+        }
+    }
+    
+    CloseClipboard();
+    // Silent operation - no confirmation message
+}
+
+//============================================================================
 // InitRichEditLibrary - Load RichEdit 4.1 DLL
 //============================================================================
 BOOL InitRichEditLibrary()
@@ -699,7 +963,10 @@ HWND CreateRichEditControl(HWND hwndParent)
         SendMessage(hwndEdit, EM_SETUNDOLIMIT, 100, 0);
         
         // Set event mask for notifications
-        SendMessage(hwndEdit, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+        SendMessage(hwndEdit, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE | ENM_LINK);
+        
+        // Enable automatic URL detection
+        SendMessage(hwndEdit, EM_AUTOURLDETECT, AURL_ENABLEURL, 0);
         
         // Set large text limit (2GB)
         SendMessage(hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);

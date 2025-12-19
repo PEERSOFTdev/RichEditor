@@ -24,6 +24,8 @@
 #define ID_EDIT_PASTE                   1105
 #define ID_EDIT_SELECTALL               1106
 #define ID_EDIT_TIMEDATE                1107
+#define ID_URL_OPEN                     1108
+#define ID_URL_COPY                     1109
 
 // View menu
 #define ID_VIEW_WORDWRAP                1110
@@ -108,5 +110,10 @@
 #define IDS_REDO_DELETE                 2054
 #define IDS_REDO_FILTER                 2055
 #define IDS_REDO_DRAGDROP               2056
+
+// URL context menu and error strings (2057-2059)
+#define IDS_CONTEXT_OPEN_URL            2057
+#define IDS_CONTEXT_COPY_URL            2058
+#define IDS_ERROR_OPEN_URL              2059
 
 #endif // RESOURCE_H

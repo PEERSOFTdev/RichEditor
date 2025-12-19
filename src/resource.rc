@@ -88,8 +88,8 @@ END
 
 // Version Information
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION  1,0,0,0
+FILEVERSION     2,1,0,0
+PRODUCTVERSION  2,1,0,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
     FILEFLAGS   VS_FF_DEBUG
@@ -106,24 +106,24 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lightweight Text Editor"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "2.1.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "1.0.0 (Phase 1 Complete)"
+            VALUE "ProductVersion",   "2.1.0 (URL Autodetection)"
             VALUE "Comments",         "Accessible text editor with RichEdit 4.1 control, autosave, word wrap, and filter support. Built with MinGW-w64."
         END
         BLOCK "040504B0"  // Czech, Unicode
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lehký textový editor"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "2.1.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "1.0.0 (Fáze 1 dokončena)"
+            VALUE "ProductVersion",   "2.1.0 (Autodetekce URL)"
             VALUE "Comments",         "Přístupný textový editor s ovládacím prvkem RichEdit 4.1, automatickým ukládáním, zalamováním řádků a podporou filtrů. Vytvořeno pomocí MinGW-w64."
         END
     END
@@ -193,6 +193,11 @@ BEGIN
     IDS_REDO_DELETE              "Redo Delete"
     IDS_REDO_FILTER              "Redo Filter"
     IDS_REDO_DRAGDROP            "Redo Drag-Drop"
+    
+    // URL strings
+    IDS_CONTEXT_OPEN_URL         "Open URL"
+    IDS_CONTEXT_COPY_URL         "Copy URL"
+    IDS_ERROR_OPEN_URL           "Could not open URL"
 END
 
 // ============================================================================
@@ -339,4 +344,9 @@ BEGIN
     IDS_REDO_DELETE              "Znovu smazání"
     IDS_REDO_FILTER              "Znovu filtr"
     IDS_REDO_DRAGDROP            "Znovu přetažení"
+    
+    // URL strings
+    IDS_CONTEXT_OPEN_URL         "Otevřít URL"
+    IDS_CONTEXT_COPY_URL         "Kopírovat URL"
+    IDS_ERROR_OPEN_URL           "Nelze otevřít URL"
 END
