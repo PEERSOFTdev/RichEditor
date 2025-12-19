@@ -10,7 +10,7 @@
 #
 # Build types:
 #   debug   - Debug symbols with -O2 optimization (~875KB)
-#   strip   - Stripped debug build for distribution (~228KB)
+#   strip   - Stripped debug build for distribution (~275KB)
 
 # Default cross-compiler prefix (can be overridden)
 CROSS ?= x86_64-w64-mingw32.static-
@@ -31,8 +31,11 @@ OBJ = main.o resource.o
 # -g  : include debug symbols
 # -Wall -Wextra : enable useful warnings
 # -static : static linking for standalone executable
+# -ffunction-sections/-fdata-sections + -Wl,--gc-sections : dead code elimination
+# -flto : link-time optimization
 CFLAGS = -std=c++11 -DUNICODE -D_UNICODE -O2 -g -Wall -Wextra \
-         -static -static-libgcc -static-libstdc++
+         -static -static-libgcc -static-libstdc++ \
+         -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
 LDFLAGS = -mwindows -municode -static -static-libgcc -static-libstdc++
 LIBS = -lcomctl32 -lcomdlg32 -lole32 -loleaut32 -lshell32
 
@@ -96,7 +99,7 @@ help:
 	@echo ""
 	@echo "Build sizes:"
 	@echo "  make        - Debug build with symbols (~875KB)"
-	@echo "  make strip  - Stripped for distribution (~228KB)"
+	@echo "  make strip  - Stripped for distribution (~275KB)"
 	@echo ""
 	@echo "The executable contains both English and Czech resources."
 	@echo "Windows automatically selects the language based on system settings."
