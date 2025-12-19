@@ -44,6 +44,9 @@ UINT g_nTabSize = 8;                          // Tab size in spaces (default 8)
 // URL context menu
 WCHAR g_szContextMenuURL[2048] = L"";         // URL from context menu (for WM_COMMAND handler)
 
+// RichEdit subclassing
+WNDPROC g_pfnOriginalEditProc = NULL;         // Original RichEdit window procedure
+
 //============================================================================
 // Undo/Redo Type Tracking
 //============================================================================
@@ -123,6 +126,7 @@ int g_nMRUCount = 0;
 // Function Declarations
 //============================================================================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
 BOOL InitRichEditLibrary();
 HWND CreateRichEditControl(HWND hwndParent);
@@ -386,7 +390,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_TIMER:
             // Handle autosave timer
             if (wParam == IDT_AUTOSAVE) {
-                OutputDebugString(L"WM_TIMER: Autosave timer fired\n");
                 DoAutosave();
             }
             // Handle filter status bar timer (30-second display)
@@ -579,22 +582,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
             
-        case WM_KEYDOWN:
-            // Handle keyboard shortcuts in RichEdit
-            if ((HWND)wParam == g_hWndEdit || GetFocus() == g_hWndEdit) {
-                if (wParam == VK_RETURN) {
-                    // Check if cursor is in a URL
-                    WCHAR szURL[2048];
-                    if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
-                        // Open URL
-                        OpenURL(hwnd, szURL);
-                        return 0; // Prevent default Enter behavior
-                    }
-                    // If not in URL, allow normal Enter key behavior (insert newline)
-                }
-            }
-            break;
-            
         case WM_INITMENUPOPUP:
             // Update Undo/Redo menu items when Edit menu is opened
             if (LOWORD(lParam) == 1) {  // Edit menu is at position 1
@@ -761,6 +748,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 //============================================================================
+// EditSubclassProc - Subclass procedure for RichEdit control
+//
+// Intercepts WM_KEYDOWN to handle Enter key on URLs
+//============================================================================
+LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_KEYDOWN && wParam == VK_RETURN) {
+        // Check if cursor is in a URL
+        WCHAR szURL[2048];
+        if (GetURLAtCursor(hwnd, szURL, 2048, NULL)) {
+            // Open URL
+            OpenURL(g_hWndMain, szURL);
+            return 0; // Prevent default Enter behavior (don't insert newline)
+        }
+        // If not in URL, allow normal Enter key behavior (insert newline)
+    }
+    
+    // Call original window procedure for all other messages
+    return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+}
+
+//============================================================================
 // URL Detection and Handling Functions
 //============================================================================
 
@@ -771,20 +780,30 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 //============================================================================
 BOOL IsCharInURL(HWND hWndEdit, LONG charPos)
 {
-    // Set selection to single character at position
+    // Save current selection
+    CHARRANGE savedSel;
+    SendMessage(hWndEdit, EM_EXGETSEL, 0, (LPARAM)&savedSel);
+    
+    // Set selection to the character at charPos (select one character)
+    // We need to select FROM charPos TO charPos+1 to get the format of the character AT charPos
     CHARRANGE cr;
     cr.cpMin = charPos;
-    cr.cpMax = charPos;
+    cr.cpMax = charPos + 1;  // Select one character
     SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
     
-    // Get character format at this position
+    // Get character format for this selection
     CHARFORMAT2 cf;
     ZeroMemory(&cf, sizeof(CHARFORMAT2));
     cf.cbSize = sizeof(CHARFORMAT2);
     cf.dwMask = CFM_LINK;
     SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
     
-    return (cf.dwEffects & CFE_LINK) != 0;
+    BOOL hasLink = (cf.dwEffects & CFE_LINK) != 0;
+    
+    // Restore original selection
+    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+    
+    return hasLink;
 }
 
 //============================================================================
@@ -800,27 +819,40 @@ BOOL IsCharInURL(HWND hWndEdit, LONG charPos)
 //============================================================================
 BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
 {
-    // Get current selection
-    CHARRANGE cr;
-    SendMessage(hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    // Save current selection
+    CHARRANGE savedSel;
+    SendMessage(hWndEdit, EM_EXGETSEL, 0, (LPARAM)&savedSel);
     
-    // Check if cursor is in a URL
-    if (!IsCharInURL(hWndEdit, cr.cpMin)) {
+    LONG cursorPos = savedSel.cpMin;
+    int textLen = GetWindowTextLength(hWndEdit);
+    
+    // The cursor position is BEFORE the character at that index
+    // So position 0 means "before first character", and the character at position 0 is the first character
+    // We need to check if the character AT the cursor position has CFE_LINK
+    
+    if (cursorPos >= textLen) {
+        // Cursor is at the end of text
         return FALSE;
     }
     
-    // Find start of URL (walk backwards until no CFE_LINK)
-    LONG urlStart = cr.cpMin;
+    // Check if the character at cursor position has CFE_LINK
+    if (!IsCharInURL(hWndEdit, cursorPos)) {
+        return FALSE;
+    }
+    
+    // Find start of URL (walk backwards until we find a character WITHOUT CFE_LINK)
+    LONG urlStart = cursorPos;
     while (urlStart > 0 && IsCharInURL(hWndEdit, urlStart - 1)) {
         urlStart--;
     }
+    // Now urlStart points to the first character WITH CFE_LINK
     
-    // Find end of URL (walk forwards until no CFE_LINK)
-    int textLen = GetWindowTextLength(hWndEdit);
-    LONG urlEnd = cr.cpMin;
+    // Find end of URL (walk forwards until we find a character WITHOUT CFE_LINK)
+    LONG urlEnd = cursorPos;
     while (urlEnd < textLen && IsCharInURL(hWndEdit, urlEnd)) {
         urlEnd++;
     }
+    // Now urlEnd points to the first character WITHOUT CFE_LINK (one past the end)
     
     // Extract URL text
     int urlLen = urlEnd - urlStart;
@@ -839,6 +871,9 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
         pRange->cpMin = urlStart;
         pRange->cpMax = urlEnd;
     }
+    
+    // Restore original selection
+    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
     
     return TRUE;
 }
@@ -973,6 +1008,9 @@ HWND CreateRichEditControl(HWND hwndParent)
         
         // Set large text limit (2GB)
         SendMessage(hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+        
+        // Subclass the RichEdit control to intercept WM_KEYDOWN
+        g_pfnOriginalEditProc = (WNDPROC)SetWindowLongPtr(hwndEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
         
         // Set focus to editor
         SetFocus(hwndEdit);
@@ -3735,8 +3773,6 @@ void StartAutosaveTimer(HWND hwnd)
         _snwprintf(debug, 256, L"StartAutosaveTimer: hwnd=%p, SetTimer called with interval=%d ms, result=%p\n", 
                    hwnd, interval, (void*)result);
         OutputDebugString(debug);
-    } else {
-        OutputDebugString(L"StartAutosaveTimer: Timer not started (disabled or interval=0)\n");
     }
 }
 
@@ -3745,21 +3781,13 @@ void StartAutosaveTimer(HWND hwnd)
 //============================================================================
 void DoAutosave()
 {
-    OutputDebugString(L"DoAutosave: Called\n");
-    
     // Only autosave if:
     // 1. Autosave is enabled
     // 2. Document has been modified
     // 3. Document has a filename (not "Untitled")
     if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0') {
-        WCHAR debug[256];
-        _snwprintf(debug, 256, L"DoAutosave: Skipped (enabled=%d, modified=%d, hasFilename=%d)\n",
-                   g_bAutosaveEnabled, g_bModified, g_szFileName[0] != L'\0');
-        OutputDebugString(debug);
         return;
     }
-    
-    OutputDebugString(L"DoAutosave: Saving...\n");
     
     // Save the file silently
     if (SaveTextFile(g_szFileName)) {
