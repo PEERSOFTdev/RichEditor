@@ -41,6 +41,9 @@ BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menu
 // Tab settings
 UINT g_nTabSize = 8;                          // Tab size in spaces (default 8)
 
+// URL context menu
+WCHAR g_szContextMenuURL[2048] = L"";         // URL from context menu (for WM_COMMAND handler)
+
 //============================================================================
 // Undo/Redo Type Tracking
 //============================================================================
@@ -491,18 +494,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         }
                         // Handle URL actions from context menu
                         else if (wmId == ID_URL_OPEN) {
-                            // Open URL from context menu
-                            WCHAR szURL[2048];
-                            if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
-                                OpenURL(hwnd, szURL);
+                            // Open URL from context menu (use stored URL)
+                            if (g_szContextMenuURL[0] != L'\0') {
+                                OpenURL(hwnd, g_szContextMenuURL);
+                                g_szContextMenuURL[0] = L'\0';  // Clear after use
                             }
                             return 0;
                         }
                         else if (wmId == ID_URL_COPY) {
-                            // Copy URL to clipboard
-                            WCHAR szURL[2048];
-                            if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
-                                CopyURLToClipboard(hwnd, szURL);
+                            // Copy URL to clipboard (use stored URL)
+                            if (g_szContextMenuURL[0] != L'\0') {
+                                CopyURLToClipboard(hwnd, g_szContextMenuURL);
+                                g_szContextMenuURL[0] = L'\0';  // Clear after use
                             }
                             return 0;
                         }
@@ -611,7 +614,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 if (hMenu) {
                     // Check if cursor is in a URL
                     BOOL isInURL = FALSE;
-                    WCHAR szURL[2048];
+                    g_szContextMenuURL[0] = L'\0';  // Clear stored URL
                     LONG cursorPos = -1;
                     
                     // Determine cursor position for URL detection
@@ -630,7 +633,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     
                     // Check if this position is in a URL
                     if (cursorPos >= 0 && IsCharInURL(g_hWndEdit, cursorPos)) {
-                        if (GetURLAtCursor(g_hWndEdit, szURL, 2048, NULL)) {
+                        if (GetURLAtCursor(g_hWndEdit, g_szContextMenuURL, 2048, NULL)) {
                             isInURL = TRUE;
                         }
                     }
