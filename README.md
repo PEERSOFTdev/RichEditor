@@ -90,6 +90,20 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Proper pipe and process handle cleanup
 - INI validation with helpful error messages
 
+**Example Filter Use Cases:**
+- **Calculator**: `2 + 2 + 3` → evaluates to `7`
+- **Text transformation**: UPPERCASE, lowercase, Title Case, reverse
+- **Line operations**: Sort, remove duplicates, number lines, reverse order
+- **Data extraction**: Extract URLs, email addresses from documents
+- **Encoding**: Base64 encode/decode
+- **Web content**: Download webpage by URL
+- **JSON formatting**: Prettify minified JSON
+- **Statistics**: Count lines, words, characters
+- **Cleanup**: Remove empty lines, trim whitespace
+- **Code execution**: Python, PowerShell, Bash one-liners
+- **AI integration**: Any AI agent via command-line interface
+- **Custom utilities**: Any program that reads stdin and writes stdout
+
 **Accessibility Features:**
 - Tab-aware column calculation for accurate position reporting:
   - Status bar shows correct visual column positions accounting for tab expansion
@@ -119,20 +133,6 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Opens URLs with Windows default application via ShellExecute
 - Full accessibility: URLs announced as "link" by NVDA, JAWS, Narrator
 - Always enabled (no configuration needed)
-
-**Example Use Cases:**
-- **Calculator**: `2 + 2 + 3` → evaluates to `7`
-- **Text transformation**: UPPERCASE, lowercase, Title Case, reverse
-- **Line operations**: Sort, remove duplicates, number lines, reverse order
-- **Data extraction**: Extract URLs, email addresses from documents
-- **Encoding**: Base64 encode/decode
-- **Web content**: Download webpage by URL
-- **JSON formatting**: Prettify minified JSON
-- **Statistics**: Count lines, words, characters
-- **Cleanup**: Remove empty lines, trim whitespace
-- **Code execution**: Python, PowerShell, Bash one-liners
-- **AI integration**: Any AI agent via command-line interface
-- **Custom utilities**: Any program that reads stdin and writes stdout
 
 ### Future Phases (Ideas)
 - Find/Replace functionality
