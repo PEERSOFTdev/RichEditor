@@ -835,37 +835,6 @@ BOOL IsCharInURL(HWND hWndEdit, LONG charPos)
 //
 // Returns: TRUE if URL found and extracted, FALSE otherwise
 //============================================================================
-//============================================================================
-// GetURLAtCursor - Extract URL text at cursor position
-//
-// Parameters:
-//   hWndEdit - RichEdit control handle
-//   pszURL - Buffer to receive URL text (must be at least cchMax WCHARs)
-//   cchMax - Maximum buffer size in WCHARs
-//   pRange - Optional, receives character range of the URL
-//
-// Returns: TRUE if URL found and extracted, FALSE otherwise
-//
-// Performance optimized: Uses EM_LINEFROMCHAR to limit search to current line
-// instead of walking character-by-character through the entire document.
-//============================================================================
-//============================================================================
-// GetURLAtCursor - Extract URL text at cursor position (OPTIMIZED)
-//
-// Strategy: Use g_lastURLRange from EN_LINK if cursor is within that range
-// This avoids character-by-character walking in large documents
-//============================================================================
-//============================================================================
-// GetURLAtCursor - Extract URL text at cursor position (EXPONENTIAL SEARCH)
-//
-// Uses exponential search + binary search to minimize EM_EXSETSEL calls
-// For a 200-char URL: ~16 calls instead of 400
-//============================================================================
-//============================================================================
-// GetURLAtCursor - Extract URL text at cursor position (FIXED EXPONENTIAL)
-//
-// Uses exponential search with correct boundary detection
-//============================================================================
 BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
 {
     // Get current cursor position
@@ -892,13 +861,7 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
         }
     }
     
-    // Fallback: exponential search
-    int textLen = GetWindowTextLength(hWndEdit);
-    if (cursorPos >= textLen) {
-        return FALSE;
-    }
-    
-    // Quick check: is cursor in a URL? (1 EM_EXSETSEL call)
+    // Quick check: is cursor in a URL? (single check, minimal cost)
     CHARFORMAT2 cf;
     ZeroMemory(&cf, sizeof(CHARFORMAT2));
     cf.cbSize = sizeof(CHARFORMAT2);
@@ -909,131 +872,98 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     cr.cpMax = cursorPos + 1;
     SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
     SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
     
     if (!(cf.dwEffects & CFE_LINK)) {
+        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
         return FALSE;  // Not in URL
     }
     
-    // Find URL start using exponential search backward
-    LONG urlStart = cursorPos;
-    LONG step = 1;
+    // Use EM_FINDWORDBREAK to find URL boundaries
+    // AutoURL ranges are word-like tokens, so word breaks align with URL boundaries
+    LONG wordLeft = SendMessage(hWndEdit, EM_FINDWORDBREAK, WB_LEFT, cursorPos);
+    LONG wordRight = SendMessage(hWndEdit, EM_FINDWORDBREAK, WB_RIGHT, cursorPos);
     
-    // Exponential phase: find range containing start boundary
-    while (urlStart - step >= 0) {
-        cr.cpMin = urlStart - step;
-        cr.cpMax = urlStart - step + 1;
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-        SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+    // Verify the word break range has CFE_LINK throughout
+    // (in case word break extends beyond URL)
+    cr.cpMin = wordLeft;
+    cr.cpMax = wordRight;
+    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+    SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+    
+    if (!(cf.dwEffects & CFE_LINK)) {
+        // Word break extends beyond URL, need to narrow down
+        // Use binary search but starting from word boundaries (much smaller range)
+        LONG urlStart = wordLeft;
+        LONG urlEnd = wordRight;
         
-        if (cf.dwEffects & CFE_LINK) {
-            // Still in URL, double the step
-            step *= 2;
-            if (step > 500) break;  // Limit max URL length
-        } else {
-            // Found first non-URL char
-            // URL start is somewhere in [urlStart - step + 1, urlStart - step/2]
-            break;
+        // Binary search for exact start
+        LONG left = wordLeft;
+        LONG right = cursorPos;
+        while (left < right) {
+            LONG mid = (left + right) / 2;
+            cr.cpMin = mid;
+            cr.cpMax = mid + 1;
+            SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+            
+            if (cf.dwEffects & CFE_LINK) {
+                right = mid;
+                urlStart = mid;
+            } else {
+                left = mid + 1;
+            }
         }
+        
+        // Binary search for exact end
+        left = cursorPos + 1;
+        right = wordRight;
+        while (left < right) {
+            LONG mid = (left + right) / 2;
+            cr.cpMin = mid;
+            cr.cpMax = mid + 1;
+            SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+            
+            if (cf.dwEffects & CFE_LINK) {
+                left = mid + 1;
+                urlEnd = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+        
+        wordLeft = urlStart;
+        wordRight = urlEnd;
     }
-    
-    // Binary search phase for exact start position
-    LONG left = (urlStart - step + 1 > 0) ? (urlStart - step + 1) : 0;
-    LONG right = urlStart;
-    
-    while (left < right) {
-        LONG mid = (left + right) / 2;
-        cr.cpMin = mid;
-        cr.cpMax = mid + 1;
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-        SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-        
-        if (cf.dwEffects & CFE_LINK) {
-            // mid is in URL, search earlier
-            right = mid;
-        } else {
-            // mid is not in URL, search later
-            left = mid + 1;
-        }
-    }
-    urlStart = left;
-    
-    // Find URL end using exponential search forward
-    LONG urlEnd = cursorPos + 1;
-    step = 1;
-    
-    // Exponential phase
-    while (urlEnd + step <= textLen) {
-        cr.cpMin = urlEnd + step - 1;
-        cr.cpMax = urlEnd + step;
-        if (cr.cpMax > textLen) break;
-        
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-        SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-        
-        if (cf.dwEffects & CFE_LINK) {
-            // Still in URL
-            step *= 2;
-            if (step > 500) break;
-        } else {
-            // Found first non-URL char
-            break;
-        }
-    }
-    
-    // Binary search for exact end position
-    left = urlEnd;
-    right = (urlEnd + step <= textLen) ? (urlEnd + step) : textLen;
-    
-    while (left < right) {
-        LONG mid = (left + right) / 2;
-        if (mid >= textLen) {
-            right = textLen;
-            break;
-        }
-        
-        cr.cpMin = mid;
-        cr.cpMax = mid + 1;
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-        SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-        
-        if (cf.dwEffects & CFE_LINK) {
-            // mid is in URL, search later
-            left = mid + 1;
-        } else {
-            // mid is not in URL, search earlier
-            right = mid;
-        }
-    }
-    urlEnd = left;
     
     // Extract URL text
-    int urlLen = urlEnd - urlStart;
+    int urlLen = wordRight - wordLeft;
     if (urlLen <= 0 || urlLen >= cchMax) {
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
         return FALSE;
     }
     
     TEXTRANGE tr;
-    tr.chrg.cpMin = urlStart;
-    tr.chrg.cpMax = urlEnd;
+    tr.chrg.cpMin = wordLeft;
+    tr.chrg.cpMax = wordRight;
     tr.lpstrText = pszURL;
     SendMessage(hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
     
     if (pRange) {
-        pRange->cpMin = urlStart;
-        pRange->cpMax = urlEnd;
+        pRange->cpMin = wordLeft;
+        pRange->cpMax = wordRight;
     }
     
     // Cache for next time
-    g_lastURLRange.cpMin = urlStart;
-    g_lastURLRange.cpMax = urlEnd;
+    g_lastURLRange.cpMin = wordLeft;
+    g_lastURLRange.cpMax = wordRight;
     
-    // Restore selection
+    // Restore selection (single restore at end)
     SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
     
     return TRUE;
 }
+
 
 
 
