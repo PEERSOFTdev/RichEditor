@@ -198,6 +198,8 @@ BEGIN
     IDS_CONTEXT_OPEN_URL         "Open URL"
     IDS_CONTEXT_COPY_URL         "Copy URL"
     IDS_ERROR_OPEN_URL           "Could not open URL"
+    IDS_UNDO_BUFFER_FULL_TITLE   "Undo Buffer Full"
+    IDS_UNDO_BUFFER_FULL_MESSAGE "The undo buffer is full. New changes will no longer be undoable.\n\nDo you want to continue editing?"
 END
 
 // ============================================================================
@@ -349,4 +351,6 @@ BEGIN
     IDS_CONTEXT_OPEN_URL         "Otevřít URL"
     IDS_CONTEXT_COPY_URL         "Kopírovat URL"
     IDS_ERROR_OPEN_URL           "Nelze otevřít URL"
+    IDS_UNDO_BUFFER_FULL_TITLE   "Plná vyrovnávací paměť pro vrácení zpět"
+    IDS_UNDO_BUFFER_FULL_MESSAGE "Vyrovnávací paměť pro vrácení zpět je plná. Nové změny již nebude možné vrátit zpět.\n\nChcete pokračovat v úpravách?"
 END

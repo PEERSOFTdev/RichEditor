@@ -572,6 +572,25 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             }
                         }
                         break;
+                        
+                    case EN_STOPNOUNDO:
+                        // Undo buffer is full - notify user
+                        {
+                            WCHAR szTitle[128];
+                            WCHAR szMessage[256];
+                            LoadStringResource(IDS_UNDO_BUFFER_FULL_TITLE, szTitle, 128);
+                            LoadStringResource(IDS_UNDO_BUFFER_FULL_MESSAGE, szMessage, 256);
+                            
+                            int result = MessageBox(hwnd, szMessage, szTitle, 
+                                                   MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON1);
+                            
+                            if (result == IDNO) {
+                                // User wants to stop editing - close without saving
+                                PostMessage(hwnd, WM_CLOSE, 0, 0);
+                            }
+                            // If IDYES, continue editing (do nothing)
+                        }
+                        break;
                 }
             }
             return 0;

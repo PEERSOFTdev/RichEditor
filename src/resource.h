@@ -117,3 +117,7 @@
 #define IDS_ERROR_OPEN_URL              2059
 
 #endif // RESOURCE_H
+
+// EN_STOPNOUNDO notification strings
+#define IDS_UNDO_BUFFER_FULL_TITLE      2060
+#define IDS_UNDO_BUFFER_FULL_MESSAGE    2061
