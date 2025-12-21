@@ -2257,11 +2257,9 @@ BOOL PromptSaveChanges()
         return TRUE;
     }
     
-    // Don't prompt if document is empty (no text)
-    int len = GetWindowTextLength(g_hWndEdit);
-    if (len == 0) {
-        return TRUE;
-    }
+    // ALWAYS prompt if document has been modified, even if it's now empty.
+    // The user may have cut/deleted all text, and we should ask if they
+    // want to save the now-empty document (which would delete the original content).
     
     WCHAR szPrompt[MAX_PATH + 100];
     WCHAR szTemplate[256];
