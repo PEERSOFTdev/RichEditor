@@ -48,17 +48,6 @@ CHARRANGE g_lastURLRange = {-1, -1};           // Last URL range from EN_LINK (f
 // RichEdit subclassing
 WNDPROC g_pfnOriginalEditProc = NULL;         // Original RichEdit window procedure
 
-// URL cache for performance optimization in large documents
-#define MAX_URL_CACHE 200
-struct URLCacheEntry {
-    LONG cpMin;           // Start of URL
-    LONG cpMax;           // End of URL
-    WCHAR szURL[2048];    // Cached URL text
-};
-URLCacheEntry g_URLCache[MAX_URL_CACHE];
-int g_nURLCacheCount = 0;
-BOOL g_bURLCacheValid = FALSE;  // TRUE if cache is up-to-date
-
 //============================================================================
 // Undo/Redo Type Tracking
 //============================================================================
@@ -147,7 +136,6 @@ void UpdateStatusBar();
 void UpdateTitle(HWND hwnd = NULL);
 void UpdateMenuUndoRedo(HMENU hMenu);
 int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition);
-BOOL IsCharInURL(HWND hWndEdit, LONG charPos);
 BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange);
 void OpenURL(HWND hwnd, LPCWSTR pszURL);
 void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL);
@@ -221,16 +209,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     if (argv) {
         LocalFree(argv);
     }
-    
-    // Load RichEdit library
-    if (!InitRichEditLibrary()) {
-        WCHAR szError[256], szTitle[64];
-        LoadStringResource(IDS_RICHEDIT_LOAD_FAILED, szError, 256);
-        LoadStringResource(IDS_ERROR, szTitle, 64);
-        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
-        return 1;
-    }
-    
+
     // Register window class
     WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
@@ -420,7 +399,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     g_lastURLRange.cpMin = -1;  // Invalidate cached URL range
                     UpdateTitle();
                 }
-                // No need to track typing - RichEdit reports this via EM_GETUNDONAME
                 return 0;
             }
             
@@ -787,42 +765,6 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 //============================================================================
 // URL Detection and Handling Functions
 //============================================================================
-
-//============================================================================
-// IsCharInURL - Check if character position is within a URL
-//
-// Returns: TRUE if the character at charPos has CFE_LINK effect
-//
-// Performance optimized: Uses EM_SETCHARFORMAT without changing selection
-// to avoid triggering selection change events in large documents.
-//============================================================================
-BOOL IsCharInURL(HWND hWndEdit, LONG charPos)
-{
-    // Create a temporary range for the character
-    CHARRANGE cr;
-    cr.cpMin = charPos;
-    cr.cpMax = charPos + 1;
-    
-    // Get character format for this range WITHOUT changing the selection
-    // We use EM_SETCHARFORMAT with a CHARFORMAT2 structure that has the range set
-    CHARFORMAT2 cf;
-    ZeroMemory(&cf, sizeof(CHARFORMAT2));
-    cf.cbSize = sizeof(CHARFORMAT2);
-    cf.dwMask = CFM_LINK;
-    
-    // Save current selection
-    CHARRANGE savedSel;
-    SendMessage(hWndEdit, EM_EXGETSEL, 0, (LPARAM)&savedSel);
-    
-    // Temporarily set selection to check format (unavoidable with EM_GETCHARFORMAT)
-    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-    SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-    
-    // Restore original selection
-    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
-    
-    return (cf.dwEffects & CFE_LINK) != 0;
-}
 
 //============================================================================
 // GetURLAtCursor - Extract URL text at cursor position
@@ -2515,10 +2457,6 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
 }
 
 //============================================================================
-// PHASE 2: Filter System Stubs
-//============================================================================
-
-//============================================================================
 // RunFilterCommand - Execute filter command and capture output
 // Returns: true on success, false on failure
 //============================================================================
@@ -3857,12 +3795,7 @@ void StartAutosaveTimer(HWND hwnd)
     if (g_bAutosaveEnabled && g_nAutosaveIntervalMinutes > 0) {
         // Convert minutes to milliseconds
         UINT interval = g_nAutosaveIntervalMinutes * 60 * 1000;
-        UINT_PTR result = SetTimer(hwnd, IDT_AUTOSAVE, interval, NULL);
-        
-        WCHAR debug[256];
-        _snwprintf(debug, 256, L"StartAutosaveTimer: hwnd=%p, SetTimer called with interval=%d ms, result=%p\n", 
-                   hwnd, interval, (void*)result);
-        OutputDebugString(debug);
+        SetTimer(hwnd, IDT_AUTOSAVE, interval, NULL);
     }
 }
 
@@ -3887,7 +3820,7 @@ void DoAutosave()
         SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)L"[Autosaved]");
         
         // Restore original status after 1 second
-        Sleep(100);  // Brief flash
+        Sleep(1000);  // Brief flash
         SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szOldStatus);
     }
 }
