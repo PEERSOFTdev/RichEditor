@@ -32,6 +32,7 @@ HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
 BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
 UINT g_nAutosaveIntervalMinutes = 1;         // Autosave interval in minutes (0 = disabled)
 BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
+BOOL g_bPromptingForSave = FALSE;            // TRUE when showing save prompt (prevents autosave on focus loss)
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar display
 
@@ -373,7 +374,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
         case WM_KILLFOCUS:
             // Autosave on focus loss if enabled
-            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss) {
+            // BUT: Don't autosave if we're showing the save prompt (prevents saving before user responds)
+            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss && !g_bPromptingForSave) {
                 DoAutosave();
             }
             return 0;
@@ -2274,8 +2276,15 @@ BOOL PromptSaveChanges()
         _snwprintf(szPrompt, MAX_PATH + 100, szTemplate, szUntitled);
     }
     
+    // Set flag to prevent autosave-on-focus-loss while showing the prompt
+    // (MessageBox steals focus, triggering WM_KILLFOCUS, which would autosave before user responds!)
+    g_bPromptingForSave = TRUE;
+    
     int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",
                            MB_YESNOCANCEL | MB_ICONQUESTION);
+    
+    // Clear flag after user responds
+    g_bPromptingForSave = FALSE;
     
     switch (result) {
         case IDYES:
