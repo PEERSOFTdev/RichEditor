@@ -123,6 +123,7 @@ BOOL g_bFilterStatusBarActive = FALSE;
 // MRU list
 WCHAR g_MRU[MAX_MRU][EXTENDED_PATH_MAX];
 int g_nMRUCount = 0;
+BOOL g_bNoMRU = FALSE;              // TRUE when /nomru command-line option is specified
 
 //============================================================================
 // Function Declarations
@@ -202,9 +203,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     WCHAR szCommandLineFile[EXTENDED_PATH_MAX] = L"";
     
-    // If a filename was passed as argument, store it for later
-    if (argc > 1 && argv[1][0] != L'\0') {
-        wcscpy_s(szCommandLineFile, EXTENDED_PATH_MAX, argv[1]);
+    // Parse arguments: look for /nomru option and filename
+    // /nomru can appear before or after the filename
+    // Examples: RichEditor.exe file.json /nomru
+    //           RichEditor.exe /nomru file.json
+    for (int i = 1; i < argc; i++) {
+        if (_wcsicmp(argv[i], L"/nomru") == 0) {
+            g_bNoMRU = TRUE;
+        } else if (argv[i][0] != L'\0' && szCommandLineFile[0] == L'\0') {
+            // First non-option argument is the filename
+            wcscpy_s(szCommandLineFile, EXTENDED_PATH_MAX, argv[i]);
+        }
     }
     
     if (argv) {
@@ -3565,6 +3574,11 @@ void SaveMRU()
 void AddToMRU(LPCWSTR pszFilePath)
 {
     if (!pszFilePath || pszFilePath[0] == L'\0') {
+        return;
+    }
+    
+    // Don't add to MRU if /nomru command-line option was specified
+    if (g_bNoMRU) {
         return;
     }
     
