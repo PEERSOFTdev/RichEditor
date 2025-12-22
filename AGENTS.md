@@ -8,7 +8,7 @@ This document provides context and guidelines for AI agents working on the RichE
 
 **Key Design Principles:**
 - Accessibility first (screen reader support is mandatory)
-- Single-file architecture (main.cpp is ~2,700 lines)
+- Single-file architecture (main.cpp is ~3,900 lines)
 - Universal binary (English + Czech in one executable)
 - UTF-8 without BOM for all text files
 - UNC path support throughout
@@ -21,7 +21,7 @@ This document provides context and guidelines for AI agents working on the RichE
 ```
 RichEditor/
 ├── src/
-│   ├── main.cpp          # Main application (~2,700 lines)
+│   ├── main.cpp          # Main application (~3,900 lines)
 │   ├── resource.h        # Resource IDs
 │   └── resource.rc       # Windows resources (menus, dialogs, strings)
 ├── Makefile              # Build configuration
@@ -71,6 +71,8 @@ WCHAR g_szFileName[]    // Current file path (EXTENDED_PATH_MAX = 32767)
 BOOL g_bModified        // Document modified flag
 BOOL g_bWordWrap        // Word wrap state
 BOOL g_bShowMenuDescriptions  // Show filter descriptions in menus
+BOOL g_bNoMRU           // TRUE when /nomru command-line option specified
+BOOL g_bPromptingForSave // TRUE when showing save prompt (prevents autosave race)
 
 // Filter system
 FilterInfo g_Filters[MAX_FILTERS]  // Array of filter configurations
@@ -317,6 +319,43 @@ Functions in `main.cpp` are organized by category:
 - File operations
 - Filter system functions
 - UI update functions
+
+## Recent Features (v2.1)
+
+### Command-Line Options
+
+**`/nomru` Option:**
+- Prevents file from being added to MRU list
+- Useful for temporary files, logs, JSON viewers
+- Can appear before or after filename
+- Examples:
+  - `RichEditor.exe file.json /nomru`
+  - `RichEditor.exe /nomru file.json`
+- Implementation:
+  - Global flag: `g_bNoMRU` (line ~126)
+  - Parsed in `WinMain` command-line loop (line ~205)
+  - Checked in `AddToMRU()` before adding (line ~3580)
+
+### Undo Buffer Overflow Notification
+
+**EN_STOPNOUNDO Handler:**
+- RichEdit sends this notification when undo buffer is full
+- Shows warning MessageBox (localized English/Czech)
+- Asks user: "Continue editing?" Yes/No
+- "Yes" → Continue editing (undo stops working)
+- "No" → Close application via `PostMessage(WM_CLOSE)`
+- Implementation:
+  - String resources: IDS_UNDO_BUFFER_FULL_TITLE (2060), IDS_UNDO_BUFFER_FULL_MESSAGE (2061)
+  - Handler in `WndProc` WM_NOTIFY section (line ~575)
+
+### Save Prompt Protection
+
+**Autosave Race Condition Fix:**
+- Problem: MessageBox loses focus → triggers WM_KILLFOCUS → autosave before user responds
+- Solution: `g_bPromptingForSave` guard flag (line ~35)
+- Set TRUE before MessageBox, FALSE after
+- `WM_KILLFOCUS` checks flag and skips autosave if TRUE (line ~377)
+- Ensures user's "Yes/No/Cancel" choice is respected
 
 ## Common Tasks
 
@@ -596,6 +635,6 @@ For questions about this project, refer to:
 ---
 
 **Last Updated:** December 2025
-**Project Version:** Phase 2 Complete (Accessibility Features)
-**Code Size:** ~2,700 lines (main.cpp)
-**Binary Size:** ~1.15 MB (static)
+**Project Version:** Phase 2 Complete (Accessibility Features + Command-Line Options)
+**Code Size:** ~3,900 lines (main.cpp)
+**Binary Size:** ~933 KB (static)

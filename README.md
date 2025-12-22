@@ -10,6 +10,7 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Plain text editing with UTF-8 support (no BOM)
 - File operations: New, Open, Save, Save As
 - Command-line argument support (open file on startup)
+- `/nomru` option to prevent MRU list pollution (perfect for file associations)
 - Edit operations with context-aware menu labels:
   - Undo/Redo with dynamic labels showing operation type:
     - "Undo Typing", "Redo Paste", "Undo Delete", etc.
@@ -46,6 +47,10 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
   - Most recent file always at top (File1)
   - Auto-updates on open/save operations
   - Supports UNC paths
+- Undo buffer overflow notification:
+  - Warning dialog when RichEdit undo buffer becomes full
+  - Allows user to continue editing or close the application
+  - Prevents silent loss of undo capability
 
 **Autosave:**
 - Timer-based autosave (configurable interval, default: 1 minute)
@@ -245,17 +250,30 @@ The `Makefile` uses:
 
 ### Command-Line Arguments
 
-RichEditor supports opening files from the command line:
+RichEditor supports opening files from the command line with optional flags:
 
 ```bash
-RichEditor.exe [filename]
+RichEditor.exe [options] [filename]
 ```
+
+**Options:**
+- `/nomru` - Open file without adding it to the Most Recently Used (MRU) list
 
 **Examples:**
 ```bash
+# Normal file open (adds to MRU)
 RichEditor.exe document.txt
 RichEditor.exe "C:\My Documents\notes.txt"
 RichEditor.exe \\server\share\file.txt    # UNC paths supported
+
+# Open without adding to MRU (perfect for temporary/reference files)
+RichEditor.exe data.json /nomru
+RichEditor.exe /nomru data.json           # Order doesn't matter
+RichEditor.exe "C:\Logs\debug.log" /nomru
+
+# File associations (e.g., for JSON viewer)
+# Configure Windows file association:
+RichEditor.exe "%1" /nomru
 ```
 
 **Behavior:**
@@ -263,6 +281,8 @@ RichEditor.exe \\server\share\file.txt    # UNC paths supported
 - Relative paths are resolved from the current working directory
 - Supports UNC network paths
 - File is opened with UTF-8 encoding (no BOM)
+- `/nomru` prevents the file from appearing in File menu's recent files list
+- `/nomru` can appear before or after the filename
 
 ### Keyboard Shortcuts
 
