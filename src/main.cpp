@@ -39,6 +39,9 @@ const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar d
 // Accessibility settings
 BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menus (for accessibility)
 
+// Editor behavior settings
+BOOL g_bSelectAfterPaste = FALSE;            // Select pasted text after paste operation (default: off)
+
 // Tab settings
 UINT g_nTabSize = 8;                          // Tab size in spaces (default 8)
 
@@ -2347,7 +2350,26 @@ void EditCopy()
 void EditPaste()
 {
     // No need to track - RichEdit reports this via EM_GETUNDONAME
+    
+    // Get selection before paste
+    CHARRANGE crBefore;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crBefore);
+    
+    // Perform paste
     SendMessage(g_hWndEdit, WM_PASTE, 0, 0);
+    
+    // If SelectAfterPaste is enabled, select the pasted text
+    if (g_bSelectAfterPaste) {
+        // Get selection after paste (cursor will be at end of pasted text)
+        CHARRANGE crAfter;
+        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crAfter);
+        
+        // Select from start of paste to end
+        CHARRANGE crSelect;
+        crSelect.cpMin = crBefore.cpMin;
+        crSelect.cpMax = crAfter.cpMax;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSelect);
+    }
 }
 
 //============================================================================
@@ -2931,6 +2953,9 @@ void CreateDefaultINI()
         "; Accessibility settings\r\n"
         "ShowMenuDescriptions=1        ; 1=show descriptions in menus (accessible), 0=names only (default: 1)\r\n"
         "\r\n"
+        "; Editor behavior settings\r\n"
+        "SelectAfterPaste=0            ; 1=select pasted text, 0=cursor after paste (default: 0)\r\n"
+        "\r\n"
         "; Display settings\r\n"
         "TabSize=8                     ; Tab size in spaces for column calculation (default: 8)\r\n"
         "\r\n"
@@ -3122,6 +3147,15 @@ void LoadSettings()
         g_bShowMenuDescriptions = TRUE;
     } else {
         g_bShowMenuDescriptions = ReadINIInt(szIniPath, L"Settings", L"ShowMenuDescriptions", 1);
+    }
+    
+    // SelectAfterPaste
+    ReadINIValue(szIniPath, L"Settings", L"SelectAfterPaste", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"SelectAfterPaste", L"0");
+        g_bSelectAfterPaste = FALSE;
+    } else {
+        g_bSelectAfterPaste = ReadINIInt(szIniPath, L"Settings", L"SelectAfterPaste", 0);
     }
     
     // TabSize
