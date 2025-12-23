@@ -357,6 +357,21 @@ Functions in `main.cpp` are organized by category:
 - `WM_KILLFOCUS` checks flag and skips autosave if TRUE (line ~377)
 - Ensures user's "Yes/No/Cancel" choice is respected
 
+### SelectAfterPaste Feature
+
+**Optional text selection after paste:**
+- When enabled, pasted text is automatically selected after paste operation
+- Allows quick navigation: Up/Down keys jump to start/end of pasted block
+- Default: OFF (not common in editors, can surprise users)
+- Configuration: `SelectAfterPaste=0` in INI (0=off, 1=on)
+- Implementation:
+  - Global flag: `g_bSelectAfterPaste` (line ~42)
+  - Modified `EditPaste()` to capture selection before/after paste (line ~2350)
+  - Selects from original position to new cursor position if enabled
+- **Important caveat**: Typing any character replaces the selected text (standard Windows behavior)
+  - Users may accidentally overwrite pasted content if unaware of selection
+  - Document this clearly when describing the feature
+
 ## Common Tasks
 
 ### Adding a New Setting

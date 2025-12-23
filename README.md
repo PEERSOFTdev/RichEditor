@@ -75,6 +75,7 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
   - Autosave interval (minutes)
   - Autosave on focus loss behavior
   - Show menu descriptions (accessibility)
+  - Select after paste (power user feature, default: off)
 - Auto-generation of missing settings with defaults (self-documenting)
 - Filter Help dialog (Tools → Filter Help) with comprehensive documentation
 - No need to edit source code for customization
@@ -356,6 +357,9 @@ On first launch, RichEditor automatically creates a default `RichEditor.ini` fil
 WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)
 TabSize=8                     ; Tab size in spaces for column calculation (default: 8, range: 1-32)
 
+; Editor behavior settings
+SelectAfterPaste=0            ; 1=select pasted text, 0=cursor after paste (default: 0)
+
 ; Accessibility settings
 ShowMenuDescriptions=1        ; 1=show filter descriptions in menus (accessible), 0=names only (default: 1)
 
@@ -374,6 +378,19 @@ File2=C:\path\to\second.txt
 File3=C:\path\to\third.txt
 ; ... entries managed automatically by the application
 ```
+
+**SelectAfterPaste Feature:**
+
+When `SelectAfterPaste=1`, pasted text is automatically selected after the paste operation. This enables quick positioning:
+- Paste text → text is selected
+- Press **Up/Down arrow** → cursor jumps to start/end of pasted text
+- Press **Left/Right arrow** → cursor jumps to start/end of pasted text
+
+**Use case**: Paste notes at cursor, press Up to position cursor before pasted block, start elaborating.
+
+**⚠️ Important Caveat**: When pasted text is selected, typing ANY character will **replace the entire selection**. This is standard Windows behavior for selected text, but can be surprising if you don't realize the text is selected. If you accidentally overwrite, press `Ctrl+Z` to undo.
+
+**Recommendation**: Leave at default (0) unless you specifically want this power-user feature.
 
 **Note on Settings:**
 - All settings are automatically written to the INI file with defaults if missing
