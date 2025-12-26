@@ -4753,9 +4753,27 @@ void StripANSIEscapes(LPWSTR pszText)
             // Found ESC or CSI - skip escape sequence
             src++;
             
+            // Handle OSC (Operating System Command): ESC ] ... BEL or ESC ] ... ST
+            // Used for window titles, etc. Example: ESC ] 0 ; title BEL
+            if (*src == L']') {
+                src++;
+                // Skip until BEL (0x07), ST (ESC \), or newline
+                while (*src && *src != L'\x07' && *src != L'\n' && *src != L'\r') {
+                    if (*src == L'\x1B' && *(src + 1) == L'\\') {
+                        // Found ST (String Terminator)
+                        src += 2;
+                        break;
+                    }
+                    src++;
+                }
+                // Skip BEL if present
+                if (*src == L'\x07') {
+                    src++;
+                }
+            }
             // Skip CSI sequence: ESC [ ... letter
             // Also handles: ESC ( ... letter, ESC ) ... letter, etc.
-            if (*src == L'[' || *src == L'(' || *src == L')' || *src == L'#' || 
+            else if (*src == L'[' || *src == L'(' || *src == L')' || *src == L'#' || 
                 *src == L'?' || *src == L'>' || *src == L'=' || *src == L'<') {
                 src++;
                 
