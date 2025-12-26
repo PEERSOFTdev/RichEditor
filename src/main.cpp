@@ -148,6 +148,7 @@ REPLEOLMode g_REPLEOLMode = REPL_EOL_AUTO;  // Detected EOL mode
 WCHAR g_szREPLPromptEnd[16] = L"";     // Prompt ending characters
 HANDLE g_hREPLThread = NULL;           // Background thread for reading output
 DWORD g_dwREPLThreadId = 0;            // Thread ID
+BOOL g_bREPLIntentionalExit = FALSE;   // TRUE when user intentionally exits REPL (suppress notification)
 
 // Status bar filter display
 WCHAR g_szFilterStatusBarText[512] = L"";
@@ -526,6 +527,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // Tools -> Exit Interactive Mode
                 case ID_TOOLS_EXIT_INTERACTIVE:
                     if (g_bREPLMode) {
+                        g_bREPLIntentionalExit = TRUE;
                         ExitREPLMode();
                         UpdateMenuStates(hwnd);
                     }
@@ -858,14 +860,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 int result = MessageBox(hwnd, szPrompt, szTitle, 
                                        MB_YESNO | MB_ICONQUESTION);
                 if (result != IDYES) {
-                    return 0; // Cancel close
+                    return 0; // Cancel close - keep REPL and editor running
                 }
+                // User confirmed - exit REPL immediately (intentional)
+                g_bREPLIntentionalExit = TRUE;
+                ExitREPLMode();
             }
             
-            // Check for unsaved changes
+            // Now check for unsaved changes
+            // (REPL is already closed at this point if it was running)
             if (!PromptSaveChanges()) {
-                return 0; // Cancel close
+                return 0; // Cancel close - editor stays open (REPL already closed)
             }
+            
             DestroyWindow(hwnd);
             return 0;
             
@@ -886,11 +893,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Cleanup REPL resources
             ExitREPLMode();
             
-            // Always show exit notification (user requested)
-            WCHAR szMsg[256], szTitle[64];
-            LoadStringResource(IDS_REPL_EXITED, szMsg, 256);
-            LoadStringResource(IDS_INFORMATION, szTitle, 64);
-            MessageBox(hwnd, szMsg, szTitle, MB_ICONINFORMATION);
+            // Only show exit notification if it was NOT an intentional exit
+            if (!g_bREPLIntentionalExit) {
+                WCHAR szMsg[256], szTitle[64];
+                LoadStringResource(IDS_REPL_EXITED, szMsg, 256);
+                LoadStringResource(IDS_INFORMATION, szTitle, 64);
+                MessageBox(hwnd, szMsg, szTitle, MB_ICONINFORMATION);
+            }
+            
+            // Reset flag for next REPL session
+            g_bREPLIntentionalExit = FALSE;
             
             return 0;
         }
@@ -4516,6 +4528,7 @@ void ExitREPLMode()
     g_szREPLPromptEnd[0] = L'\0';
     g_REPLEOLMode = REPL_EOL_AUTO;
     g_dwREPLThreadId = 0;
+    // Note: g_bREPLIntentionalExit is NOT reset here - it's checked in WM_REPL_EXITED handler
     
     // Update title bar to remove Interactive Mode indicator
     UpdateTitle(g_hWndMain);
