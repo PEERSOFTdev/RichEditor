@@ -1886,6 +1886,39 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     g_bSettingText = FALSE;
     free(pszUTF16);
     
+    // Force AutoURL detection on loaded text
+    // RichEdit only detects URLs during typing, not on SetWindowText
+    // Workaround: Trigger text change event by selecting all text and replacing it with itself
+    GETTEXTLENGTHEX gtl;
+    gtl.flags = GTL_DEFAULT | GTL_USECRLF;
+    gtl.codepage = 1200; // Unicode
+    LONG textLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    
+    if (textLen > 0) {
+        // Select all text
+        CHARRANGE crAll;
+        crAll.cpMin = 0;
+        crAll.cpMax = -1;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crAll);
+        
+        // Get selected text
+        LPWSTR pszText = (LPWSTR)malloc((textLen + 1) * sizeof(WCHAR));
+        if (pszText) {
+            SendMessage(g_hWndEdit, EM_GETSELTEXT, 0, (LPARAM)pszText);
+            
+            // Replace with same text (triggers AutoURL)
+            SendMessage(g_hWndEdit, EM_REPLACESEL, FALSE, (LPARAM)pszText);
+            
+            free(pszText);
+        }
+        
+        // Restore cursor to beginning
+        CHARRANGE crStart;
+        crStart.cpMin = 0;
+        crStart.cpMax = 0;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crStart);
+    }
+    
     // Update state
     wcscpy_s(g_szFileName, MAX_PATH, pszFileName);
     
