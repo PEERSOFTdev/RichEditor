@@ -4704,16 +4704,11 @@ void SendLineToREPL()
     
     free(pszLine);
     
-    // Move cursor to end of document and insert newline
-    // This ensures the shell's echo output appears on the next line
-    GETTEXTLENGTHEX gtl;
-    gtl.flags = GTL_DEFAULT;
-    gtl.codepage = 1200; // Unicode
-    LONG docLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-    
+    // Move cursor to end of current line and insert newline
+    // This ensures the shell's output appears right after the command line
     CHARRANGE crEnd;
-    crEnd.cpMin = docLen;
-    crEnd.cpMax = docLen;
+    crEnd.cpMin = lineEnd;
+    crEnd.cpMax = lineEnd;
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crEnd);
     SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\n");
 }
