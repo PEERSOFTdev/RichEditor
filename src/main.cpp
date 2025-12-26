@@ -4466,9 +4466,14 @@ DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
         // Null-terminate
         buffer[dwRead] = '\0';
         
-        // Auto-detect EOL mode on first output
+        // Auto-detect EOL mode on first output (for informational purposes only)
+        // Note: We don't change g_REPLEOLMode from AUTO - it stays AUTO and uses LF
+        // This is because output EOL (what we receive) can differ from input EOL (what shell expects)
+        // Example: bash with PTY outputs CRLF but expects LF input
         if (g_REPLEOLMode == REPL_EOL_AUTO) {
-            g_REPLEOLMode = DetectEOL(buffer, dwRead);
+            // Detect but don't store - AUTO mode always sends LF
+            REPLEOLMode detected = DetectEOL(buffer, dwRead);
+            (void)detected; // Suppress unused variable warning
         }
         
         // Convert UTF-8 to UTF-16
