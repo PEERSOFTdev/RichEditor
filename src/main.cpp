@@ -4702,11 +4702,8 @@ void SendLineToREPL()
     
     free(pszLine);
     
-    // Move cursor to end of line and insert newline
-    cr.cpMin = lineEnd;
-    cr.cpMax = lineEnd;
-    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\r\n");
+    // Don't insert newline here - the shell will echo the command back
+    // and that echo will naturally move to the next line
 }
 
 //============================================================================
