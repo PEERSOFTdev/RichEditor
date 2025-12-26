@@ -1099,41 +1099,35 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
         return FALSE;  // Not in URL
     }
     
-    // Use EM_FINDWORDBREAK as initial hint for URL boundaries
+    // Use EM_FINDWORDBREAK to quickly narrow down search area (optimization for large documents)
     LONG wordLeft = SendMessage(hWndEdit, EM_FINDWORDBREAK, WB_LEFT, cursorPos);
     LONG wordRight = SendMessage(hWndEdit, EM_FINDWORDBREAK, WB_RIGHT, cursorPos);
     
-    // Extend search range to account for CFE_LINK spanning beyond word breaks
-    // (URLs with = and & are often broken by word breaks)
-    LONG urlStart = cursorPos;  // Start from cursor, will scan backward
-    LONG urlEnd = cursorPos;    // Start from cursor, will scan forward
+    // Find actual URL boundaries within the word break range
+    // Word breaks may not align with CFE_LINK boundaries (URLs with = and & are often broken)
+    LONG urlStart = wordLeft;
+    LONG urlEnd = wordRight;
     
-    // Scan backward to find actual start of CFE_LINK
-    for (LONG pos = cursorPos - 1; pos >= 0; pos--) {
+    // Scan forward from wordLeft to find where CFE_LINK actually starts
+    for (LONG pos = wordLeft; pos < cursorPos; pos++) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
             urlStart = pos;
-        } else {
             break;
         }
     }
     
-    // Scan forward to find actual end of CFE_LINK
-    GETTEXTLENGTHEX gtl;
-    gtl.flags = GTL_DEFAULT;
-    gtl.codepage = 1200;
-    LONG docLen = SendMessage(hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-    for (LONG pos = cursorPos; pos < docLen; pos++) {
+    // Scan backward from wordRight to find where CFE_LINK actually ends
+    for (LONG pos = wordRight - 1; pos > cursorPos; pos--) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
             urlEnd = pos + 1;
-        } else {
             break;
         }
     }
