@@ -140,6 +140,168 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Full accessibility: URLs announced as "link" by NVDA, JAWS, Narrator
 - Always enabled (no configuration needed)
 
+
+### Phase 2.5 (Complete)
+
+**Interactive Mode (REPL):**
+- Full REPL (Read-Eval-Print Loop) support for interactive command-line tools
+- Execute commands interactively with persistent shell sessions
+- Keyboard shortcuts:
+  - `Ctrl+Shift+I`: Start interactive mode with selected REPL filter
+  - `Ctrl+Shift+Q`: Exit interactive mode
+  - `Enter`: Send command to REPL (when on line with prompt or at document end)
+  - `Shift+Enter`: Always inserts newline (bypass REPL mode)
+- Title bar shows "[Interactive Mode]" when active
+- Smart Enter key behavior:
+  - Detects prompt on current line and sends command to REPL
+  - Works with ANY previous command line - edit old commands and re-run them
+  - Press Enter at document end to recall prompt (safety feature if text deleted)
+  - Otherwise works normally: insert newline or open URLs
+  - No need to remember "where the prompt was" - just find any prompt and use it
+- Notebook-style workflow:
+  - Output appears directly below the command that generated it
+  - Edit any previous command and press Enter to re-run it
+  - Navigate with Up/Down arrow keys through command history
+  - Clean and organize by deleting old output blocks
+- URL support in REPL output:
+  - Press Enter on URLs (e.g., in PowerShell Get-Help output) to open them
+  - Works seamlessly with interactive mode
+- Automatic output capture:
+  - Stdout: command output displayed in editor
+  - Stderr: error messages displayed separately with red "Error:" prefix
+  - Both streams shown in real-time as output arrives
+- Configurable line ending modes per filter:
+  - `AUTO`: LF for input (works with most shells), auto-detect output
+  - `LF`: Unix line endings (bash, python, node, etc.)
+  - `CRLF`: Windows line endings (cmd.exe, PowerShell)
+  - `CR`: Legacy Mac line endings (rarely used)
+- Configurable stderr handling per filter:
+  - `SEPARATE`: Show stderr separately (default, best for most tools)
+  - `MERGE`: Merge stderr into stdout stream
+- ANSI escape sequence stripping:
+  - Removes color codes and cursor positioning sequences
+  - Clean output without terminal control characters
+  - Handles CSI and OSC sequences
+- Prompt detection system:
+  - Define prompt end string per filter (e.g., `> ` for PowerShell, `$ ` for bash)
+  - Automatically extracts user input after prompt
+  - Supports custom prompts for any shell or REPL tool
+- Process lifecycle management:
+  - Clean shutdown when exiting interactive mode
+  - No zombie processes or leaked handles
+  - Proper cleanup of stdin/stdout/stderr pipes
+- Exit notifications:
+  - Warns if REPL process exits unexpectedly
+  - Silent exit when user intentionally closes (Ctrl+Shift+Q or menu)
+  - Clear feedback for troubleshooting
+
+**Supported REPL Environments:**
+- **PowerShell** (`powershell.exe` or `pwsh.exe`)
+  - Full cmdlet support with tab completion (via shell)
+  - Get-Help output with clickable URLs
+  - Multi-line commands supported
+  - Example prompt: `PS C:\> `
+- **Command Prompt** (`cmd.exe`)
+  - All built-in commands (dir, cd, echo, etc.)
+  - Batch file execution
+  - Example prompt: `C:\> `
+- **WSL Bash** (`wsl.exe bash`)
+  - Full Linux environment access from Windows
+  - Pseudo-TTY support for proper prompt display
+  - Color code stripping for clean output
+  - Example prompt: `user@host:~/path$ `
+- **Python REPL** (`python -i`)
+  - Interactive Python interpreter
+  - Import modules and test code
+  - Example prompt: `>>> `
+- **Node.js REPL** (`node`)
+  - JavaScript evaluation
+  - Example prompt: `> `
+- **Custom REPLs**: Any command-line tool with stdin/stdout interaction
+
+**INI Configuration for REPL Filters:**
+
+Each REPL filter requires these settings in `RichEditor.ini`:
+
+```ini
+[Filter1]
+Name=PowerShell
+Command=powershell.exe -NoLogo -NoExit
+Description=Interactive PowerShell session with full cmdlet support
+Category=REPL
+Action=repl
+PromptEnd=> 
+EOLMode=AUTO
+StderrMode=SEPARATE
+ContextMenu=0
+```
+
+**Key Settings Explained:**
+- `Action=repl`: Marks filter as REPL mode (must be lowercase)
+- `PromptEnd=> `: String that marks end of prompt (used to extract user input)
+- `EOLMode`: Line ending mode (AUTO/LF/CRLF/CR)
+- `StderrMode`: How to handle error output (SEPARATE/MERGE)
+- `ContextMenu=0`: REPL filters typically not shown in right-click menu
+
+**Example REPL Filters (included in default INI):**
+
+1. **PowerShell**:
+   ```ini
+   Command=powershell.exe -NoLogo -NoExit
+   PromptEnd=> 
+   EOLMode=AUTO
+   ```
+
+2. **WSL Bash** (with pseudo-TTY for prompts):
+   ```ini
+   Command=wsl.exe script -qfc bash /dev/null
+   PromptEnd=$ 
+   EOLMode=AUTO
+   ```
+
+3. **Python Interactive**:
+   ```ini
+   Command=python -i
+   PromptEnd=>>> 
+   EOLMode=LF
+   ```
+
+**Typical Workflow:**
+1. Select REPL filter: `Tools → Select Filter → PowerShell` (or any REPL filter)
+2. Start interactive mode: Press `Ctrl+Shift+I` or `Tools → Start Interactive Mode`
+3. Wait for prompt to appear (e.g., `PS C:\> `)
+4. Type command and press `Enter` to execute
+5. Output appears below your command
+6. Continue entering commands as needed
+7. Edit any previous command line and press `Enter` to re-run it
+8. Exit: Press `Ctrl+Shift+Q` or `Tools → Exit Interactive Mode`
+
+**Advanced Features:**
+- **Command history navigation**: Use Up/Down arrows on any prompt line
+- **Multi-command editing**: Edit multiple old commands and run them sequentially
+- **Clipboard integration**: Copy interesting output with standard Ctrl+C
+- **URL interaction**: Click or press Enter on URLs in REPL output
+- **Clean workspace**: Delete old output blocks to reduce clutter
+- **Safety recovery**: Delete all text and press Enter at end to get fresh prompt
+- **Concurrent editing**: Edit document normally while in REPL mode (non-REPL Enter keys work)
+
+**Technical Notes:**
+- REPL mode uses Windows pipes (CreateProcess with STARTF_USESTDHANDLES)
+- Separate background threads read stdout and stderr without blocking
+- Output inserted at cursor position for notebook-style workflow
+- Process terminated cleanly with TerminateProcess on exit
+- All handles (pipes, threads, process) properly cleaned up
+- UTF-8 encoding for all input/output
+- No 30-second timeout (REPL runs until explicitly closed)
+
+**Troubleshooting:**
+- **No prompt appears**: Check `Command` path is valid and executable
+- **Command echo appears twice**: Normal PTY behavior with WSL bash
+- **Wrong line endings**: Adjust `EOLMode` setting (try AUTO first)
+- **Garbled output**: ANSI codes should be stripped automatically
+- **Process won't start**: Check command-line arguments and permissions
+- **Can't recall prompt**: Press Enter at document end (safety feature)
+
 ### Future Phases (Ideas)
 - Find/Replace functionality
 - Font selection dialog
