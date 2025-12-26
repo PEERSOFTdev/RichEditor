@@ -974,6 +974,18 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         }
     }
     
+    // Suppress WM_CHAR for Ctrl+Shift+I and Ctrl+Shift+Q to prevent TAB insertion
+    if (msg == WM_CHAR) {
+        if ((wParam == '\t' || wParam == 'I' || wParam == 'i') && 
+            (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+            return 0; // Block the character from being inserted
+        }
+        if ((wParam == 'Q' || wParam == 'q') && 
+            (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+            return 0; // Block the character from being inserted
+        }
+    }
+    
     // Call original window procedure for all other messages
     return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
 }
