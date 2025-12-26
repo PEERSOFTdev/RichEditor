@@ -146,8 +146,10 @@ HANDLE g_hREPLStderr = NULL;           // Pipe from filter stderr
 int g_nCurrentREPLFilter = -1;         // Index of active REPL filter (when g_bREPLMode is TRUE)
 REPLEOLMode g_REPLEOLMode = REPL_EOL_AUTO;  // Detected EOL mode
 WCHAR g_szREPLPromptEnd[16] = L"";     // Prompt ending characters
-HANDLE g_hREPLThread = NULL;           // Background thread for reading output
-DWORD g_dwREPLThreadId = 0;            // Thread ID
+HANDLE g_hREPLStdoutThread = NULL;     // Background thread for reading stdout
+DWORD g_dwREPLStdoutThreadId = 0;      // Stdout thread ID
+HANDLE g_hREPLStderrThread = NULL;     // Background thread for reading stderr
+DWORD g_dwREPLStderrThreadId = 0;      // Stderr thread ID
 BOOL g_bREPLIntentionalExit = FALSE;   // TRUE when user intentionally exits REPL (suppress notification)
 
 // Status bar filter display
@@ -218,7 +220,8 @@ void StartREPLFilter(int filterIndex);
 void ExitREPLMode();
 void SendLineToREPL();
 void InsertREPLOutput(LPCWSTR pszOutput);
-DWORD WINAPI REPLOutputThread(LPVOID lpParam);
+DWORD WINAPI REPLStdoutThread(LPVOID lpParam);
+DWORD WINAPI REPLStderrThread(LPVOID lpParam);
 REPLEOLMode DetectEOL(LPCSTR pszOutput, size_t len);
 BOOL DetectPrompt(LPCWSTR pszLine, LPCWSTR pszPromptEnd, int* pInputStart);
 
@@ -4399,11 +4402,18 @@ void StartREPLFilter(int filterIndex)
     wcscpy(g_szREPLPromptEnd, g_Filters[filterIndex].szPromptEnd);
     g_REPLEOLMode = g_Filters[filterIndex].replEOLMode;
     
-    // Start background thread to read output
-    g_hREPLThread = CreateThread(NULL, 0, REPLOutputThread, NULL, 0, &g_dwREPLThreadId);
-    if (g_hREPLThread == NULL) {
+    // Start background threads to read stdout and stderr
+    g_hREPLStdoutThread = CreateThread(NULL, 0, REPLStdoutThread, NULL, 0, &g_dwREPLStdoutThreadId);
+    if (g_hREPLStdoutThread == NULL) {
         ExitREPLMode();
-        MessageBox(g_hWndMain, L"Failed to create output reader thread", L"Error", MB_ICONERROR);
+        MessageBox(g_hWndMain, L"Failed to create stdout reader thread", L"Error", MB_ICONERROR);
+        return;
+    }
+    
+    g_hREPLStderrThread = CreateThread(NULL, 0, REPLStderrThread, NULL, 0, &g_dwREPLStderrThreadId);
+    if (g_hREPLStderrThread == NULL) {
+        ExitREPLMode();
+        MessageBox(g_hWndMain, L"Failed to create stderr reader thread", L"Error", MB_ICONERROR);
         return;
     }
     
@@ -4418,9 +4428,9 @@ void StartREPLFilter(int filterIndex)
 }
 
 //============================================================================
-// REPLOutputThread - Background thread that reads REPL stdout/stderr
+// REPLStdoutThread - Background thread that reads REPL stdout
 //============================================================================
-DWORD WINAPI REPLOutputThread(LPVOID /* lpParam */)
+DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
 {
     char buffer[4096];
     DWORD dwRead;
@@ -4442,6 +4452,43 @@ DWORD WINAPI REPLOutputThread(LPVOID /* lpParam */)
         if (g_REPLEOLMode == REPL_EOL_AUTO) {
             g_REPLEOLMode = DetectEOL(buffer, dwRead);
         }
+        
+        // Convert UTF-8 to UTF-16
+        LPWSTR pszOutput = UTF8ToUTF16(buffer);
+        if (pszOutput) {
+            // Allocate copy for message (will be freed by message handler)
+            LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
+            if (pszCopy) {
+                wcscpy(pszCopy, pszOutput);
+                PostMessage(g_hWndMain, WM_REPL_OUTPUT, 0, (LPARAM)pszCopy);
+            }
+            free(pszOutput);
+        }
+    }
+    
+    return 0;
+}
+
+//============================================================================
+// REPLStderrThread - Background thread that reads REPL stderr
+//============================================================================
+DWORD WINAPI REPLStderrThread(LPVOID /* lpParam */)
+{
+    char buffer[4096];
+    DWORD dwRead;
+    
+    while (g_bREPLMode) {
+        // Try to read from stderr
+        BOOL bSuccess = ReadFile(g_hREPLStderr, buffer, sizeof(buffer) - 1, &dwRead, NULL);
+        
+        if (!bSuccess || dwRead == 0) {
+            // Pipe closed - this is normal, stderr might close before stdout
+            // Don't post WM_REPL_EXITED here, let stdout thread handle it
+            break;
+        }
+        
+        // Null-terminate
+        buffer[dwRead] = '\0';
         
         // Convert UTF-8 to UTF-16
         LPWSTR pszOutput = UTF8ToUTF16(buffer);
@@ -4502,11 +4549,16 @@ void ExitREPLMode()
         g_hREPLProcess = NULL;
     }
     
-    // Wait for thread to exit
-    if (g_hREPLThread) {
-        WaitForSingleObject(g_hREPLThread, 2000);
-        CloseHandle(g_hREPLThread);
-        g_hREPLThread = NULL;
+    // Wait for threads to exit
+    if (g_hREPLStdoutThread) {
+        WaitForSingleObject(g_hREPLStdoutThread, 2000);
+        CloseHandle(g_hREPLStdoutThread);
+        g_hREPLStdoutThread = NULL;
+    }
+    if (g_hREPLStderrThread) {
+        WaitForSingleObject(g_hREPLStderrThread, 2000);
+        CloseHandle(g_hREPLStderrThread);
+        g_hREPLStderrThread = NULL;
     }
     
     // Close pipes
@@ -4527,7 +4579,8 @@ void ExitREPLMode()
     g_nCurrentREPLFilter = -1;
     g_szREPLPromptEnd[0] = L'\0';
     g_REPLEOLMode = REPL_EOL_AUTO;
-    g_dwREPLThreadId = 0;
+    g_dwREPLStdoutThreadId = 0;
+    g_dwREPLStderrThreadId = 0;
     // Note: g_bREPLIntentionalExit is NOT reset here - it's checked in WM_REPL_EXITED handler
     
     // Update title bar to remove Interactive Mode indicator
