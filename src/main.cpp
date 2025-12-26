@@ -1105,11 +1105,11 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     
     // Extend search range to account for CFE_LINK spanning beyond word breaks
     // (URLs with = and & are often broken by word breaks)
-    LONG urlStart = wordLeft;
-    LONG urlEnd = wordRight;
+    LONG urlStart = cursorPos;  // Start from cursor, will scan backward
+    LONG urlEnd = cursorPos;    // Start from cursor, will scan forward
     
     // Scan backward to find actual start of CFE_LINK
-    for (LONG pos = wordLeft - 1; pos >= 0; pos--) {
+    for (LONG pos = cursorPos - 1; pos >= 0; pos--) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
@@ -1126,7 +1126,7 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     gtl.flags = GTL_DEFAULT;
     gtl.codepage = 1200;
     LONG docLen = SendMessage(hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-    for (LONG pos = wordRight; pos < docLen; pos++) {
+    for (LONG pos = cursorPos; pos < docLen; pos++) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
