@@ -3142,6 +3142,8 @@ void CreateDefaultINI()
         "; Display modes: statusbar, messagebox\r\n"
         "; Clipboard modes: copy, append\r\n"
         "; REPL settings: PromptEnd, EOLDetection (auto/crlf/lf/cr), ExitNotification\r\n"
+        ";   EOLDetection: auto=detect from output (defaults to LF), lf=Unix/Linux, crlf=Windows, cr=old Mac\r\n"
+        ";   Use 'lf' for WSL/bash/python/node, 'auto' for PowerShell\r\n"
         "; ContextMenu: 1=show in right-click menu, 0=Tools menu only\r\n"
         "; ContextMenuOrder: Sort order in context menu (lower numbers first)\r\n"
         "\r\n"
@@ -4648,11 +4650,16 @@ void SendLineToREPL()
     LPSTR pszInputUTF8 = UTF16ToUTF8(pszInput);
     if (pszInputUTF8) {
         // Append EOL based on detected mode
-        const char* eol = "\r\n"; // Default CRLF
-        if (g_REPLEOLMode == REPL_EOL_LF) {
-            eol = "\n";
+        const char* eol;
+        if (g_REPLEOLMode == REPL_EOL_CRLF) {
+            eol = "\r\n";
         } else if (g_REPLEOLMode == REPL_EOL_CR) {
             eol = "\r";
+        } else {
+            // Default to LF for AUTO and LF modes
+            // LF works for most interactive shells (bash, python, node, etc.)
+            // PowerShell also accepts LF even though it outputs CRLF
+            eol = "\n";
         }
         
         // Send input + EOL to stdin
