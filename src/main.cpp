@@ -18,6 +18,10 @@
 // Extended path length for UNC and long paths (Windows maximum is 32767)
 #define EXTENDED_PATH_MAX 32767
 
+// Custom messages for REPL (Phase 2.5)
+#define WM_REPL_OUTPUT  (WM_USER + 100)  // wParam: unused, lParam: LPWSTR (output text to insert)
+#define WM_REPL_EXITED  (WM_USER + 101)  // wParam: unused, lParam: unused (filter process exited)
+
 HWND g_hWndMain = NULL;           // Main window handle
 HWND g_hWndEdit = NULL;           // RichEdit control handle (to be added)
 HWND g_hWndStatus = NULL;         // Status bar handle (to be added)
@@ -77,7 +81,8 @@ enum FilterAction {
     FILTER_ACTION_INSERT = 0,
     FILTER_ACTION_DISPLAY = 1,
     FILTER_ACTION_CLIPBOARD = 2,
-    FILTER_ACTION_NONE = 3
+    FILTER_ACTION_NONE = 3,
+    FILTER_ACTION_REPL = 4        // Interactive REPL filter (Phase 2.5)
 };
 
 enum FilterInsertMode {
@@ -94,6 +99,13 @@ enum FilterDisplayMode {
 enum FilterClipboardMode {
     FILTER_CLIPBOARD_COPY = 0,
     FILTER_CLIPBOARD_APPEND = 1
+};
+
+enum REPLEOLMode {
+    REPL_EOL_AUTO = 0,      // Auto-detect from first output
+    REPL_EOL_CRLF = 1,      // Windows (\r\n)
+    REPL_EOL_LF = 2,        // Unix (\n)
+    REPL_EOL_CR = 3         // Old Mac (\r)
 };
 
 struct FilterInfo {
@@ -113,11 +125,29 @@ struct FilterInfo {
     
     BOOL bContextMenu;
     int nContextMenuOrder;
+    
+    // REPL filter settings (Phase 2.5)
+    WCHAR szPromptEnd[16];          // Prompt ending characters (e.g., "> ", "$ ")
+    REPLEOLMode replEOLMode;        // EOL mode for REPL input/output
+    BOOL bExitNotification;         // Show notification when REPL exits
 };
 
 FilterInfo g_Filters[MAX_FILTERS];
 int g_nFilterCount = 0;
-int g_nCurrentFilter = -1;  // -1 = no filter selected, 0-99 = filter index
+int g_nCurrentFilter = -1;  // -1 = no filter selected, 0-99 = filter index (classic filters for Execute)
+int g_nSelectedREPLFilter = -1;  // Index of selected REPL filter (for Start Interactive Mode)
+
+// REPL mode state (Phase 2.5)
+BOOL g_bREPLMode = FALSE;              // TRUE when in Interactive Mode
+HANDLE g_hREPLProcess = NULL;          // REPL process handle
+HANDLE g_hREPLStdin = NULL;            // Pipe to filter stdin
+HANDLE g_hREPLStdout = NULL;           // Pipe from filter stdout  
+HANDLE g_hREPLStderr = NULL;           // Pipe from filter stderr
+int g_nCurrentREPLFilter = -1;         // Index of active REPL filter (when g_bREPLMode is TRUE)
+REPLEOLMode g_REPLEOLMode = REPL_EOL_AUTO;  // Detected EOL mode
+WCHAR g_szREPLPromptEnd[16] = L"";     // Prompt ending characters
+HANDLE g_hREPLThread = NULL;           // Background thread for reading output
+DWORD g_dwREPLThreadId = 0;            // Thread ID
 
 // Status bar filter display
 WCHAR g_szFilterStatusBarText[512] = L"";
@@ -170,7 +200,9 @@ void LoadSettings();
 void LoadFilters();
 BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize);
 void SaveCurrentFilter();
+void SaveCurrentREPLFilter();
 void UpdateFilterDisplay();
+void UpdateMenuStates(HWND hwnd);
 void BuildFilterMenu(HWND hwnd);
 void DoAutosave();
 void StartAutosaveTimer(HWND hwnd);
@@ -179,6 +211,15 @@ void SaveMRU();
 void AddToMRU(LPCWSTR pszFilePath);
 void UpdateMRUMenu(HWND hwnd);
 void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
+
+// REPL filter functions (Phase 2.5)
+void StartREPLFilter(int filterIndex);
+void ExitREPLMode();
+void SendLineToREPL();
+void InsertREPLOutput(LPCWSTR pszOutput);
+DWORD WINAPI REPLOutputThread(LPVOID lpParam);
+REPLEOLMode DetectEOL(LPCSTR pszOutput, size_t len);
+BOOL DetectPrompt(LPCWSTR pszLine, LPCWSTR pszPromptEnd, int* pInputStart);
 
 //============================================================================
 // WinMain - Entry Point
@@ -333,6 +374,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             LoadFilters();
             BuildFilterMenu(hwnd);
             UpdateFilterDisplay();
+            UpdateMenuStates(hwnd);
             
             // Load MRU list
             LoadMRU();
@@ -464,7 +506,29 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 
                 // Tools menu
                 case ID_TOOLS_EXECUTEFILTER:
-                    ExecuteFilter();
+                    // Menu item is only enabled when a valid classic filter is selected
+                    // Execute the filter (works for classic filters, even during REPL mode)
+                    if (g_nCurrentFilter >= 0 && g_nCurrentFilter < g_nFilterCount) {
+                        ExecuteFilter();
+                    }
+                    break;
+                
+                // Tools -> Start Interactive Mode
+                case ID_TOOLS_START_INTERACTIVE:
+                    // Menu item is only enabled when a REPL filter is selected and not in REPL mode
+                    if (g_nSelectedREPLFilter >= 0 && g_nSelectedREPLFilter < g_nFilterCount &&
+                        g_Filters[g_nSelectedREPLFilter].action == FILTER_ACTION_REPL && !g_bREPLMode) {
+                        StartREPLFilter(g_nSelectedREPLFilter);
+                        UpdateMenuStates(hwnd);
+                    }
+                    break;
+                
+                // Tools -> Exit Interactive Mode
+                case ID_TOOLS_EXIT_INTERACTIVE:
+                    if (g_bREPLMode) {
+                        ExitREPLMode();
+                        UpdateMenuStates(hwnd);
+                    }
                     break;
                 
                 // Tools -> Filter Help
@@ -521,10 +585,40 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         else if (wmId >= ID_TOOLS_FILTER_BASE && wmId < ID_TOOLS_FILTER_BASE + 100) {
                             int filterIdx = wmId - ID_TOOLS_FILTER_BASE;
                             if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
-                                g_nCurrentFilter = filterIdx;
-                                SaveCurrentFilter();
-                                BuildFilterMenu(hwnd);
-                                UpdateFilterDisplay();
+                                if (g_Filters[filterIdx].action == FILTER_ACTION_REPL) {
+                                    // Selecting a REPL filter
+                                    // If another REPL is already running, prompt to exit
+                                    if (g_bREPLMode && filterIdx != g_nCurrentREPLFilter) {
+                                        WCHAR szPrompt[512], szTitle[128];
+                                        LoadStringResource(IDS_REPL_SWITCH_PROMPT, szPrompt, 512);
+                                        LoadStringResource(IDS_CONFIRM, szTitle, 128);
+                                        
+                                        int result = MessageBox(hwnd, szPrompt, szTitle, 
+                                                               MB_YESNO | MB_ICONQUESTION);
+                                        if (result == IDYES) {
+                                            ExitREPLMode();
+                                            g_nSelectedREPLFilter = filterIdx;
+                                            SaveCurrentREPLFilter();
+                                            BuildFilterMenu(hwnd);
+                                            UpdateFilterDisplay();
+                                            UpdateMenuStates(hwnd);
+                                        }
+                                    } else {
+                                        // Set as selected REPL filter
+                                        g_nSelectedREPLFilter = filterIdx;
+                                        SaveCurrentREPLFilter();
+                                        BuildFilterMenu(hwnd);
+                                        UpdateFilterDisplay();
+                                        UpdateMenuStates(hwnd);
+                                    }
+                                } else {
+                                    // Selecting a classic filter
+                                    g_nCurrentFilter = filterIdx;
+                                    SaveCurrentFilter();
+                                    BuildFilterMenu(hwnd);
+                                    UpdateFilterDisplay();
+                                    UpdateMenuStates(hwnd);
+                                }
                             }
                         }
                         // Handle filter execution from context menu
@@ -755,6 +849,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
             
         case WM_CLOSE:
+            // Check if REPL is active and prompt user
+            if (g_bREPLMode) {
+                WCHAR szPrompt[512], szTitle[128];
+                LoadStringResource(IDS_REPL_CLOSE_PROMPT, szPrompt, 512);
+                LoadStringResource(IDS_CONFIRM, szTitle, 128);
+                
+                int result = MessageBox(hwnd, szPrompt, szTitle, 
+                                       MB_YESNO | MB_ICONQUESTION);
+                if (result != IDYES) {
+                    return 0; // Cancel close
+                }
+            }
+            
             // Check for unsaved changes
             if (!PromptSaveChanges()) {
                 return 0; // Cancel close
@@ -762,7 +869,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             DestroyWindow(hwnd);
             return 0;
             
+        case WM_REPL_OUTPUT:
+        {
+            // REPL output received from background thread
+            LPWSTR pszOutput = (LPWSTR)lParam;
+            if (pszOutput) {
+                InsertREPLOutput(pszOutput);
+                free(pszOutput);  // Free memory allocated by thread
+            }
+            return 0;
+        }
+        
+        case WM_REPL_EXITED:
+        {
+            // REPL filter process has exited
+            // Cleanup REPL resources
+            ExitREPLMode();
+            
+            // Always show exit notification (user requested)
+            WCHAR szMsg[256], szTitle[64];
+            LoadStringResource(IDS_REPL_EXITED, szMsg, 256);
+            LoadStringResource(IDS_INFORMATION, szTitle, 64);
+            MessageBox(hwnd, szMsg, szTitle, MB_ICONINFORMATION);
+            
+            return 0;
+        }
+        
         case WM_DESTROY:
+            // Exit REPL mode if active
+            if (g_bREPLMode) {
+                ExitREPLMode();
+            }
+            
             // Kill timers
             KillTimer(hwnd, IDT_AUTOSAVE);
             KillTimer(hwnd, IDT_FILTER_STATUSBAR);
@@ -776,11 +914,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 //============================================================================
 // EditSubclassProc - Subclass procedure for RichEdit control
 //
-// Intercepts WM_KEYDOWN to handle Enter key on URLs
+// Intercepts WM_KEYDOWN to handle Enter key for REPL mode and URLs
 //============================================================================
 LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_KEYDOWN && wParam == VK_RETURN) {
+        // Check if Shift is held: Shift+Enter always inserts newline
+        if (GetKeyState(VK_SHIFT) & 0x8000) {
+            // Allow default behavior (insert newline)
+            return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+        }
+        
+        // If in REPL mode: Enter sends command
+        if (g_bREPLMode) {
+            SendLineToREPL();
+            return 0; // Prevent default Enter behavior
+        }
+        
         // Check if cursor is in a URL
         WCHAR szURL[2048];
         if (GetURLAtCursor(hwnd, szURL, 2048, NULL)) {
@@ -788,7 +938,8 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             OpenURL(g_hWndMain, szURL);
             return 0; // Prevent default Enter behavior (don't insert newline)
         }
-        // If not in URL, allow normal Enter key behavior (insert newline)
+        
+        // If not in URL and not in REPL mode, allow normal Enter key behavior (insert newline)
     }
     
     // Call original window procedure for all other messages
@@ -1417,7 +1568,7 @@ void UpdateStatusBar()
 //============================================================================
 void UpdateTitle(HWND hwnd)
 {
-    WCHAR szTitle[MAX_PATH + 50];
+    WCHAR szTitle[MAX_PATH + 100];  // Increased size for [Interactive Mode]
     WCHAR szUntitled[64];
     
     // Use provided hwnd or fall back to g_hWndMain
@@ -1427,11 +1578,16 @@ void UpdateTitle(HWND hwnd)
     LoadStringResource(IDS_UNTITLED, szUntitled, 64);
     
     if (g_szFileTitle[0]) {
-        _snwprintf(szTitle, MAX_PATH + 50, L"%s%s - RichEditor",
+        _snwprintf(szTitle, MAX_PATH + 100, L"%s%s - RichEditor",
                    g_bModified ? L"*" : L"", g_szFileTitle);
     } else {
-        _snwprintf(szTitle, MAX_PATH + 50, L"%s%s - RichEditor",
+        _snwprintf(szTitle, MAX_PATH + 100, L"%s%s - RichEditor",
                    g_bModified ? L"*" : L"", szUntitled);
+    }
+    
+    // Append [Interactive Mode] indicator if in REPL mode
+    if (g_bREPLMode) {
+        wcscat(szTitle, L" [Interactive Mode]");
     }
     
     SetWindowText(targetWnd, szTitle);
@@ -2895,6 +3051,11 @@ void ExecuteFilter()
         case FILTER_ACTION_NONE:
             // Do nothing with output - command was run for side effects
             break;
+            
+        case FILTER_ACTION_REPL:
+            // REPL filters don't use ExecuteFilter - they use StartREPLFilter instead
+            // This case should never be reached
+            break;
     }
     
     // Handle case where filter produced no output and exited with error
@@ -2961,15 +3122,16 @@ void CreateDefaultINI()
         "\r\n"
         "; Filter System\r\n"
         "; Filters transform text using external commands\r\n"
-        "; Action types: insert, display, clipboard, none\r\n"
+        "; Action types: insert, display, clipboard, none, repl\r\n"
         "; Insert modes: replace, below, append\r\n"
         "; Display modes: statusbar, messagebox\r\n"
         "; Clipboard modes: copy, append\r\n"
+        "; REPL settings: PromptEnd, EOLDetection (auto/crlf/lf/cr), ExitNotification\r\n"
         "; ContextMenu: 1=show in right-click menu, 0=Tools menu only\r\n"
         "; ContextMenuOrder: Sort order in context menu (lower numbers first)\r\n"
         "\r\n"
         "[Filters]\r\n"
-        "Count=8\r\n"
+        "Count=9\r\n"
         "\r\n"
         "; === INSERT ACTION EXAMPLES ===\r\n"
         "; Filters that modify the document\r\n"
@@ -3075,6 +3237,24 @@ void CreateDefaultINI()
         "Description.cs=Použije převod textu na řeč pro přečtení vybraného textu nahlas\r\n"
         "Category=Utility\r\n"
         "Action=none\r\n"
+        "ContextMenu=0\r\n"
+        "ContextMenuOrder=999\r\n"
+        "\r\n"
+        "; === REPL ACTION EXAMPLE ===\r\n"
+        "; Interactive filters that stay running for continuous input/output\r\n"
+        "\r\n"
+        "[Filter9]\r\n"
+        "Name=PowerShell\r\n"
+        "Name.cs=PowerShell\r\n"
+        "Command=powershell -NoLogo -NoExit\r\n"
+        "Description=PowerShell console (Enter to execute, Shift+Enter for newline)\r\n"
+        "Description.cs=Konzole PowerShell (Enter pro spuštění, Shift+Enter pro nový řádek)\r\n"
+        "Category=Interactive\r\n"
+        "Category.cs=Interaktivní\r\n"
+        "Action=repl\r\n"
+        "PromptEnd=> \r\n"
+        "EOLDetection=auto\r\n"
+        "ExitNotification=1\r\n"
         "ContextMenu=0\r\n"
         "ContextMenuOrder=999\r\n";
     
@@ -3309,6 +3489,33 @@ void LoadFilters()
         } else if (_wcsicmp(szAction, L"none") == 0) {
             g_Filters[i].action = FILTER_ACTION_NONE;
             
+        } else if (_wcsicmp(szAction, L"repl") == 0) {
+            // REPL (interactive) action (Phase 2.5)
+            g_Filters[i].action = FILTER_ACTION_REPL;
+            
+            // Read PromptEnd parameter (e.g., "> ", "$ ", "# ")
+            ReadINIValue(szIniPath, szSection, L"PromptEnd",
+                         g_Filters[i].szPromptEnd, 16, L"> ");
+            
+            // Read EOLDetection parameter (auto, crlf, lf, cr)
+            WCHAR szEOL[32];
+            ReadINIValue(szIniPath, szSection, L"EOLDetection",
+                         szEOL, 32, L"auto");
+            
+            if (_wcsicmp(szEOL, L"crlf") == 0) {
+                g_Filters[i].replEOLMode = REPL_EOL_CRLF;
+            } else if (_wcsicmp(szEOL, L"lf") == 0) {
+                g_Filters[i].replEOLMode = REPL_EOL_LF;
+            } else if (_wcsicmp(szEOL, L"cr") == 0) {
+                g_Filters[i].replEOLMode = REPL_EOL_CR;
+            } else {
+                // Default or invalid: use auto-detection
+                g_Filters[i].replEOLMode = REPL_EOL_AUTO;
+            }
+            
+            // Read ExitNotification parameter (1=show dialog when filter exits, 0=silent)
+            g_Filters[i].bExitNotification = (ReadINIInt(szIniPath, szSection, L"ExitNotification", 1) != 0);
+            
         } else {
             // Default: insert action
             g_Filters[i].action = FILTER_ACTION_INSERT;
@@ -3359,16 +3566,31 @@ void LoadFilters()
         }
     }
     
-    // Load last selected filter from settings (by name, defaulting to None)
+    // Load last selected classic filter from settings (by name, defaulting to None)
     WCHAR szLastFilter[MAX_FILTER_NAME] = L"";
     ReadINIValue(szIniPath, L"Settings", L"CurrentFilter", szLastFilter, MAX_FILTER_NAME, L"");
     
-    // Try to find filter by name
+    // Try to find classic filter by name
     g_nCurrentFilter = -1; // Default to None
     if (szLastFilter[0] != L'\0') {
         for (int i = 0; i < g_nFilterCount; i++) {
             if (wcscmp(g_Filters[i].szName, szLastFilter) == 0) {
                 g_nCurrentFilter = i;
+                break;
+            }
+        }
+    }
+    
+    // Load last selected REPL filter from settings (by name, defaulting to None)
+    WCHAR szLastREPLFilter[MAX_FILTER_NAME] = L"";
+    ReadINIValue(szIniPath, L"Settings", L"CurrentREPLFilter", szLastREPLFilter, MAX_FILTER_NAME, L"");
+    
+    // Try to find REPL filter by name
+    g_nSelectedREPLFilter = -1; // Default to None
+    if (szLastREPLFilter[0] != L'\0') {
+        for (int i = 0; i < g_nFilterCount; i++) {
+            if (wcscmp(g_Filters[i].szName, szLastREPLFilter) == 0) {
+                g_nSelectedREPLFilter = i;
                 break;
             }
         }
@@ -3413,6 +3635,11 @@ BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, 
             // No additional validation needed
             break;
             
+        case FILTER_ACTION_REPL:
+            // REPL filters should have a PromptEnd setting
+            // (already loaded with default "> " if not specified)
+            break;
+            
         default:
             swprintf(errorMsg, errorMsgSize, 
                      L"Filter %d (%s): Invalid action type", 
@@ -3445,15 +3672,46 @@ void SaveCurrentFilter()
         wcscpy(pszExt, L".ini");
     }
     
-    // Determine filter name to save
+    // Determine classic filter name to save
     WCHAR szFilterName[MAX_FILTER_NAME] = L"";
     if (g_nCurrentFilter >= 0 && g_nCurrentFilter < g_nFilterCount) {
         wcscpy_s(szFilterName, MAX_FILTER_NAME, g_Filters[g_nCurrentFilter].szName);
     }
     // If g_nCurrentFilter is -1 or invalid, szFilterName stays empty (means "None")
     
+    // Determine REPL filter name to save
+    WCHAR szREPLFilterName[MAX_FILTER_NAME] = L"";
+    if (g_nSelectedREPLFilter >= 0 && g_nSelectedREPLFilter < g_nFilterCount) {
+        wcscpy_s(szREPLFilterName, MAX_FILTER_NAME, g_Filters[g_nSelectedREPLFilter].szName);
+    }
+    
     // Use our custom WriteINIValue to save (works with UNC paths)
     WriteINIValue(szIniPath, L"Settings", L"CurrentFilter", szFilterName);
+    WriteINIValue(szIniPath, L"Settings", L"CurrentREPLFilter", szREPLFilterName);
+}
+
+//============================================================================
+// SaveCurrentREPLFilter - Save selected REPL filter to INI file
+//============================================================================
+void SaveCurrentREPLFilter()
+{
+    // Get path to INI file
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    
+    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    // Determine REPL filter name to save
+    WCHAR szREPLFilterName[MAX_FILTER_NAME] = L"";
+    if (g_nSelectedREPLFilter >= 0 && g_nSelectedREPLFilter < g_nFilterCount) {
+        wcscpy_s(szREPLFilterName, MAX_FILTER_NAME, g_Filters[g_nSelectedREPLFilter].szName);
+    }
+    
+    // Use our custom WriteINIValue to save (works with UNC paths)
+    WriteINIValue(szIniPath, L"Settings", L"CurrentREPLFilter", szREPLFilterName);
 }
 
 //============================================================================
@@ -3463,15 +3721,116 @@ void UpdateFilterDisplay()
 {
     if (!g_hWndStatus) return;
     
-    WCHAR szFilter[128];
+    WCHAR szFilter[512];
+    WCHAR szInteractive[32], szFilterLabel[32], szNone[32];
     
-    if (g_nCurrentFilter >= 0 && g_nCurrentFilter < g_nFilterCount) {
-        _snwprintf(szFilter, 128, L"[Filter: %s]", g_Filters[g_nCurrentFilter].szLocalizedName);
+    // Load localized labels
+    LoadStringResource(IDS_STATUS_INTERACTIVE, szInteractive, 32);
+    LoadStringResource(IDS_STATUS_FILTER, szFilterLabel, 32);
+    LoadStringResource(IDS_STATUS_FILTER_NONE, szNone, 32);
+    
+    BOOL hasREPL = FALSE;
+    BOOL hasClassic = FALSE;
+    
+    if (g_bREPLMode) {
+        // Show running REPL filter
+        hasREPL = TRUE;
+    } else if (g_nSelectedREPLFilter >= 0 && g_nSelectedREPLFilter < g_nFilterCount) {
+        // Show selected REPL filter (not yet started)
+        hasREPL = TRUE;
+    }
+    
+    if (g_nCurrentFilter >= 0 && 
+        g_nCurrentFilter < g_nFilterCount &&
+        g_Filters[g_nCurrentFilter].action != FILTER_ACTION_REPL) {
+        // Show selected classic filter
+        hasClassic = TRUE;
+    }
+    
+    // Build display string
+    if (hasREPL && hasClassic) {
+        // Both REPL and classic filter
+        if (g_bREPLMode) {
+            _snwprintf(szFilter, 512, L"[%s: %s] [%s: %s]",
+                szInteractive, g_Filters[g_nCurrentREPLFilter].szLocalizedName,
+                szFilterLabel, g_Filters[g_nCurrentFilter].szLocalizedName);
+        } else {
+            _snwprintf(szFilter, 512, L"[%s: %s] [%s: %s]",
+                szInteractive, g_Filters[g_nSelectedREPLFilter].szLocalizedName,
+                szFilterLabel, g_Filters[g_nCurrentFilter].szLocalizedName);
+        }
+    } else if (hasREPL) {
+        // REPL filter only
+        if (g_bREPLMode) {
+            _snwprintf(szFilter, 512, L"[%s: %s]",
+                szInteractive, g_Filters[g_nCurrentREPLFilter].szLocalizedName);
+        } else {
+            _snwprintf(szFilter, 512, L"[%s: %s]",
+                szInteractive, g_Filters[g_nSelectedREPLFilter].szLocalizedName);
+        }
+    } else if (hasClassic) {
+        // Classic filter only
+        _snwprintf(szFilter, 512, L"[%s: %s]", 
+            szFilterLabel, g_Filters[g_nCurrentFilter].szLocalizedName);
     } else {
-        wcscpy(szFilter, L"[Filter: None]");
+        // No filter selected
+        _snwprintf(szFilter, 512, L"[%s: %s]", szFilterLabel, szNone);
     }
     
     SendMessage(g_hWndStatus, SB_SETTEXT, (WPARAM)1, (LPARAM)szFilter);
+}
+
+//============================================================================
+// UpdateMenuStates - Enable/disable menu items based on current state
+//============================================================================
+void UpdateMenuStates(HWND hwnd)
+{
+    HMENU hMenu = GetMenu(hwnd);
+    if (!hMenu) return;
+    
+    BOOL enableExecute = FALSE;
+    BOOL enableStartREPL = FALSE;
+    BOOL enableExitREPL = FALSE;
+    
+    if (g_bREPLMode) {
+        // In REPL mode
+        enableExitREPL = TRUE;
+        
+        // Allow executing classic filters while in REPL
+        if (g_nCurrentFilter >= 0 && 
+            g_nCurrentFilter < g_nFilterCount &&
+            g_Filters[g_nCurrentFilter].action != FILTER_ACTION_REPL) {
+            enableExecute = TRUE;
+        }
+        
+        // Can't start another REPL while one is running
+        enableStartREPL = FALSE;
+    } else {
+        // Not in REPL mode
+        
+        // Enable Execute if a classic filter is selected
+        if (g_nCurrentFilter >= 0 && 
+            g_nCurrentFilter < g_nFilterCount &&
+            g_Filters[g_nCurrentFilter].action != FILTER_ACTION_REPL) {
+            enableExecute = TRUE;
+        }
+        
+        // Enable Start Interactive if a REPL filter is selected
+        if (g_nSelectedREPLFilter >= 0 && 
+            g_nSelectedREPLFilter < g_nFilterCount &&
+            g_Filters[g_nSelectedREPLFilter].action == FILTER_ACTION_REPL) {
+            enableStartREPL = TRUE;
+        }
+    }
+    
+    EnableMenuItem(hMenu, ID_TOOLS_EXECUTEFILTER, 
+        enableExecute ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(hMenu, ID_TOOLS_START_INTERACTIVE, 
+        enableStartREPL ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(hMenu, ID_TOOLS_EXIT_INTERACTIVE, 
+        enableExitREPL ? MF_ENABLED : MF_GRAYED);
+    
+    DrawMenuBar(hwnd);
 }
 
 //============================================================================
@@ -3828,20 +4187,33 @@ void BuildFilterMenu(HWND hwnd)
             for (int f = 0; f < categories[c].count; f++) {
                 int filterIndex = categories[c].filterIndices[f];
                 UINT flags = MF_STRING;
-                if (filterIndex == g_nCurrentFilter) {
+                // Check both classic filter and REPL filter selection
+                if (filterIndex == g_nCurrentFilter || filterIndex == g_nSelectedREPLFilter) {
                     flags |= MF_CHECKED;
                 }
                 
                 // Build accessible menu text: "Name: Description" (using localized strings)
-                WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 4];
+                // Add "[Interactive] " prefix for REPL filters
+                WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 32];
+                
+                // Check if this is a REPL filter and prepend localized indicator
+                if (g_Filters[filterIndex].action == FILTER_ACTION_REPL) {
+                    wcscpy(szMenuText, L"[");
+                    WCHAR szInteractive[32];
+                    LoadStringResource(IDS_STATUS_INTERACTIVE, szInteractive, 32);
+                    wcscat(szMenuText, szInteractive);
+                    wcscat(szMenuText, L"] ");
+                } else {
+                    szMenuText[0] = L'\0';
+                }
+                
+                // Append localized name
+                wcscat(szMenuText, g_Filters[filterIndex].szLocalizedName);
+                
+                // Append description if enabled
                 if (g_bShowMenuDescriptions && g_Filters[filterIndex].szLocalizedDescription[0] != L'\0') {
-                    // Build menu text: "LocalizedName: LocalizedDescription"
-                    wcscpy(szMenuText, g_Filters[filterIndex].szLocalizedName);
                     wcscat(szMenuText, L": ");
                     wcscat(szMenuText, g_Filters[filterIndex].szLocalizedDescription);
-                } else {
-                    // Just show the localized name
-                    wcscpy(szMenuText, g_Filters[filterIndex].szLocalizedName);
                 }
                 
                 AppendMenu(hCategoryMenu, flags, ID_TOOLS_FILTER_BASE + filterIndex, 
@@ -3897,4 +4269,396 @@ void DoAutosave()
         Sleep(1000);  // Brief flash
         SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szOldStatus);
     }
+}
+
+//============================================================================
+// REPL Filter Functions (Phase 2.5)
+//============================================================================
+
+//============================================================================
+// StartREPLFilter - Start an interactive REPL filter session
+//============================================================================
+void StartREPLFilter(int filterIndex)
+{
+    // Check if filter index is valid
+    if (filterIndex < 0 || filterIndex >= g_nFilterCount) {
+        return;
+    }
+    
+    // Check if filter is a REPL filter
+    if (g_Filters[filterIndex].action != FILTER_ACTION_REPL) {
+        return;
+    }
+    
+    // Check if already in REPL mode
+    if (g_bREPLMode) {
+        WCHAR szMsg[256], szTitle[64];
+        LoadStringResource(IDS_ERROR, szTitle, 64);
+        wcscpy(szMsg, L"Already in Interactive Mode. Exit current session first.");
+        MessageBox(g_hWndMain, szMsg, szTitle, MB_ICONWARNING);
+        return;
+    }
+    
+    // Create pipes for stdin, stdout, stderr
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+    
+    HANDLE hStdoutRead = NULL, hStdoutWrite = NULL;
+    HANDLE hStdinRead = NULL, hStdinWrite = NULL;
+    HANDLE hStderrRead = NULL, hStderrWrite = NULL;
+    
+    // Create stdout pipe
+    if (!CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0)) {
+        MessageBox(g_hWndMain, L"Failed to create stdout pipe", L"Error", MB_ICONERROR);
+        return;
+    }
+    SetHandleInformation(hStdoutRead, HANDLE_FLAG_INHERIT, 0);
+    
+    // Create stdin pipe
+    if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0)) {
+        CloseHandle(hStdoutRead);
+        CloseHandle(hStdoutWrite);
+        MessageBox(g_hWndMain, L"Failed to create stdin pipe", L"Error", MB_ICONERROR);
+        return;
+    }
+    SetHandleInformation(hStdinWrite, HANDLE_FLAG_INHERIT, 0);
+    
+    // Create stderr pipe
+    if (!CreatePipe(&hStderrRead, &hStderrWrite, &sa, 0)) {
+        CloseHandle(hStdoutRead);
+        CloseHandle(hStdoutWrite);
+        CloseHandle(hStdinRead);
+        CloseHandle(hStdinWrite);
+        MessageBox(g_hWndMain, L"Failed to create stderr pipe", L"Error", MB_ICONERROR);
+        return;
+    }
+    SetHandleInformation(hStderrRead, HANDLE_FLAG_INHERIT, 0);
+    
+    // Set up process startup info
+    STARTUPINFO si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.hStdInput = hStdinRead;
+    si.hStdOutput = hStdoutWrite;
+    si.hStdError = hStderrWrite;
+    si.wShowWindow = SW_HIDE;
+    
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof(pi));
+    
+    // Create command line (need writable buffer)
+    WCHAR szCommand[MAX_FILTER_COMMAND + 1];
+    wcscpy(szCommand, g_Filters[filterIndex].szCommand);
+    
+    // Create the process
+    if (!CreateProcess(NULL, szCommand, NULL, NULL, TRUE, 
+                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        CloseHandle(hStdoutRead);
+        CloseHandle(hStdoutWrite);
+        CloseHandle(hStdinRead);
+        CloseHandle(hStdinWrite);
+        CloseHandle(hStderrRead);
+        CloseHandle(hStderrWrite);
+        
+        WCHAR szMsg[256];
+        swprintf(szMsg, 256, L"Failed to start interactive filter: %s", g_Filters[filterIndex].szName);
+        MessageBox(g_hWndMain, szMsg, L"Error", MB_ICONERROR);
+        return;
+    }
+    
+    // Close child process handles we don't need
+    CloseHandle(pi.hThread);
+    CloseHandle(hStdinRead);
+    CloseHandle(hStdoutWrite);
+    CloseHandle(hStderrWrite);
+    
+    // Store REPL state
+    g_hREPLProcess = pi.hProcess;
+    g_hREPLStdin = hStdinWrite;
+    g_hREPLStdout = hStdoutRead;
+    g_hREPLStderr = hStderrRead;
+    g_nCurrentREPLFilter = filterIndex;
+    g_bREPLMode = TRUE;
+    
+    // Copy prompt end and EOL mode
+    wcscpy(g_szREPLPromptEnd, g_Filters[filterIndex].szPromptEnd);
+    g_REPLEOLMode = g_Filters[filterIndex].replEOLMode;
+    
+    // Start background thread to read output
+    g_hREPLThread = CreateThread(NULL, 0, REPLOutputThread, NULL, 0, &g_dwREPLThreadId);
+    if (g_hREPLThread == NULL) {
+        ExitREPLMode();
+        MessageBox(g_hWndMain, L"Failed to create output reader thread", L"Error", MB_ICONERROR);
+        return;
+    }
+    
+    // Update title bar to show Interactive Mode
+    UpdateTitle(g_hWndMain);
+    
+    // Update status bar
+    UpdateStatusBar();
+    
+    // Update menu states
+    UpdateMenuStates(g_hWndMain);
+}
+
+//============================================================================
+// REPLOutputThread - Background thread that reads REPL stdout/stderr
+//============================================================================
+DWORD WINAPI REPLOutputThread(LPVOID /* lpParam */)
+{
+    char buffer[4096];
+    DWORD dwRead;
+    
+    while (g_bREPLMode) {
+        // Try to read from stdout
+        BOOL bSuccess = ReadFile(g_hREPLStdout, buffer, sizeof(buffer) - 1, &dwRead, NULL);
+        
+        if (!bSuccess || dwRead == 0) {
+            // Process exited or pipe closed
+            PostMessage(g_hWndMain, WM_REPL_EXITED, 0, 0);
+            break;
+        }
+        
+        // Null-terminate
+        buffer[dwRead] = '\0';
+        
+        // Auto-detect EOL mode on first output
+        if (g_REPLEOLMode == REPL_EOL_AUTO) {
+            g_REPLEOLMode = DetectEOL(buffer, dwRead);
+        }
+        
+        // Convert UTF-8 to UTF-16
+        LPWSTR pszOutput = UTF8ToUTF16(buffer);
+        if (pszOutput) {
+            // Allocate copy for message (will be freed by message handler)
+            LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
+            if (pszCopy) {
+                wcscpy(pszCopy, pszOutput);
+                PostMessage(g_hWndMain, WM_REPL_OUTPUT, 0, (LPARAM)pszCopy);
+            }
+            free(pszOutput);
+        }
+    }
+    
+    return 0;
+}
+
+//============================================================================
+// InsertREPLOutput - Insert REPL output at current cursor position
+//============================================================================
+void InsertREPLOutput(LPCWSTR pszOutput)
+{
+    if (!pszOutput || !g_hWndEdit) {
+        return;
+    }
+    
+    // Get current selection
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    
+    // Replace selection with output (cursor moves to end)
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
+    
+    // Scroll to cursor
+    SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+    
+    // Update status bar
+    UpdateStatusBar();
+}
+
+//============================================================================
+// ExitREPLMode - Exit REPL mode and cleanup resources
+//============================================================================
+void ExitREPLMode()
+{
+    if (!g_bREPLMode) {
+        return;
+    }
+    
+    // Set flag first to stop thread
+    g_bREPLMode = FALSE;
+    
+    // Terminate process if still running
+    if (g_hREPLProcess) {
+        TerminateProcess(g_hREPLProcess, 0);
+        WaitForSingleObject(g_hREPLProcess, 1000);
+        CloseHandle(g_hREPLProcess);
+        g_hREPLProcess = NULL;
+    }
+    
+    // Wait for thread to exit
+    if (g_hREPLThread) {
+        WaitForSingleObject(g_hREPLThread, 2000);
+        CloseHandle(g_hREPLThread);
+        g_hREPLThread = NULL;
+    }
+    
+    // Close pipes
+    if (g_hREPLStdin) {
+        CloseHandle(g_hREPLStdin);
+        g_hREPLStdin = NULL;
+    }
+    if (g_hREPLStdout) {
+        CloseHandle(g_hREPLStdout);
+        g_hREPLStdout = NULL;
+    }
+    if (g_hREPLStderr) {
+        CloseHandle(g_hREPLStderr);
+        g_hREPLStderr = NULL;
+    }
+    
+    // Reset state
+    g_nCurrentREPLFilter = -1;
+    g_szREPLPromptEnd[0] = L'\0';
+    g_REPLEOLMode = REPL_EOL_AUTO;
+    g_dwREPLThreadId = 0;
+    
+    // Update title bar to remove Interactive Mode indicator
+    UpdateTitle(g_hWndMain);
+    
+    // Update status bar
+    UpdateStatusBar();
+    
+    // Update menu states
+    UpdateMenuStates(g_hWndMain);
+}
+
+//============================================================================
+// SendLineToREPL - Send a line of input to the REPL stdin
+//============================================================================
+void SendLineToREPL()
+{
+    if (!g_bREPLMode || !g_hREPLStdin) {
+        return;
+    }
+    
+    // Get current line text
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    
+    // Get line number
+    LONG lineIndex = SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
+    
+    // Get line start/end
+    LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex, 0);
+    LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
+    if (lineEnd == -1) {
+        // Last line - get document length
+        GETTEXTLENGTHEX gtl;
+        gtl.flags = GTL_DEFAULT;
+        gtl.codepage = 1200; // Unicode
+        lineEnd = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    }
+    
+    // Extract line text
+    int lineLen = lineEnd - lineStart;
+    if (lineLen <= 0) {
+        return;
+    }
+    
+    LPWSTR pszLine = (LPWSTR)malloc((lineLen + 1) * sizeof(WCHAR));
+    if (!pszLine) {
+        return;
+    }
+    
+    TEXTRANGE tr;
+    tr.chrg.cpMin = lineStart;
+    tr.chrg.cpMax = lineEnd;
+    tr.lpstrText = pszLine;
+    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    
+    // Try to detect prompt and extract input after it
+    int inputStart = 0;
+    DetectPrompt(pszLine, g_szREPLPromptEnd, &inputStart);
+    
+    // Get input portion
+    LPCWSTR pszInput = pszLine + inputStart;
+    
+    // Convert to UTF-8
+    LPSTR pszInputUTF8 = UTF16ToUTF8(pszInput);
+    if (pszInputUTF8) {
+        // Append EOL based on detected mode
+        const char* eol = "\r\n"; // Default CRLF
+        if (g_REPLEOLMode == REPL_EOL_LF) {
+            eol = "\n";
+        } else if (g_REPLEOLMode == REPL_EOL_CR) {
+            eol = "\r";
+        }
+        
+        // Send input + EOL to stdin
+        DWORD dwWritten;
+        WriteFile(g_hREPLStdin, pszInputUTF8, strlen(pszInputUTF8), &dwWritten, NULL);
+        WriteFile(g_hREPLStdin, eol, strlen(eol), &dwWritten, NULL);
+        
+        // Flush the pipe
+        FlushFileBuffers(g_hREPLStdin);
+        
+        free(pszInputUTF8);
+    }
+    
+    free(pszLine);
+    
+    // Move cursor to end of line and insert newline
+    cr.cpMin = lineEnd;
+    cr.cpMax = lineEnd;
+    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\r\n");
+}
+
+//============================================================================
+// DetectEOL - Auto-detect line ending style from output
+//============================================================================
+REPLEOLMode DetectEOL(LPCSTR pszOutput, size_t len)
+{
+    // Scan buffer for line endings
+    for (size_t i = 0; i < len - 1; i++) {
+        if (pszOutput[i] == '\r' && pszOutput[i + 1] == '\n') {
+            return REPL_EOL_CRLF;
+        }
+        if (pszOutput[i] == '\n') {
+            return REPL_EOL_LF;
+        }
+        if (pszOutput[i] == '\r') {
+            return REPL_EOL_CR;
+        }
+    }
+    
+    // Check last character
+    if (len > 0) {
+        if (pszOutput[len - 1] == '\n') {
+            return REPL_EOL_LF;
+        }
+        if (pszOutput[len - 1] == '\r') {
+            return REPL_EOL_CR;
+        }
+    }
+    
+    // Default to CRLF (Windows)
+    return REPL_EOL_CRLF;
+}
+
+//============================================================================
+// DetectPrompt - Find prompt ending in line and return input start position
+//============================================================================
+BOOL DetectPrompt(LPCWSTR pszLine, LPCWSTR pszPromptEnd, int* pInputStart)
+{
+    *pInputStart = 0;
+    
+    if (!pszLine || !pszPromptEnd || pszPromptEnd[0] == L'\0') {
+        return FALSE;
+    }
+    
+    // Search for prompt end string in line
+    LPCWSTR pPrompt = wcsstr(pszLine, pszPromptEnd);
+    if (pPrompt) {
+        // Found prompt - input starts after prompt end
+        *pInputStart = (pPrompt - pszLine) + wcslen(pszPromptEnd);
+        return TRUE;
+    }
+    
+    return FALSE;
 }

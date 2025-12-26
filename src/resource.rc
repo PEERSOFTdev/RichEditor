@@ -38,7 +38,10 @@ BEGIN
     END
     POPUP "&Tools"
     BEGIN
-        MENUITEM "&Execute Filter\tCtrl+Enter", ID_TOOLS_EXECUTEFILTER
+        MENUITEM "&Execute Filter\tCtrl+Enter", ID_TOOLS_EXECUTEFILTER, GRAYED
+        MENUITEM "&Start Interactive Mode\tCtrl+Shift+I", ID_TOOLS_START_INTERACTIVE, GRAYED
+        MENUITEM "E&xit Interactive Mode\tCtrl+Shift+Q", ID_TOOLS_EXIT_INTERACTIVE, GRAYED
+        MENUITEM SEPARATOR
         MENUITEM "Filter &Help...", ID_TOOLS_MANAGEFILTERS
         MENUITEM SEPARATOR
         POPUP "Select &Filter"
@@ -67,6 +70,8 @@ BEGIN
     "W", ID_VIEW_WORDWRAP, VIRTKEY, CONTROL
     VK_F5, ID_EDIT_TIMEDATE, VIRTKEY
     VK_RETURN, ID_TOOLS_EXECUTEFILTER, VIRTKEY, CONTROL
+    "I", ID_TOOLS_START_INTERACTIVE, VIRTKEY, CONTROL, SHIFT
+    "Q", ID_TOOLS_EXIT_INTERACTIVE, VIRTKEY, CONTROL, SHIFT
 END
 
 // About Dialog
@@ -200,6 +205,18 @@ BEGIN
     IDS_ERROR_OPEN_URL           "Could not open URL"
     IDS_UNDO_BUFFER_FULL_TITLE   "Undo Buffer Full"
     IDS_UNDO_BUFFER_FULL_MESSAGE "The undo buffer is full. New changes will no longer be undoable.\n\nDo you want to continue editing?"
+    
+    // REPL mode strings (Phase 2.5b)
+    IDS_REPL_EXITED              "Interactive filter has exited."
+    IDS_REPL_ALREADY_ACTIVE      "Already in Interactive Mode. Exit current session first."
+    IDS_REPL_NOT_ONESHOT         "This is an Interactive filter. Use Start Interactive Mode (Ctrl+Shift+I) instead."
+    IDS_REPL_SWITCH_PROMPT       "Exit current Interactive Mode to select a different interactive filter?"
+    IDS_REPL_CLOSE_PROMPT        "Interactive filter is running. Close anyway?"
+    IDS_CONFIRM                  "Confirm"
+    IDS_STATUS_INTERACTIVE       "Interactive"
+    IDS_STATUS_FILTER            "Filter"
+    IDS_STATUS_FILTER_NONE       "None"
+    IDS_INFORMATION              "Information"
 END
 
 // ============================================================================
@@ -238,7 +255,10 @@ BEGIN
     END
     POPUP "&Nástroje"
     BEGIN
-        MENUITEM "&Spustit filtr\tCtrl+Enter", ID_TOOLS_EXECUTEFILTER
+        MENUITEM "&Spustit filtr\tCtrl+Enter", ID_TOOLS_EXECUTEFILTER, GRAYED
+        MENUITEM "S&pustit interaktivní režim\tCtrl+Shift+I", ID_TOOLS_START_INTERACTIVE, GRAYED
+        MENUITEM "&Ukončit interaktivní režim\tCtrl+Shift+Q", ID_TOOLS_EXIT_INTERACTIVE, GRAYED
+        MENUITEM SEPARATOR
         MENUITEM "&Nápověda k filtrům...", ID_TOOLS_MANAGEFILTERS
         MENUITEM SEPARATOR
         POPUP "Vybrat &filtr"
@@ -353,4 +373,16 @@ BEGIN
     IDS_ERROR_OPEN_URL           "Nelze otevřít URL"
     IDS_UNDO_BUFFER_FULL_TITLE   "Plná vyrovnávací paměť pro vrácení zpět"
     IDS_UNDO_BUFFER_FULL_MESSAGE "Vyrovnávací paměť pro vrácení zpět je plná. Nové změny již nebude možné vrátit zpět.\n\nChcete pokračovat v úpravách?"
+    
+    // REPL mode strings (Phase 2.5b)
+    IDS_REPL_EXITED              "Interaktivní filtr byl ukončen."
+    IDS_REPL_ALREADY_ACTIVE      "Již v interaktivním režimu. Nejprve ukončete aktuální relaci."
+    IDS_REPL_NOT_ONESHOT         "Toto je interaktivní filtr. Místo toho použijte Spustit interaktivní režim (Ctrl+Shift+I)."
+    IDS_REPL_SWITCH_PROMPT       "Ukončit aktuální interaktivní režim a vybrat jiný interaktivní filtr?"
+    IDS_REPL_CLOSE_PROMPT        "Interaktivní filtr je spuštěn. Přesto zavřít?"
+    IDS_CONFIRM                  "Potvrdit"
+    IDS_STATUS_INTERACTIVE       "Interaktivní"
+    IDS_STATUS_FILTER            "Filtr"
+    IDS_STATUS_FILTER_NONE       "Žádný"
+    IDS_INFORMATION              "Informace"
 END

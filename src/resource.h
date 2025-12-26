@@ -33,6 +33,8 @@
 // Tools menu (Phase 2)
 #define ID_TOOLS_EXECUTEFILTER          1201
 #define ID_TOOLS_MANAGEFILTERS          1202
+#define ID_TOOLS_START_INTERACTIVE      1090  // Start Interactive Mode (Phase 2.5b)
+#define ID_TOOLS_EXIT_INTERACTIVE       1091  // Exit Interactive Mode (Phase 2.5b)
 #define ID_TOOLS_FILTER_BASE            1300  // Base for dynamic filter menu items (1300-1399)
 
 // Help menu
@@ -116,8 +118,20 @@
 #define IDS_CONTEXT_COPY_URL            2058
 #define IDS_ERROR_OPEN_URL              2059
 
-#endif // RESOURCE_H
-
 // EN_STOPNOUNDO notification strings
 #define IDS_UNDO_BUFFER_FULL_TITLE      2060
 #define IDS_UNDO_BUFFER_FULL_MESSAGE    2061
+
+// REPL mode strings (Phase 2.5b) (2070-2087)
+#define IDS_REPL_EXITED                 2070
+#define IDS_REPL_ALREADY_ACTIVE         2072
+#define IDS_REPL_NOT_ONESHOT            2074
+#define IDS_REPL_SWITCH_PROMPT          2076
+#define IDS_REPL_CLOSE_PROMPT           2078
+#define IDS_CONFIRM                     2080
+#define IDS_STATUS_INTERACTIVE          2082
+#define IDS_STATUS_FILTER               2084
+#define IDS_STATUS_FILTER_NONE          2086
+#define IDS_INFORMATION                 2088
+
+#endif // RESOURCE_H
