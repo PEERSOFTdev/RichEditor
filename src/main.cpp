@@ -934,28 +934,44 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 //============================================================================
 LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    if (msg == WM_KEYDOWN && wParam == VK_RETURN) {
-        // Check if Shift is held: Shift+Enter always inserts newline
-        if (GetKeyState(VK_SHIFT) & 0x8000) {
-            // Allow default behavior (insert newline)
-            return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+    if (msg == WM_KEYDOWN) {
+        // Handle Ctrl+Shift+I (Start Interactive Mode)
+        if (wParam == 'I' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+            // Send command to main window to start interactive mode
+            PostMessage(g_hWndMain, WM_COMMAND, MAKEWPARAM(ID_TOOLS_START_INTERACTIVE, 0), 0);
+            return 0; // Prevent default behavior
         }
         
-        // If in REPL mode: Enter sends command
-        if (g_bREPLMode) {
-            SendLineToREPL();
-            return 0; // Prevent default Enter behavior
+        // Handle Ctrl+Shift+Q (Exit Interactive Mode)
+        if (wParam == 'Q' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+            // Send command to main window to exit interactive mode
+            PostMessage(g_hWndMain, WM_COMMAND, MAKEWPARAM(ID_TOOLS_EXIT_INTERACTIVE, 0), 0);
+            return 0; // Prevent default behavior
         }
         
-        // Check if cursor is in a URL
-        WCHAR szURL[2048];
-        if (GetURLAtCursor(hwnd, szURL, 2048, NULL)) {
-            // Open URL
-            OpenURL(g_hWndMain, szURL);
-            return 0; // Prevent default Enter behavior (don't insert newline)
+        if (wParam == VK_RETURN) {
+            // Check if Shift is held: Shift+Enter always inserts newline
+            if (GetKeyState(VK_SHIFT) & 0x8000) {
+                // Allow default behavior (insert newline)
+                return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+            }
+            
+            // If in REPL mode: Enter sends command
+            if (g_bREPLMode) {
+                SendLineToREPL();
+                return 0; // Prevent default Enter behavior
+            }
+            
+            // Check if cursor is in a URL
+            WCHAR szURL[2048];
+            if (GetURLAtCursor(hwnd, szURL, 2048, NULL)) {
+                // Open URL
+                OpenURL(g_hWndMain, szURL);
+                return 0; // Prevent default Enter behavior (don't insert newline)
+            }
+            
+            // If not in URL and not in REPL mode, allow normal Enter key behavior (insert newline)
         }
-        
-        // If not in URL and not in REPL mode, allow normal Enter key behavior (insert newline)
     }
     
     // Call original window procedure for all other messages
