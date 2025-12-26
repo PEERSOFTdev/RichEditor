@@ -3145,6 +3145,8 @@ void CreateDefaultINI()
         "; REPL settings: PromptEnd, EOLDetection (auto/crlf/lf/cr), ExitNotification\r\n"
         ";   EOLDetection: auto=detect from output (defaults to LF), lf=Unix/Linux, crlf=Windows, cr=old Mac\r\n"
         ";   Use 'lf' for WSL/bash/python/node, 'auto' for PowerShell\r\n"
+        ";   NOTE: REPL filters with PTY (script command) will echo input - this is normal terminal behavior\r\n"
+        ";   You'll see: your typed command, then shell echo + output, then next prompt\r\n"
         "; ContextMenu: 1=show in right-click menu, 0=Tools menu only\r\n"
         "; ContextMenuOrder: Sort order in context menu (lower numbers first)\r\n"
         "\r\n"
