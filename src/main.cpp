@@ -224,6 +224,7 @@ DWORD WINAPI REPLStdoutThread(LPVOID lpParam);
 DWORD WINAPI REPLStderrThread(LPVOID lpParam);
 REPLEOLMode DetectEOL(LPCSTR pszOutput, size_t len);
 BOOL DetectPrompt(LPCWSTR pszLine, LPCWSTR pszPromptEnd, int* pInputStart);
+void StripANSIEscapes(LPWSTR pszText);
 
 //============================================================================
 // WinMain - Entry Point
@@ -4473,6 +4474,9 @@ DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
         // Convert UTF-8 to UTF-16
         LPWSTR pszOutput = UTF8ToUTF16(buffer);
         if (pszOutput) {
+            // Strip ANSI escape sequences (colors, cursor positioning, etc.)
+            StripANSIEscapes(pszOutput);
+            
             // Allocate copy for message (will be freed by message handler)
             LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
             if (pszCopy) {
@@ -4510,6 +4514,9 @@ DWORD WINAPI REPLStderrThread(LPVOID /* lpParam */)
         // Convert UTF-8 to UTF-16
         LPWSTR pszOutput = UTF8ToUTF16(buffer);
         if (pszOutput) {
+            // Strip ANSI escape sequences (colors, cursor positioning, etc.)
+            StripANSIEscapes(pszOutput);
+            
             // Allocate copy for message (will be freed by message handler)
             LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
             if (pszCopy) {
@@ -4727,6 +4734,53 @@ REPLEOLMode DetectEOL(LPCSTR pszOutput, size_t len)
     
     // Default to CRLF (Windows)
     return REPL_EOL_CRLF;
+}
+
+//============================================================================
+// StripANSIEscapes - Remove ANSI escape sequences from text (in-place)
+//============================================================================
+void StripANSIEscapes(LPWSTR pszText)
+{
+    if (!pszText) {
+        return;
+    }
+    
+    LPWSTR src = pszText;
+    LPWSTR dst = pszText;
+    
+    while (*src) {
+        if (*src == L'\x1B' || *src == L'\x9B') {
+            // Found ESC or CSI - skip escape sequence
+            src++;
+            
+            // Skip CSI sequence: ESC [ ... letter
+            // Also handles: ESC ( ... letter, ESC ) ... letter, etc.
+            if (*src == L'[' || *src == L'(' || *src == L')' || *src == L'#' || 
+                *src == L'?' || *src == L'>' || *src == L'=' || *src == L'<') {
+                src++;
+                
+                // Skip parameter bytes (0x30-0x3F) and intermediate bytes (0x20-0x2F)
+                while (*src && ((*src >= 0x30 && *src <= 0x3F) || (*src >= 0x20 && *src <= 0x2F))) {
+                    src++;
+                }
+                
+                // Skip final byte (0x40-0x7E)
+                if (*src >= 0x40 && *src <= 0x7E) {
+                    src++;
+                }
+            } else {
+                // Other escape sequences (ESC followed by single char)
+                if (*src) {
+                    src++;
+                }
+            }
+        } else {
+            // Normal character - copy it
+            *dst++ = *src++;
+        }
+    }
+    
+    *dst = L'\0';
 }
 
 //============================================================================
