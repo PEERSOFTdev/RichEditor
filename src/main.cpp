@@ -956,10 +956,61 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
             }
             
-            // If in REPL mode: Enter sends command
+            // If in REPL mode: Enter sends command if on a line with prompt, or at end of document
             if (g_bREPLMode) {
-                SendLineToREPL();
-                return 0; // Prevent default Enter behavior
+                // Get current cursor position
+                CHARRANGE cr;
+                SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                
+                // Get current line number
+                LONG lineIndex = SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
+                
+                // Get line start/end
+                LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex, 0);
+                LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
+                if (lineEnd == -1) {
+                    // Last line - get document length
+                    GETTEXTLENGTHEX gtl;
+                    gtl.flags = GTL_DEFAULT;
+                    gtl.codepage = 1200; // Unicode
+                    lineEnd = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+                }
+                
+                // Check if we're at the very end of the document (safety: send empty line to recall prompt)
+                GETTEXTLENGTHEX gtl;
+                gtl.flags = GTL_DEFAULT;
+                gtl.codepage = 1200;
+                LONG docLength = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+                if (cr.cpMin >= docLength) {
+                    // At end of document - send to REPL (empty line or whatever is on current line)
+                    SendLineToREPL();
+                    return 0;
+                }
+                
+                // Extract line text
+                int lineLen = lineEnd - lineStart;
+                if (lineLen > 0) {
+                    LPWSTR pszLine = (LPWSTR)malloc((lineLen + 1) * sizeof(WCHAR));
+                    if (pszLine) {
+                        TEXTRANGE tr;
+                        tr.chrg.cpMin = lineStart;
+                        tr.chrg.cpMax = lineEnd;
+                        tr.lpstrText = pszLine;
+                        SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                        
+                        // Check if line contains prompt
+                        int inputStart = 0;
+                        if (DetectPrompt(pszLine, g_szREPLPromptEnd, &inputStart)) {
+                            // Found prompt on this line - send to REPL
+                            free(pszLine);
+                            SendLineToREPL();
+                            return 0;
+                        }
+                        free(pszLine);
+                    }
+                }
+                
+                // No prompt found and not at end - allow normal Enter (insert newline, or open URL if at one)
             }
             
             // Check if cursor is in a URL
@@ -4450,7 +4501,6 @@ void StartREPLFilter(int filterIndex)
     wcscpy(g_szREPLPromptEnd, g_Filters[filterIndex].szPromptEnd);
     g_REPLEOLMode = g_Filters[filterIndex].replEOLMode;
     
-    // Start background threads to read stdout and stderr
     g_hREPLStdoutThread = CreateThread(NULL, 0, REPLStdoutThread, NULL, 0, &g_dwREPLStdoutThreadId);
     if (g_hREPLStdoutThread == NULL) {
         ExitREPLMode();
@@ -4580,7 +4630,6 @@ void InsertREPLOutput(LPCWSTR pszOutput)
     
     // Replace selection with output (cursor moves to end)
     SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
-    
     // Scroll to cursor
     SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
     
