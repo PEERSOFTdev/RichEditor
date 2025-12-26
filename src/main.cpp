@@ -1109,26 +1109,66 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     LONG urlEnd = wordRight;
     
     // Scan forward from wordLeft to find where CFE_LINK actually starts
-    for (LONG pos = wordLeft; pos < cursorPos; pos++) {
+    BOOL foundStart = FALSE;
+    for (LONG pos = wordLeft; pos <= cursorPos; pos++) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
             urlStart = pos;
+            foundStart = TRUE;
             break;
         }
     }
     
-    // Scan backward from wordRight to find where CFE_LINK actually ends
-    for (LONG pos = wordRight - 1; pos > cursorPos; pos--) {
+    // Scan backward from wordRight-1 to find where CFE_LINK actually ends
+    BOOL foundEnd = FALSE;
+    for (LONG pos = wordRight - 1; pos >= cursorPos; pos--) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
             urlEnd = pos + 1;
+            foundEnd = TRUE;
             break;
+        }
+    }
+    
+    // If we didn't find boundaries in the word break range, the URL might span beyond word breaks
+    // Fall back to scanning from cursor position outward
+    if (!foundStart || !foundEnd) {
+        // Scan backward from cursor to find start
+        urlStart = cursorPos;
+        for (LONG pos = cursorPos - 1; pos >= 0; pos--) {
+            cr.cpMin = pos;
+            cr.cpMax = pos + 1;
+            SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+            if (cf.dwEffects & CFE_LINK) {
+                urlStart = pos;
+            } else {
+                break;
+            }
+        }
+        
+        // Scan forward from cursor to find end
+        urlEnd = cursorPos;
+        GETTEXTLENGTHEX gtl;
+        gtl.flags = GTL_DEFAULT;
+        gtl.codepage = 1200;
+        LONG docLen = SendMessage(hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+        for (LONG pos = cursorPos; pos < docLen; pos++) {
+            cr.cpMin = pos;
+            cr.cpMax = pos + 1;
+            SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+            if (cf.dwEffects & CFE_LINK) {
+                urlEnd = pos + 1;
+            } else {
+                break;
+            }
         }
     }
     
