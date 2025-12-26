@@ -4702,8 +4702,18 @@ void SendLineToREPL()
     
     free(pszLine);
     
-    // Don't insert newline here - the shell will echo the command back
-    // and that echo will naturally move to the next line
+    // Move cursor to end of document and insert newline
+    // This ensures the shell's echo output appears on the next line
+    GETTEXTLENGTHEX gtl;
+    gtl.flags = GTL_DEFAULT;
+    gtl.codepage = 1200; // Unicode
+    LONG docLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    
+    CHARRANGE crEnd;
+    crEnd.cpMin = docLen;
+    crEnd.cpMax = docLen;
+    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crEnd);
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\n");
 }
 
 //============================================================================
