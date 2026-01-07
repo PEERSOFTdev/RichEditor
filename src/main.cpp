@@ -854,6 +854,49 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             break;
             
+        case WM_QUERYENDSESSION:
+            // Windows is shutting down or user is logging off
+            // Return TRUE to allow shutdown, FALSE to block it
+            
+            // Check if REPL is active and prompt user
+            if (g_bREPLMode) {
+                WCHAR szPrompt[512], szTitle[128];
+                LoadStringResource(IDS_REPL_CLOSE_PROMPT, szPrompt, 512);
+                LoadStringResource(IDS_CONFIRM, szTitle, 128);
+                
+                int result = MessageBox(hwnd, szPrompt, szTitle, 
+                                       MB_YESNO | MB_ICONQUESTION);
+                if (result != IDYES) {
+                    return FALSE; // Block shutdown - user wants to keep REPL running
+                }
+                // User confirmed - exit REPL immediately (intentional)
+                g_bREPLIntentionalExit = TRUE;
+                ExitREPLMode();
+            }
+            
+            // Check for unsaved changes
+            if (!PromptSaveChanges()) {
+                return FALSE; // Block shutdown - user cancelled save prompt
+            }
+            
+            // All prompts confirmed - allow Windows to shutdown
+            return TRUE;
+            
+        case WM_ENDSESSION:
+            // Windows is actually shutting down now (only sent if we returned TRUE to WM_QUERYENDSESSION)
+            // wParam: TRUE if session is ending, FALSE if shutdown was cancelled by another app
+            // lParam: shutdown reason flags
+            if (wParam) {
+                // Session is ending - perform final cleanup if needed
+                // Note: Keep this minimal, Windows expects quick response
+                if (g_bREPLMode) {
+                    g_bREPLIntentionalExit = TRUE;
+                    ExitREPLMode();
+                }
+            }
+            return 0;
+            
+
         case WM_CLOSE:
             // Check if REPL is active and prompt user
             if (g_bREPLMode) {
