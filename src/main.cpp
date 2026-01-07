@@ -855,32 +855,42 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
             
         case WM_QUERYENDSESSION:
-            // Windows is shutting down or user is logging off
-            // Return TRUE to allow shutdown, FALSE to block it
-            
-            // Check if REPL is active and prompt user
-            if (g_bREPLMode) {
-                WCHAR szPrompt[512], szTitle[128];
-                LoadStringResource(IDS_REPL_CLOSE_PROMPT, szPrompt, 512);
-                LoadStringResource(IDS_CONFIRM, szTitle, 128);
-                
-                int result = MessageBox(hwnd, szPrompt, szTitle, 
-                                       MB_YESNO | MB_ICONQUESTION);
-                if (result != IDYES) {
-                    return FALSE; // Block shutdown - user wants to keep REPL running
+        case WM_CLOSE:
+            // Unified handler for both normal close and Windows shutdown/logoff
+            // WM_QUERYENDSESSION: Windows asking permission to shutdown (return TRUE/FALSE)
+            // WM_CLOSE: User/app requesting to close window (return 0 to cancel, DestroyWindow to proceed)
+            {
+                // Check if REPL is active and prompt user
+                if (g_bREPLMode) {
+                    WCHAR szPrompt[512], szTitle[128];
+                    LoadStringResource(IDS_REPL_CLOSE_PROMPT, szPrompt, 512);
+                    LoadStringResource(IDS_CONFIRM, szTitle, 128);
+                    
+                    int result = MessageBox(hwnd, szPrompt, szTitle, 
+                                           MB_YESNO | MB_ICONQUESTION);
+                    if (result != IDYES) {
+                        // User wants to keep REPL running
+                        return (msg == WM_QUERYENDSESSION) ? FALSE : 0;
+                    }
+                    // User confirmed - exit REPL immediately (intentional)
+                    g_bREPLIntentionalExit = TRUE;
+                    ExitREPLMode();
                 }
-                // User confirmed - exit REPL immediately (intentional)
-                g_bREPLIntentionalExit = TRUE;
-                ExitREPLMode();
+                
+                // Check for unsaved changes
+                if (!PromptSaveChanges()) {
+                    // User cancelled save prompt
+                    return (msg == WM_QUERYENDSESSION) ? FALSE : 0;
+                }
+                
+                // All prompts confirmed - proceed with close/shutdown
+                if (msg == WM_QUERYENDSESSION) {
+                    return TRUE; // Allow Windows to shutdown
+                } else {
+                    DestroyWindow(hwnd);
+                    return 0;
+                }
             }
-            
-            // Check for unsaved changes
-            if (!PromptSaveChanges()) {
-                return FALSE; // Block shutdown - user cancelled save prompt
-            }
-            
-            // All prompts confirmed - allow Windows to shutdown
-            return TRUE;
             
         case WM_ENDSESSION:
             // Windows is actually shutting down now (only sent if we returned TRUE to WM_QUERYENDSESSION)
@@ -894,33 +904,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     ExitREPLMode();
                 }
             }
-            return 0;
-            
-
-        case WM_CLOSE:
-            // Check if REPL is active and prompt user
-            if (g_bREPLMode) {
-                WCHAR szPrompt[512], szTitle[128];
-                LoadStringResource(IDS_REPL_CLOSE_PROMPT, szPrompt, 512);
-                LoadStringResource(IDS_CONFIRM, szTitle, 128);
-                
-                int result = MessageBox(hwnd, szPrompt, szTitle, 
-                                       MB_YESNO | MB_ICONQUESTION);
-                if (result != IDYES) {
-                    return 0; // Cancel close - keep REPL and editor running
-                }
-                // User confirmed - exit REPL immediately (intentional)
-                g_bREPLIntentionalExit = TRUE;
-                ExitREPLMode();
-            }
-            
-            // Now check for unsaved changes
-            // (REPL is already closed at this point if it was running)
-            if (!PromptSaveChanges()) {
-                return 0; // Cancel close - editor stays open (REPL already closed)
-            }
-            
-            DestroyWindow(hwnd);
             return 0;
             
         case WM_REPL_OUTPUT:
