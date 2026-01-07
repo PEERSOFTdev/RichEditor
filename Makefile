@@ -9,7 +9,7 @@
 #   make rebuild                            - Clean and build
 #
 # Build types:
-#   debug   - Debug symbols with -O2 optimization (~875KB)
+#   debug   - Debug symbols with -Os optimization (~875KB)
 #   strip   - Stripped debug build for distribution (~275KB)
 
 # Default cross-compiler prefix (can be overridden)
@@ -27,13 +27,13 @@ RC = src/resource.rc
 OBJ = main.o resource.o
 
 # Compiler flags
-# -O2 : standard optimization level (balanced performance/size)
+# -Os : optimize for size (keeps most O2 optimizations)
 # -g  : include debug symbols
 # -Wall -Wextra : enable useful warnings
 # -static : static linking for standalone executable
 # -ffunction-sections/-fdata-sections + -Wl,--gc-sections : dead code elimination
 # -flto : link-time optimization
-CFLAGS = -std=c++11 -DUNICODE -D_UNICODE -O2 -g -Wall -Wextra \
+CFLAGS = -std=c++11 -DUNICODE -D_UNICODE -Os -g -Wall -Wextra \
          -static -static-libgcc -static-libstdc++ \
          -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
 LDFLAGS = -mwindows -municode -static -static-libgcc -static-libstdc++
