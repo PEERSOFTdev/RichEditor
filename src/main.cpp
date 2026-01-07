@@ -897,18 +897,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     return (msg == WM_QUERYENDSESSION) ? FALSE : 0;
                 }
                 
-                // Clear shutdown block reason before proceeding
+                // All prompts confirmed - close the window now
+                // (Both WM_QUERYENDSESSION and WM_CLOSE should close immediately after user confirms)
                 if (msg == WM_QUERYENDSESSION) {
                     ShutdownBlockReasonDestroy(hwnd);
                 }
                 
-                // All prompts confirmed - proceed with close/shutdown
-                if (msg == WM_QUERYENDSESSION) {
-                    return TRUE; // Allow Windows to shutdown
-                } else {
-                    DestroyWindow(hwnd);
-                    return 0;
-                }
+                DestroyWindow(hwnd);
+                
+                // Return value after DestroyWindow
+                return (msg == WM_QUERYENDSESSION) ? TRUE : 0;
             }
             
         case WM_ENDSESSION:
