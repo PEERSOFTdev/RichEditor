@@ -860,6 +860,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // WM_QUERYENDSESSION: Windows asking permission to shutdown (return TRUE/FALSE)
             // WM_CLOSE: User/app requesting to close window (return 0 to cancel, DestroyWindow to proceed)
             {
+                // For WM_QUERYENDSESSION, tell Windows we're waiting for user input
+                // This prevents the "app is blocking shutdown" dialog during prompts
+                if (msg == WM_QUERYENDSESSION) {
+                    WCHAR szReason[256];
+                    LoadStringResource(IDS_SAVE_CHANGES_PROMPT, szReason, 256);
+                    ShutdownBlockReasonCreate(hwnd, szReason);
+                }
+                
                 // Check if REPL is active and prompt user
                 if (g_bREPLMode) {
                     WCHAR szPrompt[512], szTitle[128];
@@ -867,9 +875,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     LoadStringResource(IDS_CONFIRM, szTitle, 128);
                     
                     int result = MessageBox(hwnd, szPrompt, szTitle, 
-                                           MB_YESNO | MB_ICONQUESTION);
+                                           MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
                     if (result != IDYES) {
                         // User wants to keep REPL running
+                        if (msg == WM_QUERYENDSESSION) {
+                            ShutdownBlockReasonDestroy(hwnd);
+                        }
                         return (msg == WM_QUERYENDSESSION) ? FALSE : 0;
                     }
                     // User confirmed - exit REPL immediately (intentional)
@@ -880,7 +891,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // Check for unsaved changes
                 if (!PromptSaveChanges()) {
                     // User cancelled save prompt
+                    if (msg == WM_QUERYENDSESSION) {
+                        ShutdownBlockReasonDestroy(hwnd);
+                    }
                     return (msg == WM_QUERYENDSESSION) ? FALSE : 0;
+                }
+                
+                // Clear shutdown block reason before proceeding
+                if (msg == WM_QUERYENDSESSION) {
+                    ShutdownBlockReasonDestroy(hwnd);
                 }
                 
                 // All prompts confirmed - proceed with close/shutdown
