@@ -897,13 +897,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // wParam: TRUE if session is ending, FALSE if shutdown was cancelled by another app
             // lParam: shutdown reason flags
             if (wParam) {
-                // Session is ending - perform final cleanup if needed
+                // Session is ending - perform final cleanup and close the window
                 // Note: Keep this minimal, Windows expects quick response
                 if (g_bREPLMode) {
                     g_bREPLIntentionalExit = TRUE;
                     ExitREPLMode();
                 }
+                // Close the editor window now that shutdown is confirmed
+                DestroyWindow(hwnd);
             }
+            // If wParam is FALSE, another app blocked shutdown - stay open
             return 0;
             
         case WM_REPL_OUTPUT:
