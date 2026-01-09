@@ -2395,6 +2395,15 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     }
     
     g_bModified = FALSE;
+    
+    // Clear resume file state when loading a new file
+    if (g_bIsResumedFile) {
+        DeleteResumeFile(g_szResumeFilePath);
+        g_bIsResumedFile = FALSE;
+        g_szResumeFilePath[0] = L'\0';
+        g_szOriginalFilePath[0] = L'\0';
+    }
+    
     UpdateTitle();
     UpdateStatusBar();
     
