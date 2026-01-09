@@ -134,4 +134,7 @@
 #define IDS_STATUS_FILTER_NONE          2086
 #define IDS_INFORMATION                 2088
 
+// Resume file strings (Phase 2.6)
+#define IDS_RESUMED                     2089
+
 #endif // RESOURCE_H

@@ -302,6 +302,115 @@ ContextMenu=0
 - **Process won't start**: Check command-line arguments and permissions
 - **Can't recall prompt**: Press Enter at document end (safety feature)
 
+### Phase 2.6 (Complete)
+
+**Session Resume (Automatic Recovery):**
+- Windows 11 Notepad-style automatic session recovery
+- Automatically saves unsaved work during system shutdowns
+- Recovers content on next application startup
+- Works for both untitled documents and saved files with unsaved changes
+- Title bar shows `[Resumed]` indicator (localized: English/Czech) for recovered files
+
+**How It Works:**
+1. **During Windows Shutdown**:
+   - All unsaved changes automatically saved to temporary resume file
+   - No prompts or dialogs - seamless background operation
+   - Resume file stored in `%TEMP%\RichEditor\` directory
+   - Original files remain untouched until you explicitly save
+   
+2. **On Next Startup**:
+   - Editor automatically detects and loads resume file
+   - Title bar shows `*Untitled [Resumed] - RichEditor` or `*filename.txt [Resumed] - RichEditor`
+   - Document marked as modified (asterisk shown)
+   - You can continue editing where you left off
+   
+3. **After Recovery**:
+   - **Save (Ctrl+S)**: For untitled files, opens "Save As" dialog
+   - **Save (Ctrl+S)**: For saved files, prompts whether to save to original location
+   - Resume file automatically deleted after successful save
+   - Regular autosave continues working as normal
+
+**Optional Auto-Save on Close:**
+- INI setting: `AutoSaveUntitledOnClose=0` (default: off)
+- When enabled (`=1`): Untitled files auto-save to resume file on normal close (no prompt)
+- When disabled (`=0`): Traditional "Save changes?" prompt shown
+- Only applies to **untitled** files (saved files always prompt)
+- Perfect for note-taking workflow where you never lose content
+
+**Resume File Management:**
+- Resume files reused across sessions (same file updated, not recreated)
+- Format: `Untitled_YYYYMMDD_HHMMSS_resume.txt` (for untitled files)
+- Format: `filename_resume.ext` (for saved files with changes)
+- Automatic cleanup when you explicitly save or close without saving
+- Windows temp cleanup eventually removes old resume files
+- One resume file per document session
+
+**Multi-Instance Behavior:**
+- First instance opened recovers the resume file
+- Second instance starts with blank document
+- No conflicts or confusion between instances
+- Each instance maintains independent state
+
+**Shutdown Handling (Microsoft Guidelines):**
+- No prompts during system shutdown (`WM_QUERYENDSESSION`)
+- Resume file only registered if shutdown completes (`WM_ENDSESSION`)
+- If shutdown cancelled, resume file cleaned up automatically
+- REPL mode exits silently during shutdown
+- Fast, non-blocking shutdown behavior
+
+**Technical Details:**
+- Resume files stored as UTF-8 without BOM (consistent with RichEditor format)
+- INI file tracks resume file path in `[Resume]` section (cleared after recovery)
+- Uses accurate Unicode text extraction (`EM_GETTEXTLENGTHEX`) for emoji support
+- Buffer overflow protection for very long filenames/paths
+- Error handling for disk full, permission denied, etc.
+- One-time recovery semantics (resume file cleared after loading)
+
+**User Experience:**
+- Transparent operation - works automatically, no configuration needed
+- Clear visual indicator (`[Resumed]`) when working with recovered content
+- Prompts only when necessary (save location for resumed files)
+- Never lose work due to unexpected shutdown or system restart
+- Compatible with Windows Update restarts and power management
+
+**Configuration:**
+```ini
+[Settings]
+AutoSaveUntitledOnClose=0     ; 1=auto-save untitled files on close (no prompt), 0=prompt as usual (default: 0)
+
+[Resume]
+ResumeFile=C:\Users\...\AppData\Local\Temp\RichEditor\Untitled_20260109_230000_resume.txt
+OriginalPath=                 ; Empty for untitled, or original file path for saved files
+```
+
+**Common Scenarios:**
+
+1. **Power outage while editing**:
+   - Next boot: Editor opens with `*Untitled [Resumed]`, content preserved ✅
+
+2. **Windows Update restart overnight**:
+   - Next morning: All unsaved work automatically recovered ✅
+
+3. **Note-taking mode** (`AutoSaveUntitledOnClose=1`):
+   - Close editor anytime, no prompts
+   - Next open: Resume exactly where you left off ✅
+
+4. **Working on saved file**:
+   - Make changes, shutdown happens
+   - Next start: Changes recovered, original file untouched
+   - Save prompts: "Save to original location?" ✅
+
+5. **Shutdown cancelled by another app**:
+   - Continue working normally
+   - No stale resume file registered ✅
+
+**Limitations:**
+- Multiple instances during shutdown: Only last one writes resume file
+  - Acceptable: Windows temp cleanup handles orphaned files
+  - Most users run single instance
+- Resume file visible in `%TEMP%\RichEditor\` until explicitly saved
+  - This is by design: serves as backup until you save
+
 ### Future Phases (Ideas)
 - Find/Replace functionality
 - Font selection dialog

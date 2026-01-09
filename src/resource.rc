@@ -93,8 +93,8 @@ END
 
 // Version Information
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     2,1,0,0
-PRODUCTVERSION  2,1,0,0
+FILEVERSION     2,6,0,0
+PRODUCTVERSION  2,6,0,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
     FILEFLAGS   VS_FF_DEBUG
@@ -111,24 +111,24 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lightweight Text Editor"
-            VALUE "FileVersion",      "2.1.0.0"
+            VALUE "FileVersion",      "2.6.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "2.1.0 (URL Autodetection)"
+            VALUE "ProductVersion",   "2.6.0 (Session Resume)"
             VALUE "Comments",         "Accessible text editor with RichEdit 4.1 control, autosave, word wrap, and filter support. Built with MinGW-w64."
         END
         BLOCK "040504B0"  // Czech, Unicode
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lehký textový editor"
-            VALUE "FileVersion",      "2.1.0.0"
+            VALUE "FileVersion",      "2.6.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "2.1.0 (Autodetekce URL)"
+            VALUE "ProductVersion",   "2.6.0 (Obnovení relace)"
             VALUE "Comments",         "Přístupný textový editor s ovládacím prvkem RichEdit 4.1, automatickým ukládáním, zalamováním řádků a podporou filtrů. Vytvořeno pomocí MinGW-w64."
         END
     END
@@ -217,6 +217,7 @@ BEGIN
     IDS_STATUS_FILTER            "Filter"
     IDS_STATUS_FILTER_NONE       "None"
     IDS_INFORMATION              "Information"
+    IDS_RESUMED                  "Resumed"
 END
 
 // ============================================================================
@@ -385,4 +386,5 @@ BEGIN
     IDS_STATUS_FILTER            "Filtr"
     IDS_STATUS_FILTER_NONE       "Žádný"
     IDS_INFORMATION              "Informace"
+    IDS_RESUMED                  "Obnoveno"
 END

@@ -46,6 +46,12 @@ BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menu
 // Editor behavior settings
 BOOL g_bSelectAfterPaste = FALSE;            // Select pasted text after paste operation (default: off)
 
+// Resume file feature (Phase 2.6)
+WCHAR g_szResumeFilePath[EXTENDED_PATH_MAX] = L"";    // Current resume temp file path
+WCHAR g_szOriginalFilePath[EXTENDED_PATH_MAX] = L""; // Original file path (for resumed files)
+BOOL g_bIsResumedFile = FALSE;                        // TRUE if current file was opened from resume
+BOOL g_bAutoSaveUntitledOnClose = FALSE;              // Auto-save untitled files on close (no prompt)
+
 // Tab settings
 UINT g_nTabSize = 8;                          // Tab size in spaces (default 8)
 
@@ -215,6 +221,21 @@ void AddToMRU(LPCWSTR pszFilePath);
 void UpdateMRUMenu(HWND hwnd);
 void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
 
+// INI file functions
+BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
+int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault);
+BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue);
+
+// Resume file functions (Phase 2.6)
+BOOL GetRichEditorTempDir(WCHAR* pszPath, DWORD dwSize);
+BOOL EnsureRichEditorTempDirExists();
+BOOL GenerateResumeFileName(const WCHAR* pszOriginalPath, WCHAR* pszResumeFile, DWORD dwSize);
+void WriteResumeToINI(const WCHAR* pszResumeFile, const WCHAR* pszOriginalPath);
+BOOL ReadResumeFromINI(WCHAR* pszResumeFile, DWORD dwResumeSize, WCHAR* pszOriginalPath, DWORD dwOriginalSize);
+void ClearResumeFromINI();
+BOOL DeleteResumeFile(const WCHAR* pszResumeFile);
+BOOL SaveToResumeFile();
+
 // REPL filter functions (Phase 2.5)
 void StartREPLFilter(int filterIndex);
 void ExitREPLMode();
@@ -322,8 +343,75 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     ShowWindow(g_hWndMain, nCmdShow);
     UpdateWindow(g_hWndMain);
     
-    // Load file from command line if provided
-    if (szCommandLineFile[0] != L'\0') {
+    // Check for resume file from previous session (before command-line file)
+    WCHAR szResumeFile[EXTENDED_PATH_MAX];
+    WCHAR szOriginalPath[EXTENDED_PATH_MAX];
+    BOOL bHasResumeFile = FALSE;
+    
+    if (ReadResumeFromINI(szResumeFile, EXTENDED_PATH_MAX, 
+                          szOriginalPath, EXTENDED_PATH_MAX)) {
+        // Check if resume file actually exists
+        DWORD dwAttrib = GetFileAttributes(szResumeFile);
+        if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
+            // Open resume file
+            HANDLE hFile = CreateFile(szResumeFile, GENERIC_READ, FILE_SHARE_READ,
+                                      NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (hFile != INVALID_HANDLE_VALUE) {
+                DWORD dwSize = GetFileSize(hFile, NULL);
+                if (dwSize != INVALID_FILE_SIZE && dwSize > 0) {
+                    char* pszUtf8 = (char*)malloc(dwSize + 1);
+                    if (pszUtf8) {
+                        DWORD dwRead;
+                        ReadFile(hFile, pszUtf8, dwSize, &dwRead, NULL);
+                        pszUtf8[dwRead] = '\0';
+                        
+                        // Convert to UTF-16
+                        int nWideLen = MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, NULL, 0);
+                        WCHAR* pszWide = (WCHAR*)malloc(nWideLen * sizeof(WCHAR));
+                        if (pszWide) {
+                            MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, pszWide, nWideLen);
+                            SetWindowText(g_hWndEdit, pszWide);
+                            free(pszWide);
+                        }
+                        free(pszUtf8);
+                        
+                        // Set up resumed file state
+                        if (szOriginalPath[0] != L'\0') {
+                            wcscpy(g_szFileName, szOriginalPath);
+                            const WCHAR* pszFileTitle = wcsrchr(szOriginalPath, L'\\');
+                            if (pszFileTitle) {
+                                wcscpy(g_szFileTitle, pszFileTitle + 1);
+                            } else {
+                                wcscpy(g_szFileTitle, szOriginalPath);
+                            }
+                        } else {
+                            g_szFileName[0] = L'\0';
+                            g_szFileTitle[0] = L'\0';
+                        }
+                        
+                        wcscpy(g_szResumeFilePath, szResumeFile);
+                        wcscpy(g_szOriginalFilePath, szOriginalPath);
+                        g_bIsResumedFile = TRUE;
+                        g_bModified = TRUE;  // Mark as modified
+                        bHasResumeFile = TRUE;
+                        
+                        // Update title bar to show [Resumed] indicator
+                        UpdateTitle(g_hWndMain);
+                        
+                        // DON'T add to MRU list
+                        // DON'T delete resume file yet (keep as backup)
+                    }
+                }
+                CloseHandle(hFile);
+            }
+        }
+        
+        // Clear INI entry (one-time recovery)
+        ClearResumeFromINI();
+    }
+    
+    // Load file from command line if provided (and no resume file was loaded)
+    if (!bHasResumeFile && szCommandLineFile[0] != L'\0') {
         LoadTextFile(szCommandLineFile);
     }
     
@@ -855,19 +943,65 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
             
         case WM_QUERYENDSESSION:
-        case WM_CLOSE:
-            // Unified handler for both normal close and Windows shutdown/logoff
-            // WM_QUERYENDSESSION: Windows asking permission to shutdown (return TRUE/FALSE)
-            // WM_CLOSE: User/app requesting to close window (return 0 to cancel, DestroyWindow to proceed)
+            // Windows is shutting down - save to temp file but DON'T write to INI yet
+            // We'll only write to INI in WM_ENDSESSION if shutdown actually happens
+            // This prevents resume file from being registered if another app cancels shutdown
             {
-                // For WM_QUERYENDSESSION, tell Windows we're waiting for user input
-                // This prevents the "app is blocking shutdown" dialog during prompts
-                if (msg == WM_QUERYENDSESSION) {
-                    WCHAR szReason[256];
-                    LoadStringResource(IDS_SAVE_CHANGES_PROMPT, szReason, 256);
-                    ShutdownBlockReasonCreate(hwnd, szReason);
+                // Exit REPL silently (user wants to shutdown)
+                if (g_bREPLMode) {
+                    g_bREPLIntentionalExit = TRUE;
+                    ExitREPLMode();
                 }
                 
+                // Handle unsaved changes - save to temp file but don't register in INI yet
+                if (g_bModified) {
+                    WCHAR szResumeFile[EXTENDED_PATH_MAX];
+                    
+                    // Generate resume file name
+                    if (GenerateResumeFileName(g_szFileName, szResumeFile, EXTENDED_PATH_MAX)) {
+                        // Get text from editor
+                        GETTEXTLENGTHEX gtl;
+                        gtl.flags = GTL_DEFAULT;
+                        gtl.codepage = 1200; // Unicode
+                        LONG nTextLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+                        
+                        if (nTextLen >= 0 && nTextLen < INT_MAX - 1) {
+                            WCHAR* pszText = (WCHAR*)malloc((nTextLen + 1) * sizeof(WCHAR));
+                            if (pszText) {
+                                GetWindowText(g_hWndEdit, pszText, nTextLen + 1);
+                                
+                                // Save to temp file (UTF-8 without BOM)
+                                HANDLE hFile = CreateFile(szResumeFile, GENERIC_WRITE, 0, NULL,
+                                                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                                if (hFile != INVALID_HANDLE_VALUE) {
+                                    // Convert to UTF-8
+                                    int nUtf8Len = WideCharToMultiByte(CP_UTF8, 0, pszText, -1, NULL, 0, NULL, NULL);
+                                    char* pszUtf8 = (char*)malloc(nUtf8Len);
+                                    if (pszUtf8) {
+                                        WideCharToMultiByte(CP_UTF8, 0, pszText, -1, pszUtf8, nUtf8Len, NULL, NULL);
+                                        
+                                        DWORD dwWritten;
+                                        WriteFile(hFile, pszUtf8, nUtf8Len - 1, &dwWritten, NULL);
+                                        free(pszUtf8);
+                                    }
+                                    CloseHandle(hFile);
+                                    
+                                    // Store resume file path (but don't write to INI yet)
+                                    wcscpy(g_szResumeFilePath, szResumeFile);
+                                }
+                                free(pszText);
+                            }
+                        }
+                    }
+                }
+                
+                // Allow Windows to proceed with shutdown
+                return TRUE;
+            }
+            
+        case WM_CLOSE:
+            // Normal close - behavior depends on AutoSaveUntitledOnClose setting
+            {
                 // Check if REPL is active and prompt user
                 if (g_bREPLMode) {
                     WCHAR szPrompt[512], szTitle[128];
@@ -875,55 +1009,76 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     LoadStringResource(IDS_CONFIRM, szTitle, 128);
                     
                     int result = MessageBox(hwnd, szPrompt, szTitle, 
-                                           MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
+                                           MB_YESNO | MB_ICONQUESTION);
                     if (result != IDYES) {
-                        // User wants to keep REPL running
-                        if (msg == WM_QUERYENDSESSION) {
-                            ShutdownBlockReasonDestroy(hwnd);
-                        }
-                        return (msg == WM_QUERYENDSESSION) ? FALSE : 0;
+                        return 0; // Cancel close
                     }
-                    // User confirmed - exit REPL immediately (intentional)
                     g_bREPLIntentionalExit = TRUE;
                     ExitREPLMode();
                 }
                 
-                // Check for unsaved changes
-                if (!PromptSaveChanges()) {
-                    // User cancelled save prompt
-                    if (msg == WM_QUERYENDSESSION) {
-                        ShutdownBlockReasonDestroy(hwnd);
+                // Handle unsaved changes
+                if (g_bModified) {
+                    BOOL isUntitled = (g_szFileName[0] == L'\0');
+                    
+                    if (g_bAutoSaveUntitledOnClose && isUntitled) {
+                        // Modern mode - auto-save untitled files only (no prompt)
+                        if (!SaveToResumeFile()) {
+                            // Error already shown - ask if user wants to close anyway
+                            WCHAR szPrompt[256];
+                            LoadStringResource(IDS_ERROR, szPrompt, 256);
+                            int result = MessageBox(hwnd,
+                                L"Failed to save session. Close without saving?",
+                                szPrompt, MB_YESNO | MB_ICONWARNING);
+                            if (result != IDYES) {
+                                return 0;
+                            }
+                        }
+                    } else {
+                        // Traditional mode - prompt user
+                        if (!PromptSaveChanges()) {
+                            // User cancelled or chose "No" - clean up resume file if exists
+                            if (g_bIsResumedFile && g_szResumeFilePath[0] != L'\0') {
+                                DeleteResumeFile(g_szResumeFilePath);
+                                g_bIsResumedFile = FALSE;
+                                g_szResumeFilePath[0] = L'\0';
+                                g_szOriginalFilePath[0] = L'\0';
+                            }
+                            return 0; // User cancelled
+                        }
                     }
-                    return (msg == WM_QUERYENDSESSION) ? FALSE : 0;
                 }
                 
-                // All prompts confirmed - close the window now
-                // (Both WM_QUERYENDSESSION and WM_CLOSE should close immediately after user confirms)
-                if (msg == WM_QUERYENDSESSION) {
-                    ShutdownBlockReasonDestroy(hwnd);
+                // Clean up resume file if user closed without saving a resumed file
+                if (g_bIsResumedFile && g_szResumeFilePath[0] != L'\0' && !g_bModified) {
+                    DeleteResumeFile(g_szResumeFilePath);
+                    g_bIsResumedFile = FALSE;
+                    g_szResumeFilePath[0] = L'\0';
+                    g_szOriginalFilePath[0] = L'\0';
                 }
                 
+                // Close the window
                 DestroyWindow(hwnd);
-                
-                // Return value after DestroyWindow
-                return (msg == WM_QUERYENDSESSION) ? TRUE : 0;
+                return 0;
             }
             
         case WM_ENDSESSION:
-            // Windows is actually shutting down now (only sent if we returned TRUE to WM_QUERYENDSESSION)
-            // wParam: TRUE if session is ending, FALSE if shutdown was cancelled by another app
-            // lParam: shutdown reason flags
+            // Windows is actually shutting down now (or shutdown was cancelled)
             if (wParam) {
-                // Session is ending - perform final cleanup and close the window
-                // Note: Keep this minimal, Windows expects quick response
-                if (g_bREPLMode) {
-                    g_bREPLIntentionalExit = TRUE;
-                    ExitREPLMode();
+                // Session is actually ending - NOW write resume file to INI
+                if (g_szResumeFilePath[0] != L'\0') {
+                    WriteResumeToINI(g_szResumeFilePath, 
+                                   g_szFileName[0] ? g_szFileName : L"");
                 }
-                // Close the editor window now that shutdown is confirmed
                 DestroyWindow(hwnd);
+            } else {
+                // Shutdown was cancelled by another application
+                // Delete the temp resume file we created in WM_QUERYENDSESSION
+                if (g_szResumeFilePath[0] != L'\0') {
+                    DeleteResumeFile(g_szResumeFilePath);
+                    g_szResumeFilePath[0] = L'\0';
+                }
             }
-            // If wParam is FALSE, another app blocked shutdown - stay open
             return 0;
             
         case WM_REPL_OUTPUT:
@@ -1085,6 +1240,288 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     
     // Call original window procedure for all other messages
     return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+}
+
+//============================================================================
+// Resume File Management Functions (Phase 2.6)
+//============================================================================
+
+//============================================================================
+// GetRichEditorTempDir - Get temp directory path for RichEditor
+// Returns: TRUE on success, FALSE on failure
+//============================================================================
+BOOL GetRichEditorTempDir(WCHAR* pszPath, DWORD dwSize)
+{
+    WCHAR szTempPath[MAX_PATH];
+    
+    // Get Windows temp directory
+    if (GetTempPath(MAX_PATH, szTempPath) == 0) {
+        return FALSE;
+    }
+    
+    // Append RichEditor subdirectory
+    _snwprintf(pszPath, dwSize, L"%sRichEditor\\", szTempPath);
+    pszPath[dwSize - 1] = L'\0';
+    
+    return TRUE;
+}
+
+//============================================================================
+// EnsureRichEditorTempDirExists - Create temp directory if needed
+// Returns: TRUE on success, FALSE on failure
+//============================================================================
+BOOL EnsureRichEditorTempDirExists()
+{
+    WCHAR szTempDir[MAX_PATH];
+    
+    if (!GetRichEditorTempDir(szTempDir, MAX_PATH)) {
+        return FALSE;
+    }
+    
+    // Check if directory exists
+    DWORD dwAttrib = GetFileAttributes(szTempDir);
+    if (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+        return TRUE;  // Already exists
+    }
+    
+    // Create directory
+    if (!CreateDirectory(szTempDir, NULL)) {
+        DWORD dwError = GetLastError();
+        if (dwError != ERROR_ALREADY_EXISTS) {
+            return FALSE;
+        }
+    }
+    
+    return TRUE;
+}
+
+//============================================================================
+// GenerateResumeFileName - Create unique resume file name
+// pszOriginalPath: Original file path (or empty for untitled)
+// pszResumeFile: Buffer to receive resume file path
+// dwSize: Buffer size
+// Returns: TRUE on success, FALSE on failure
+//============================================================================
+BOOL GenerateResumeFileName(const WCHAR* pszOriginalPath, WCHAR* pszResumeFile, DWORD dwSize)
+{
+    WCHAR szTempDir[MAX_PATH];
+    WCHAR szBaseName[MAX_PATH];
+    WCHAR szExt[MAX_PATH];
+    
+    // Get temp directory
+    if (!GetRichEditorTempDir(szTempDir, MAX_PATH)) {
+        return FALSE;
+    }
+    
+    // Ensure directory exists
+    if (!EnsureRichEditorTempDirExists()) {
+        // Show error message
+        WCHAR szError[512];
+        LoadStringResource(IDS_ERROR, szError, 512);
+        MessageBox(g_hWndMain, 
+                   L"Cannot create temporary directory for session recovery.\n"
+                   L"Unsaved changes will be lost on shutdown.",
+                   szError, MB_OK | MB_ICONERROR);
+        return FALSE;
+    }
+    
+    // Determine base name and extension
+    if (pszOriginalPath && pszOriginalPath[0] != L'\0') {
+        // Saved file - extract basename and extension
+        const WCHAR* pszFileName = wcsrchr(pszOriginalPath, L'\\');
+        if (!pszFileName) {
+            pszFileName = wcsrchr(pszOriginalPath, L'/');
+        }
+        pszFileName = pszFileName ? (pszFileName + 1) : pszOriginalPath;
+        
+        // Split into name and extension
+        const WCHAR* pszDot = wcsrchr(pszFileName, L'.');
+        if (pszDot) {
+            size_t nameLen = pszDot - pszFileName;
+            if (nameLen >= MAX_PATH) nameLen = MAX_PATH - 1;
+            wcsncpy(szBaseName, pszFileName, nameLen);
+            szBaseName[nameLen] = L'\0';
+            wcscpy(szExt, pszDot);
+        } else {
+            wcscpy(szBaseName, pszFileName);
+            wcscpy(szExt, L".txt");
+        }
+    } else {
+        // Untitled file - use timestamp for uniqueness
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        _snwprintf(szBaseName, MAX_PATH, L"Untitled_%04d%02d%02d_%02d%02d%02d",
+                   st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        wcscpy(szExt, L".txt");
+    }
+    
+    // Check if path would fit in buffer (avoid truncation)
+    size_t requiredLen = wcslen(szTempDir) + wcslen(szBaseName) + 
+                         wcslen(L"_resume") + wcslen(szExt) + 1;
+    if (requiredLen > dwSize) {
+        WCHAR szError[512];
+        LoadStringResource(IDS_ERROR, szError, 512);
+        MessageBox(g_hWndMain,
+                   L"Resume filename too long. Cannot save session.",
+                   szError, MB_OK | MB_ICONERROR);
+        return FALSE;
+    }
+    
+    // Construct full resume file path (safe - we checked the length)
+    _snwprintf(pszResumeFile, dwSize, L"%s%s_resume%s", szTempDir, szBaseName, szExt);
+    pszResumeFile[dwSize - 1] = L'\0';
+    
+    return TRUE;
+}
+
+//============================================================================
+// WriteResumeToINI - Store resume file info in INI
+//============================================================================
+void WriteResumeToINI(const WCHAR* pszResumeFile, const WCHAR* pszOriginalPath)
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    WCHAR* pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    WriteINIValue(szIniPath, L"Resume", L"ResumeFile", pszResumeFile);
+    WriteINIValue(szIniPath, L"Resume", L"OriginalPath", 
+                  pszOriginalPath ? pszOriginalPath : L"");
+}
+
+//============================================================================
+// ReadResumeFromINI - Read resume file info from INI
+// Returns: TRUE if resume file exists, FALSE otherwise
+//============================================================================
+BOOL ReadResumeFromINI(WCHAR* pszResumeFile, DWORD dwResumeSize,
+                       WCHAR* pszOriginalPath, DWORD dwOriginalSize)
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    WCHAR* pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    ReadINIValue(szIniPath, L"Resume", L"ResumeFile", pszResumeFile, dwResumeSize, L"");
+    ReadINIValue(szIniPath, L"Resume", L"OriginalPath", pszOriginalPath, dwOriginalSize, L"");
+    
+    return (pszResumeFile[0] != L'\0');
+}
+
+//============================================================================
+// ClearResumeFromINI - Remove resume section from INI
+//============================================================================
+void ClearResumeFromINI()
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    WCHAR* pszExt = wcsrchr(szIniPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+    
+    WriteINIValue(szIniPath, L"Resume", L"ResumeFile", L"");
+    WriteINIValue(szIniPath, L"Resume", L"OriginalPath", L"");
+}
+
+//============================================================================
+// DeleteResumeFile - Delete temp resume file
+// Returns: TRUE if file was deleted or didn't exist, FALSE on error
+//============================================================================
+BOOL DeleteResumeFile(const WCHAR* pszResumeFile)
+{
+    if (pszResumeFile && pszResumeFile[0] != L'\0') {
+        return DeleteFile(pszResumeFile);
+    }
+    return TRUE;  // Nothing to delete
+}
+
+//============================================================================
+// SaveToResumeFile - Save current document to resume file
+// Returns: TRUE on success, FALSE on failure
+//============================================================================
+BOOL SaveToResumeFile()
+{
+    WCHAR szResumeFile[EXTENDED_PATH_MAX];
+    
+    // If this is already a resumed file, reuse the existing resume file path
+    // This prevents creating a new file every time for untitled documents
+    if (g_bIsResumedFile && g_szResumeFilePath[0] != L'\0') {
+        wcscpy(szResumeFile, g_szResumeFilePath);
+    } else {
+        // Generate new resume file name
+        if (!GenerateResumeFileName(g_szFileName, szResumeFile, EXTENDED_PATH_MAX)) {
+            return FALSE;  // Error already shown to user
+        }
+    }
+    
+    // Get text from editor using accurate method
+    GETTEXTLENGTHEX gtl;
+    gtl.flags = GTL_DEFAULT;
+    gtl.codepage = 1200; // Unicode
+    LONG nTextLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    
+    if (nTextLen < 0 || nTextLen > INT_MAX - 1) {
+        return FALSE;  // Invalid length
+    }
+    
+    WCHAR* pszText = (WCHAR*)malloc((nTextLen + 1) * sizeof(WCHAR));
+    if (!pszText) {
+        return FALSE;
+    }
+    
+    GetWindowText(g_hWndEdit, pszText, nTextLen + 1);
+    
+    // Save to temp file (UTF-8 without BOM)
+    HANDLE hFile = CreateFile(szResumeFile, GENERIC_WRITE, 0, NULL,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        free(pszText);
+        return FALSE;
+    }
+    
+    // Convert to UTF-8
+    int nUtf8Len = WideCharToMultiByte(CP_UTF8, 0, pszText, -1, NULL, 0, NULL, NULL);
+    char* pszUtf8 = (char*)malloc(nUtf8Len);
+    BOOL bSuccess = FALSE;
+    
+    if (pszUtf8) {
+        WideCharToMultiByte(CP_UTF8, 0, pszText, -1, pszUtf8, nUtf8Len, NULL, NULL);
+        
+        DWORD dwWritten;
+        BOOL bWriteSuccess = WriteFile(hFile, pszUtf8, nUtf8Len - 1, &dwWritten, NULL);
+        
+        if (bWriteSuccess && dwWritten == (DWORD)(nUtf8Len - 1)) {
+            bSuccess = TRUE;
+        } else {
+            // Write failed - show error
+            WCHAR szError[512];
+            LoadStringResource(IDS_ERROR, szError, 512);
+            MessageBox(g_hWndMain,
+                       L"Failed to write resume file. Disk full?",
+                       szError, MB_OK | MB_ICONERROR);
+        }
+        free(pszUtf8);
+    }
+    
+    CloseHandle(hFile);
+    free(pszText);
+    
+    if (!bSuccess) {
+        DeleteFile(szResumeFile);  // Clean up partial file
+        return FALSE;
+    }
+    
+    // Store resume file path and original path in INI
+    WriteResumeToINI(szResumeFile, g_szFileName[0] ? g_szFileName : L"");
+    
+    // Remember resume file path globally
+    wcscpy(g_szResumeFilePath, szResumeFile);
+    
+    return TRUE;
 }
 
 //============================================================================
@@ -1728,8 +2165,9 @@ void UpdateStatusBar()
 //============================================================================
 void UpdateTitle(HWND hwnd)
 {
-    WCHAR szTitle[MAX_PATH + 100];  // Increased size for [Interactive Mode]
+    WCHAR szTitle[MAX_PATH + 100];  // Increased size for [Interactive Mode] and [Obnoveno]
     WCHAR szUntitled[64];
+    WCHAR szResumed[32];
     
     // Use provided hwnd or fall back to g_hWndMain
     HWND targetWnd = hwnd ? hwnd : g_hWndMain;
@@ -1737,18 +2175,30 @@ void UpdateTitle(HWND hwnd)
     
     LoadStringResource(IDS_UNTITLED, szUntitled, 64);
     
+    // Build base title
     if (g_szFileTitle[0]) {
-        _snwprintf(szTitle, MAX_PATH + 100, L"%s%s - RichEditor",
+        _snwprintf(szTitle, MAX_PATH + 100, L"%s%s",
                    g_bModified ? L"*" : L"", g_szFileTitle);
     } else {
-        _snwprintf(szTitle, MAX_PATH + 100, L"%s%s - RichEditor",
+        _snwprintf(szTitle, MAX_PATH + 100, L"%s%s",
                    g_bModified ? L"*" : L"", szUntitled);
+    }
+    
+    // Append [Obnoveno] indicator if this is a resumed file
+    if (g_bIsResumedFile) {
+        LoadStringResource(IDS_RESUMED, szResumed, 32);
+        wcscat(szTitle, L" [");
+        wcscat(szTitle, szResumed);
+        wcscat(szTitle, L"]");
     }
     
     // Append [Interactive Mode] indicator if in REPL mode
     if (g_bREPLMode) {
         wcscat(szTitle, L" [Interactive Mode]");
     }
+    
+    // Append application name
+    wcscat(szTitle, L" - RichEditor");
     
     SetWindowText(targetWnd, szTitle);
 }
@@ -2514,11 +2964,48 @@ void FileOpen()
 //============================================================================
 BOOL FileSave()
 {
+    // If this is a resumed untitled file, force "Save As" dialog
+    if (g_bIsResumedFile && g_szOriginalFilePath[0] == L'\0') {
+        return FileSaveAs();
+    }
+    
+    // If this is a resumed saved file, ask user where to save
+    if (g_bIsResumedFile && g_szOriginalFilePath[0] != L'\0') {
+        WCHAR szPrompt[512];
+        _snwprintf(szPrompt, 512,
+            L"This file was recovered from a previous session.\n\n"
+            L"Original location: %s\n\n"
+            L"Save to original location?",
+            g_szOriginalFilePath);
+        
+        int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",
+                               MB_YESNOCANCEL | MB_ICONQUESTION);
+        
+        if (result == IDCANCEL) {
+            return FALSE;
+        } else if (result == IDNO) {
+            return FileSaveAs();  // User wants to choose new location
+        } else {
+            // IDYES - save to original location
+            wcscpy(g_szFileName, g_szOriginalFilePath);
+        }
+    }
+    
     if (g_szFileName[0] == L'\0') {
         return FileSaveAs();
     }
     
-    return SaveTextFile(g_szFileName);
+    BOOL bSuccess = SaveTextFile(g_szFileName);
+    
+    // After successful save, clean up resume file if this was a resumed file
+    if (bSuccess && g_bIsResumedFile) {
+        DeleteResumeFile(g_szResumeFilePath);
+        g_bIsResumedFile = FALSE;
+        g_szResumeFilePath[0] = L'\0';
+        g_szOriginalFilePath[0] = L'\0';
+    }
+    
+    return bSuccess;
 }
 
 //============================================================================
@@ -2569,6 +3056,14 @@ BOOL FileSaveAs()
     // Show dialog
     if (GetSaveFileName(&ofn)) {
         if (SaveTextFile(szFile)) {
+            // After successful save, clean up resume file if this was a resumed file
+            if (g_bIsResumedFile) {
+                DeleteResumeFile(g_szResumeFilePath);
+                g_bIsResumedFile = FALSE;
+                g_szResumeFilePath[0] = L'\0';
+                g_szOriginalFilePath[0] = L'\0';
+            }
+            
             SetFocus(g_hWndEdit);
             return TRUE;
         }
@@ -3276,6 +3771,7 @@ void CreateDefaultINI()
         "\r\n"
         "; Editor behavior settings\r\n"
         "SelectAfterPaste=0            ; 1=select pasted text, 0=cursor after paste (default: 0)\r\n"
+        "AutoSaveUntitledOnClose=0     ; 1=auto-save untitled files on close (no prompt), 0=prompt as usual (default: 0)\r\n"
         "\r\n"
         "; Display settings\r\n"
         "TabSize=8                     ; Tab size in spaces for column calculation (default: 8)\r\n"
@@ -3515,6 +4011,15 @@ void LoadSettings()
         g_bSelectAfterPaste = FALSE;
     } else {
         g_bSelectAfterPaste = ReadINIInt(szIniPath, L"Settings", L"SelectAfterPaste", 0);
+    }
+    
+    // AutoSaveUntitledOnClose
+    ReadINIValue(szIniPath, L"Settings", L"AutoSaveUntitledOnClose", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"AutoSaveUntitledOnClose", L"0");
+        g_bAutoSaveUntitledOnClose = FALSE;
+    } else {
+        g_bAutoSaveUntitledOnClose = ReadINIInt(szIniPath, L"Settings", L"AutoSaveUntitledOnClose", 0);
     }
     
     // TabSize
