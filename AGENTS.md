@@ -8,7 +8,7 @@ This document provides context and guidelines for AI agents working on the RichE
 
 **Key Design Principles:**
 - Accessibility first (screen reader support is mandatory)
-- Single-file architecture (main.cpp is ~3,900 lines)
+- Single-file architecture (main.cpp is ~4,500 lines)
 - Universal binary (English + Czech in one executable)
 - UTF-8 without BOM for all text files
 - UNC path support throughout
@@ -21,7 +21,7 @@ This document provides context and guidelines for AI agents working on the RichE
 ```
 RichEditor/
 ├── src/
-│   ├── main.cpp          # Main application (~3,900 lines)
+│   ├── main.cpp          # Main application (~4,500 lines)
 │   ├── resource.h        # Resource IDs
 │   └── resource.rc       # Windows resources (menus, dialogs, strings)
 ├── Makefile              # Build configuration
@@ -73,6 +73,12 @@ BOOL g_bWordWrap        // Word wrap state
 BOOL g_bShowMenuDescriptions  // Show filter descriptions in menus
 BOOL g_bNoMRU           // TRUE when /nomru command-line option specified
 BOOL g_bPromptingForSave // TRUE when showing save prompt (prevents autosave race)
+
+// Session Resume (Phase 2.6)
+WCHAR g_szResumeFilePath[]      // Current resume temp file path
+WCHAR g_szOriginalFilePath[]    // Original file path (for resumed files)
+BOOL g_bIsResumedFile           // TRUE if current file was opened from resume
+BOOL g_bAutoSaveUntitledOnClose // Auto-save untitled files on close (no prompt)
 
 // Filter system
 FilterInfo g_Filters[MAX_FILTERS]  // Array of filter configurations
@@ -132,6 +138,7 @@ ShowMenuDescriptions=1        ; 1=show descriptions (accessible), 0=names only
 AutosaveEnabled=1             ; 1=enabled, 0=disabled
 AutosaveIntervalMinutes=1     ; Interval in minutes, 0=disabled
 AutosaveOnFocusLoss=1         ; 1=save when losing focus, 0=don't
+AutoSaveUntitledOnClose=0     ; 1=auto-save untitled on close, 0=prompt (Phase 2.6)
 CurrentFilter=FilterName      ; Last selected filter (auto-saved)
 ```
 
@@ -371,6 +378,353 @@ Functions in `main.cpp` are organized by category:
 - **Important caveat**: Typing any character replaces the selected text (standard Windows behavior)
   - Users may accidentally overwrite pasted content if unaware of selection
   - Document this clearly when describing the feature
+
+## Phase 2.6: Session Resume Implementation (Important Patterns)
+
+### Overview
+
+Phase 2.6 implements Windows 11 Notepad-style automatic session recovery. The system saves unsaved work during Windows shutdowns and recovers it on next startup with a `[Resumed]` title indicator.
+
+**Key Design Goals:**
+- Zero user interaction required for recovery
+- One-time recovery semantics (no stale resume file entries)
+- Resume file reuse (prevent %TEMP% pollution)
+- Multi-instance safe (no locks needed)
+- Handle shutdown cancellations gracefully
+
+### Resume File System Architecture
+
+**Storage Location:**
+- Resume files: `%TEMP%\RichEditor\` directory
+- Created on first use via `EnsureRichEditorTempDirExists()`
+- Tracked in INI: `[Resume]` section
+
+**File Naming Convention:**
+```
+Untitled files:    Untitled_YYYYMMDD_HHMMSS_resume.txt
+Named files:       originalname_resume.ext
+```
+
+**File Format:**
+- UTF-8 without BOM (consistent with RichEditor standard)
+- Plain text (no metadata, no RTF)
+
+### Critical Pattern: WM_QUERYENDSESSION/WM_ENDSESSION Split
+
+**Problem Solved:** If another application cancels Windows shutdown after we've already registered the resume file in INI, we'll have a stale entry that causes incorrect recovery on next startup.
+
+**Solution:** Two-phase shutdown handling:
+
+```cpp
+case WM_QUERYENDSESSION:
+    // Phase 1: Windows asks "Can I shut down?"
+    if (g_bModified) {
+        // Save content to temp file but DON'T write to INI yet
+        SaveToResumeFile(g_szResumeFilePath, ...);
+        // Resume file path is stored in g_szResumeFilePath
+    }
+    return TRUE;  // Allow shutdown to proceed
+
+case WM_ENDSESSION:
+    // Phase 2: Windows tells us "Shutdown is happening" or "Shutdown cancelled"
+    if (wParam) {
+        // Shutdown actually happening - NOW safe to write to INI
+        WriteResumeToINI(g_szResumeFilePath, g_szFileName, g_bIsResumedFile, ...);
+    } else {
+        // Shutdown was cancelled by another app - cleanup temp file
+        DeleteResumeFile(g_szResumeFilePath);
+        g_szResumeFilePath[0] = L'\0';
+    }
+    return 0;
+```
+
+**Why This Pattern:**
+- WM_QUERYENDSESSION is a **query** - shutdown may still be cancelled
+- WM_ENDSESSION with wParam=TRUE means shutdown **confirmed**
+- WM_ENDSESSION with wParam=FALSE means shutdown **cancelled**
+- Only write to INI when confirmed to prevent stale entries
+
+**Implementation Location:** WndProc around lines 620-680
+
+### Critical Pattern: Resume File Reuse
+
+**Problem Solved:** Creating new timestamped files every close would orphan old resume files in %TEMP%, eventually filling the directory with hundreds of `*_resume.txt` files.
+
+**Solution:** Reuse the same resume file across sessions:
+
+```cpp
+BOOL SaveToResumeFile(WCHAR *szResumeFile, size_t cchResumeFile) {
+    if (g_bIsResumedFile && g_szResumeFilePath[0] != L'\0') {
+        // REUSE existing resume file path
+        wcscpy(szResumeFile, g_szResumeFilePath);
+    } else {
+        // Generate new filename only if this isn't already a resumed file
+        GenerateResumeFileName(szResumeFile, cchResumeFile, g_szFileName);
+    }
+    
+    // Write content to the file (overwrites if exists)
+    // ...
+}
+```
+
+**Lifecycle:**
+1. First shutdown: Create `filename_resume.ext`
+2. Startup: Load from `filename_resume.ext`, set `g_bIsResumedFile = TRUE`, store path in `g_szResumeFilePath`
+3. Second shutdown: Reuse same `filename_resume.ext` (overwrite content)
+4. Repeat until user explicitly saves via File → Save
+5. On explicit save: Call `DeleteResumeFile()` to cleanup
+
+**Result:** One resume file per document, automatically cleaned up on explicit save.
+
+**Implementation Location:** SaveToResumeFile() around line 1443
+
+### Critical Pattern: Clear-on-Read for Multi-Instance
+
+**Problem Solved:** Multiple RichEditor instances might start simultaneously during Windows login. How do we ensure only one instance gets the resume file without complex locking?
+
+**Solution:** Clear INI entry immediately after reading:
+
+```cpp
+// In WinMain startup sequence:
+if (ReadResumeFromINI(szIniPath, szResumeFile, szOriginalFile, &bWasResumed)) {
+    // Got resume info - load the file
+    LoadResumeFile(szResumeFile, ...);
+    
+    // IMMEDIATELY clear the INI entry (atomic operation)
+    ClearResumeFromINI(szIniPath);
+    
+    // Set global state
+    g_bIsResumedFile = TRUE;
+    // ...
+}
+```
+
+**Why This Works:**
+- First instance to call `ReadResumeFromINI()` gets the data
+- That instance immediately clears the INI entry
+- Second instance finds empty `[Resume]` section and starts blank
+- No file locks, no synchronization primitives needed
+- Elegant "first-come-first-served" semantics
+
+**Bonus Behavior:** This was an "emergent behavior" - not originally planned but works perfectly. User loved this pattern.
+
+**Implementation Location:** WinMain around line 225
+
+### Critical Pattern: Cleanup on Explicit Save
+
+**When to Delete Resume File:**
+- User clicks File → Save or File → Save As
+- AutoSave timer triggers (for non-untitled files)
+- Focus loss autosave (for non-untitled files)
+
+**When NOT to Delete:**
+- WM_CLOSE shutdown saves (keep for recovery)
+- AutoSave for untitled files (user hasn't explicitly saved yet)
+
+**Implementation:**
+```cpp
+// In SaveFile() function:
+if (bSuccess) {
+    // ... update g_szFileName, g_bModified, etc ...
+    
+    // Delete resume file after successful explicit save
+    if (g_bIsResumedFile) {
+        DeleteResumeFile(g_szResumeFilePath);
+        g_bIsResumedFile = FALSE;
+        g_szResumeFilePath[0] = L'\0';
+        UpdateTitle();  // Remove [Resumed] indicator
+    }
+}
+```
+
+**Why:** Explicit save means user has chosen a permanent location. Resume file no longer needed.
+
+**Implementation Location:** SaveFile() around line 1670
+
+### Global Variables (Phase 2.6)
+
+```cpp
+WCHAR g_szResumeFilePath[EXTENDED_PATH_MAX];   // Current resume temp file path
+WCHAR g_szOriginalFilePath[EXTENDED_PATH_MAX]; // Original file (for resumed files)
+BOOL g_bIsResumedFile;                          // TRUE if opened from resume
+BOOL g_bAutoSaveUntitledOnClose;                // Setting from INI (default: FALSE)
+```
+
+**Line Numbers:** Global declarations around line 35-50 in main.cpp
+
+### Key Functions
+
+**Resume File Management:**
+- `GetRichEditorTempDir()` - Returns `%TEMP%\RichEditor\` path (line ~1272)
+- `EnsureRichEditorTempDirExists()` - Creates directory if needed (line ~1285)
+- `GenerateResumeFileName()` - Creates unique filenames with overflow protection (line ~1302)
+- `SaveToResumeFile()` - Core save logic with reuse pattern (line ~1443)
+- `DeleteResumeFile()` - Returns BOOL for error checking (line ~1555)
+
+**INI Management:**
+- `WriteResumeToINI()` - Writes `[Resume]` section (line ~1578)
+- `ReadResumeFromINI()` - Reads and returns resume info (line ~1612)
+- `ClearResumeFromINI()` - Atomic clear operation (line ~1641)
+
+**Window Message Handlers:**
+- WM_QUERYENDSESSION - Phase 1 shutdown (line ~620)
+- WM_ENDSESSION - Phase 2 shutdown confirmation/cancellation (line ~651)
+- WM_CLOSE - Updated with `AutoSaveUntitledOnClose` logic (line ~697)
+
+### INI Configuration (Phase 2.6)
+
+```ini
+[Settings]
+AutoSaveUntitledOnClose=0     ; 0=prompt (default), 1=auto-save without prompt
+
+[Resume]
+File=C:\Users\...\Temp\RichEditor\document_resume.txt
+OriginalFile=C:\Documents\document.txt
+WasResumed=1
+```
+
+**Section Lifecycle:**
+- Created by WriteResumeToINI() during WM_ENDSESSION
+- Read once by WinMain on startup
+- Cleared immediately by ClearResumeFromINI() after reading
+- Empty until next shutdown
+
+### Important Implementation Notes
+
+**Buffer Overflow Protection:**
+```cpp
+// In GenerateResumeFileName():
+if (wcslen(szBase) + wcslen(L"_resume") + wcslen(szExt) + 1 > cchResumeFile) {
+    // Truncate base name to fit
+    size_t maxBaseLen = cchResumeFile - wcslen(L"_resume") - wcslen(szExt) - 1;
+    szBase[maxBaseLen] = L'\0';
+}
+```
+
+**Unicode Text Extraction:**
+```cpp
+// Use EM_GETTEXTLENGTHEX for proper Unicode length (not EM_GETLEXTLENGTH)
+GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};  // UTF-16LE
+int nLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+```
+
+**WriteFile Error Handling:**
+```cpp
+if (!WriteFile(hFile, utf8.c_str(), utf8.length(), &dwWritten, NULL)) {
+    CloseHandle(hFile);
+    DeleteFileW(szResumeFilePath);  // Cleanup on failure
+    return FALSE;
+}
+```
+
+**Title Bar Updates:**
+```cpp
+// Always call UpdateTitle() after changing g_bIsResumedFile
+g_bIsResumedFile = TRUE;
+UpdateTitle();  // Shows "filename [Resumed] - RichEditor"
+```
+
+### AutoSaveUntitledOnClose Behavior
+
+**Setting:** `AutoSaveUntitledOnClose=0` (default)
+
+**When 0 (Default - Traditional Behavior):**
+- User closes untitled modified document
+- Prompt: "Save changes to Untitled?" Yes/No/Cancel
+- User must explicitly choose
+
+**When 1 (Auto-Save):**
+- User closes untitled modified document
+- Automatically saved to resume file (no prompt)
+- Recovers on next startup
+
+**Implementation in WM_CLOSE:**
+```cpp
+if (g_bModified) {
+    if (g_szFileName[0] == L'\0' && g_bAutoSaveUntitledOnClose) {
+        // Untitled + auto-save enabled = save to resume without prompt
+        SaveToResumeFile(...);
+        WriteResumeToINI(...);
+    } else {
+        // Named file or auto-save disabled = show prompt
+        int nRes = MessageBox(..., MB_YESNOCANCEL);
+        // ... handle response ...
+    }
+}
+```
+
+**Why Default is OFF:** Traditional editor behavior. Users expect prompts for unsaved work. Auto-save is opt-in.
+
+### Testing Checklist (Phase 2.6)
+
+**Basic Resume:**
+- [ ] Modify untitled file, trigger shutdown, restart → file recovered with [Resumed]
+- [ ] Modify named file, trigger shutdown, restart → file recovered with [Resumed]
+- [ ] Explicitly save resumed file → [Resumed] disappears, resume file deleted
+
+**Shutdown Cancellation:**
+- [ ] Modify file, start shutdown, cancel shutdown → no resume file in INI
+- [ ] Check %TEMP%\RichEditor\ → temp file exists but not registered
+
+**Resume File Reuse:**
+- [ ] Resume file, modify, shutdown again → same resume file reused (check timestamp)
+- [ ] Repeat 5 times → still only one resume file in %TEMP%\RichEditor\
+
+**Multi-Instance:**
+- [ ] Resume file registered, start two instances → first gets resume, second blank
+- [ ] INI checked immediately → [Resume] section empty after first instance reads
+
+**AutoSaveUntitledOnClose:**
+- [ ] Set to 0, close untitled modified → prompt shown
+- [ ] Set to 1, close untitled modified → saved automatically, no prompt
+
+**Edge Cases:**
+- [ ] Unicode filenames with emoji → resume file created correctly
+- [ ] Very long filenames (>200 chars) → truncated safely
+- [ ] UNC paths → resume works correctly
+- [ ] Read-only resume file → error handling works
+
+### Bugs Fixed During Implementation
+
+1. ✅ **WM_QUERYENDSESSION/WM_ENDSESSION race** - Split pattern prevents stale INI entries
+2. ✅ **Buffer overflow in GenerateResumeFileName** - Added truncation logic
+3. ✅ **Unicode length calculation** - Use EM_GETTEXTLENGTHEX not EM_GETLEXTLENGTH
+4. ✅ **WriteFile error handling** - Cleanup temp file on write failure
+5. ✅ **AutoSaveUntitledOnClose scope** - Only applies to untitled files (check `g_szFileName[0] == L'\0'`)
+6. ✅ **Title bar not updating** - Added UpdateTitle() call after loading resume file
+7. ✅ **Resume file proliferation** - Reuse pattern prevents %TEMP% pollution
+8. ✅ **IDS_RESUMED localization** - Added to both LANG_ENGLISH and LANG_CZECH
+
+### String Resources (Phase 2.6)
+
+```cpp
+#define IDS_RESUMED 2089
+```
+
+**Localization:**
+- English: "Resumed"
+- Czech: "Obnoveno"
+
+**Usage in UpdateTitle():**
+```cpp
+if (g_bIsResumedFile) {
+    WCHAR szResumed[32];
+    LoadString(GetModuleHandle(NULL), IDS_RESUMED, szResumed, 32);
+    wcscat(szTitle, L" [");
+    wcscat(szTitle, szResumed);
+    wcscat(szTitle, L"]");
+}
+```
+
+### Important Don'ts (Phase 2.6 Specific)
+
+1. **Never write to INI in WM_QUERYENDSESSION** - Shutdown may be cancelled
+2. **Never create new resume files if g_bIsResumedFile is TRUE** - Reuse existing path
+3. **Never forget to call UpdateTitle() after changing g_bIsResumedFile** - UI won't update
+4. **Never apply AutoSaveUntitledOnClose to named files** - Check `g_szFileName[0] == L'\0'`
+5. **Never use EM_GETLEXTLENGTH for Unicode text** - Use EM_GETTEXTLENGTHEX with GTL_DEFAULT
+6. **Never leave orphaned temp files** - Always cleanup on WriteFile failures
+7. **Never forget to clear INI after reading** - Multi-instance will break
 
 ## Common Tasks
 
@@ -649,7 +1003,7 @@ For questions about this project, refer to:
 
 ---
 
-**Last Updated:** December 2025
-**Project Version:** Phase 2 Complete (Accessibility Features + Command-Line Options)
-**Code Size:** ~3,900 lines (main.cpp)
-**Binary Size:** ~933 KB (static)
+**Last Updated:** January 2026
+**Project Version:** Phase 2.6 Complete (Session Resume)
+**Code Size:** ~4,500 lines (main.cpp)
+**Binary Size:** ~924 KB (static)
