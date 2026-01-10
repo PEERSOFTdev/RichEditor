@@ -362,55 +362,36 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
             // Check if resume file actually exists
             DWORD dwAttrib = GetFileAttributes(szResumeFile);
             if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
-                // Open resume file
-                HANDLE hFile = CreateFile(szResumeFile, GENERIC_READ, FILE_SHARE_READ,
-                                          NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (hFile != INVALID_HANDLE_VALUE) {
-                    DWORD dwSize = GetFileSize(hFile, NULL);
-                    if (dwSize != INVALID_FILE_SIZE && dwSize > 0) {
-                        char* pszUtf8 = (char*)malloc(dwSize + 1);
-                        if (pszUtf8) {
-                            DWORD dwRead;
-                            ReadFile(hFile, pszUtf8, dwSize, &dwRead, NULL);
-                            pszUtf8[dwRead] = '\0';
-                            
-                            // Convert to UTF-16
-                            int nWideLen = MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, NULL, 0);
-                            WCHAR* pszWide = (WCHAR*)malloc(nWideLen * sizeof(WCHAR));
-                            if (pszWide) {
-                                MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, pszWide, nWideLen);
-                                SetWindowText(g_hWndEdit, pszWide);
-                                free(pszWide);
-                            }
-                            free(pszUtf8);
-                            
-                            // Set up resumed file state
-                            if (szOriginalPath[0] != L'\0') {
-                                wcscpy(g_szFileName, szOriginalPath);
-                                const WCHAR* pszFileTitle = wcsrchr(szOriginalPath, L'\\');
-                                if (pszFileTitle) {
-                                    wcscpy(g_szFileTitle, pszFileTitle + 1);
-                                } else {
-                                    wcscpy(g_szFileTitle, szOriginalPath);
-                                }
-                            } else {
-                                g_szFileName[0] = L'\0';
-                                g_szFileTitle[0] = L'\0';
-                            }
-                            
-                            wcscpy(g_szResumeFilePath, szResumeFile);
-                            wcscpy(g_szOriginalFilePath, szOriginalPath);
-                            g_bIsResumedFile = TRUE;
-                            g_bModified = TRUE;  // Mark as modified
-                            
-                            // Update title bar to show [Resumed] indicator
-                            UpdateTitle(g_hWndMain);
-                            
-                            // DON'T add to MRU list
-                            // DON'T delete resume file yet (keep as backup)
+                // Use the working LoadTextFile() function to load content
+                // This ensures consistent UTF-8 decoding without bugs
+                if (LoadTextFile(szResumeFile)) {
+                    // LoadTextFile() set g_szFileName to the resume file path
+                    // Override with original file path (if available)
+                    if (szOriginalPath[0] != L'\0') {
+                        wcscpy(g_szFileName, szOriginalPath);
+                        const WCHAR* pszFileTitle = wcsrchr(szOriginalPath, L'\\');
+                        if (pszFileTitle) {
+                            wcscpy(g_szFileTitle, pszFileTitle + 1);
+                        } else {
+                            wcscpy(g_szFileTitle, szOriginalPath);
                         }
+                    } else {
+                        // Untitled file - clear filename
+                        g_szFileName[0] = L'\0';
+                        g_szFileTitle[0] = L'\0';
                     }
-                    CloseHandle(hFile);
+                    
+                    // Set up resumed file state
+                    wcscpy(g_szResumeFilePath, szResumeFile);
+                    wcscpy(g_szOriginalFilePath, szOriginalPath);
+                    g_bIsResumedFile = TRUE;
+                    g_bModified = TRUE;  // Mark as modified
+                    
+                    // Update title bar to show [Resumed] indicator
+                    UpdateTitle(g_hWndMain);
+                    
+                    // DON'T add to MRU list (LoadTextFile does this, but we'll skip it)
+                    // DON'T delete resume file yet (keep as backup)
                 }
             }
             
@@ -978,14 +959,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 HANDLE hFile = CreateFile(szResumeFile, GENERIC_WRITE, 0, NULL,
                                                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
                                 if (hFile != INVALID_HANDLE_VALUE) {
-                                    // Convert to UTF-8
-                                    int nUtf8Len = WideCharToMultiByte(CP_UTF8, 0, pszText, -1, NULL, 0, NULL, NULL);
-                                    char* pszUtf8 = (char*)malloc(nUtf8Len);
+                                    // Convert to UTF-8 using helper (prevents data loss bug)
+                                    char* pszUtf8 = UTF16ToUTF8(pszText);
                                     if (pszUtf8) {
-                                        WideCharToMultiByte(CP_UTF8, 0, pszText, -1, pszUtf8, nUtf8Len, NULL, NULL);
-                                        
+                                        DWORD dwBytesToWrite = (DWORD)strlen(pszUtf8);
                                         DWORD dwWritten;
-                                        WriteFile(hFile, pszUtf8, nUtf8Len - 1, &dwWritten, NULL);
+                                        WriteFile(hFile, pszUtf8, dwBytesToWrite, &dwWritten, NULL);
                                         free(pszUtf8);
                                     }
                                     CloseHandle(hFile);
@@ -1437,7 +1416,53 @@ BOOL DeleteResumeFile(const WCHAR* pszResumeFile)
 }
 
 //============================================================================
-// SaveToResumeFile - Save current document to resume file
+// WriteResumeFileContent - Helper function to write document content to resume file
+// Parameters:
+//   pszResumeFile - Full path to resume file
+// Returns: TRUE on success, FALSE on failure
+// Note: Does NOT modify global state or write to INI - just writes the file
+//============================================================================
+BOOL WriteResumeFileContent(LPCWSTR pszResumeFile)
+{
+    // Save current document state (SaveTextFile() modifies these globals)
+    WCHAR szSavedFileName[MAX_PATH];
+    WCHAR szSavedFileTitle[MAX_PATH];
+    BOOL bSavedModified = g_bModified;
+    BOOL bSavedIsResumed = g_bIsResumedFile;
+    WCHAR szSavedResumeFilePath[EXTENDED_PATH_MAX];
+    WCHAR szSavedOriginalFilePath[EXTENDED_PATH_MAX];
+    
+    wcscpy(szSavedFileName, g_szFileName);
+    wcscpy(szSavedFileTitle, g_szFileTitle);
+    wcscpy(szSavedResumeFilePath, g_szResumeFilePath);
+    wcscpy(szSavedOriginalFilePath, g_szOriginalFilePath);
+    
+    // Use the working SaveTextFile() function to save content
+    // This ensures consistent UTF-8 encoding without bugs
+    BOOL bSuccess = SaveTextFile(pszResumeFile);
+    
+    // Restore document state (we're saving to resume file, not actually saving the document)
+    wcscpy(g_szFileName, szSavedFileName);
+    wcscpy(g_szFileTitle, szSavedFileTitle);
+    g_bModified = bSavedModified;
+    g_bIsResumedFile = bSavedIsResumed;
+    wcscpy(g_szResumeFilePath, szSavedResumeFilePath);
+    wcscpy(g_szOriginalFilePath, szSavedOriginalFilePath);
+    
+    // Update title bar (SaveTextFile cleared [Resumed], restore it)
+    UpdateTitle();
+    UpdateStatusBar();
+    
+    if (!bSuccess) {
+        // SaveTextFile already showed error message
+        DeleteFile(pszResumeFile);  // Clean up partial file
+    }
+    
+    return bSuccess;
+}
+
+//============================================================================
+// SaveToResumeFile - Save current document to resume file and register in INI
 // Returns: TRUE on success, FALSE on failure
 //============================================================================
 BOOL SaveToResumeFile()
@@ -1455,61 +1480,9 @@ BOOL SaveToResumeFile()
         }
     }
     
-    // Get text from editor using accurate method
-    GETTEXTLENGTHEX gtl;
-    gtl.flags = GTL_DEFAULT;
-    gtl.codepage = 1200; // Unicode
-    LONG nTextLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-    
-    if (nTextLen < 0 || nTextLen > INT_MAX - 1) {
-        return FALSE;  // Invalid length
-    }
-    
-    WCHAR* pszText = (WCHAR*)malloc((nTextLen + 1) * sizeof(WCHAR));
-    if (!pszText) {
-        return FALSE;
-    }
-    
-    GetWindowText(g_hWndEdit, pszText, nTextLen + 1);
-    
-    // Save to temp file (UTF-8 without BOM)
-    HANDLE hFile = CreateFile(szResumeFile, GENERIC_WRITE, 0, NULL,
-                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        free(pszText);
-        return FALSE;
-    }
-    
-    // Convert to UTF-8
-    int nUtf8Len = WideCharToMultiByte(CP_UTF8, 0, pszText, -1, NULL, 0, NULL, NULL);
-    char* pszUtf8 = (char*)malloc(nUtf8Len);
-    BOOL bSuccess = FALSE;
-    
-    if (pszUtf8) {
-        WideCharToMultiByte(CP_UTF8, 0, pszText, -1, pszUtf8, nUtf8Len, NULL, NULL);
-        
-        DWORD dwWritten;
-        BOOL bWriteSuccess = WriteFile(hFile, pszUtf8, nUtf8Len - 1, &dwWritten, NULL);
-        
-        if (bWriteSuccess && dwWritten == (DWORD)(nUtf8Len - 1)) {
-            bSuccess = TRUE;
-        } else {
-            // Write failed - show error
-            WCHAR szError[512];
-            LoadStringResource(IDS_ERROR, szError, 512);
-            MessageBox(g_hWndMain,
-                       L"Failed to write resume file. Disk full?",
-                       szError, MB_OK | MB_ICONERROR);
-        }
-        free(pszUtf8);
-    }
-    
-    CloseHandle(hFile);
-    free(pszText);
-    
-    if (!bSuccess) {
-        DeleteFile(szResumeFile);  // Clean up partial file
-        return FALSE;
+    // Write resume file content using helper function
+    if (!WriteResumeFileContent(szResumeFile)) {
+        return FALSE;  // Error already shown to user
     }
     
     // Store resume file path and original path in INI
