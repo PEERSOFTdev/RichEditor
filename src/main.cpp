@@ -2479,6 +2479,15 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
     }
     
     g_bModified = FALSE;
+    
+    // Clear resume file state after successful save
+    if (g_bIsResumedFile) {
+        DeleteResumeFile(g_szResumeFilePath);
+        g_bIsResumedFile = FALSE;
+        g_szResumeFilePath[0] = L'\0';
+        g_szOriginalFilePath[0] = L'\0';
+    }
+    
     UpdateTitle();
     UpdateStatusBar();
     
@@ -3008,17 +3017,7 @@ BOOL FileSave()
         return FileSaveAs();
     }
     
-    BOOL bSuccess = SaveTextFile(g_szFileName);
-    
-    // After successful save, clean up resume file if this was a resumed file
-    if (bSuccess && g_bIsResumedFile) {
-        DeleteResumeFile(g_szResumeFilePath);
-        g_bIsResumedFile = FALSE;
-        g_szResumeFilePath[0] = L'\0';
-        g_szOriginalFilePath[0] = L'\0';
-    }
-    
-    return bSuccess;
+    return SaveTextFile(g_szFileName);
 }
 
 //============================================================================
@@ -3069,14 +3068,6 @@ BOOL FileSaveAs()
     // Show dialog
     if (GetSaveFileName(&ofn)) {
         if (SaveTextFile(szFile)) {
-            // After successful save, clean up resume file if this was a resumed file
-            if (g_bIsResumedFile) {
-                DeleteResumeFile(g_szResumeFilePath);
-                g_bIsResumedFile = FALSE;
-                g_szResumeFilePath[0] = L'\0';
-                g_szOriginalFilePath[0] = L'\0';
-            }
-            
             SetFocus(g_hWndEdit);
             return TRUE;
         }
