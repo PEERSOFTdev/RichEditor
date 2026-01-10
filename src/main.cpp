@@ -343,76 +343,80 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     ShowWindow(g_hWndMain, nCmdShow);
     UpdateWindow(g_hWndMain);
     
-    // Check for resume file from previous session (before command-line file)
-    WCHAR szResumeFile[EXTENDED_PATH_MAX];
-    WCHAR szOriginalPath[EXTENDED_PATH_MAX];
-    BOOL bHasResumeFile = FALSE;
-    
-    if (ReadResumeFromINI(szResumeFile, EXTENDED_PATH_MAX, 
-                          szOriginalPath, EXTENDED_PATH_MAX)) {
-        // Check if resume file actually exists
-        DWORD dwAttrib = GetFileAttributes(szResumeFile);
-        if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
-            // Open resume file
-            HANDLE hFile = CreateFile(szResumeFile, GENERIC_READ, FILE_SHARE_READ,
-                                      NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (hFile != INVALID_HANDLE_VALUE) {
-                DWORD dwSize = GetFileSize(hFile, NULL);
-                if (dwSize != INVALID_FILE_SIZE && dwSize > 0) {
-                    char* pszUtf8 = (char*)malloc(dwSize + 1);
-                    if (pszUtf8) {
-                        DWORD dwRead;
-                        ReadFile(hFile, pszUtf8, dwSize, &dwRead, NULL);
-                        pszUtf8[dwRead] = '\0';
-                        
-                        // Convert to UTF-16
-                        int nWideLen = MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, NULL, 0);
-                        WCHAR* pszWide = (WCHAR*)malloc(nWideLen * sizeof(WCHAR));
-                        if (pszWide) {
-                            MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, pszWide, nWideLen);
-                            SetWindowText(g_hWndEdit, pszWide);
-                            free(pszWide);
-                        }
-                        free(pszUtf8);
-                        
-                        // Set up resumed file state
-                        if (szOriginalPath[0] != L'\0') {
-                            wcscpy(g_szFileName, szOriginalPath);
-                            const WCHAR* pszFileTitle = wcsrchr(szOriginalPath, L'\\');
-                            if (pszFileTitle) {
-                                wcscpy(g_szFileTitle, pszFileTitle + 1);
-                            } else {
-                                wcscpy(g_szFileTitle, szOriginalPath);
-                            }
-                        } else {
-                            g_szFileName[0] = L'\0';
-                            g_szFileTitle[0] = L'\0';
-                        }
-                        
-                        wcscpy(g_szResumeFilePath, szResumeFile);
-                        wcscpy(g_szOriginalFilePath, szOriginalPath);
-                        g_bIsResumedFile = TRUE;
-                        g_bModified = TRUE;  // Mark as modified
-                        bHasResumeFile = TRUE;
-                        
-                        // Update title bar to show [Resumed] indicator
-                        UpdateTitle(g_hWndMain);
-                        
-                        // DON'T add to MRU list
-                        // DON'T delete resume file yet (keep as backup)
-                    }
-                }
-                CloseHandle(hFile);
-            }
-        }
-        
-        // Clear INI entry (one-time recovery)
-        ClearResumeFromINI();
-    }
-    
-    // Load file from command line if provided (and no resume file was loaded)
-    if (!bHasResumeFile && szCommandLineFile[0] != L'\0') {
+    // Command-line arguments have precedence over resume files
+    // This allows RichEditor to be used as a file viewer while preserving
+    // unsaved work for the next launch without arguments
+    if (szCommandLineFile[0] != L'\0') {
+        // Command-line file specified - load it and ignore resume file
         LoadTextFile(szCommandLineFile);
+        
+        // DON'T clear resume from INI - defer recovery to next launch without args
+        // User's unsaved work is preserved for later
+    } else {
+        // No command-line file - check for resume file from previous session
+        WCHAR szResumeFile[EXTENDED_PATH_MAX];
+        WCHAR szOriginalPath[EXTENDED_PATH_MAX];
+        
+        if (ReadResumeFromINI(szResumeFile, EXTENDED_PATH_MAX, 
+                              szOriginalPath, EXTENDED_PATH_MAX)) {
+            // Check if resume file actually exists
+            DWORD dwAttrib = GetFileAttributes(szResumeFile);
+            if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
+                // Open resume file
+                HANDLE hFile = CreateFile(szResumeFile, GENERIC_READ, FILE_SHARE_READ,
+                                          NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (hFile != INVALID_HANDLE_VALUE) {
+                    DWORD dwSize = GetFileSize(hFile, NULL);
+                    if (dwSize != INVALID_FILE_SIZE && dwSize > 0) {
+                        char* pszUtf8 = (char*)malloc(dwSize + 1);
+                        if (pszUtf8) {
+                            DWORD dwRead;
+                            ReadFile(hFile, pszUtf8, dwSize, &dwRead, NULL);
+                            pszUtf8[dwRead] = '\0';
+                            
+                            // Convert to UTF-16
+                            int nWideLen = MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, NULL, 0);
+                            WCHAR* pszWide = (WCHAR*)malloc(nWideLen * sizeof(WCHAR));
+                            if (pszWide) {
+                                MultiByteToWideChar(CP_UTF8, 0, pszUtf8, -1, pszWide, nWideLen);
+                                SetWindowText(g_hWndEdit, pszWide);
+                                free(pszWide);
+                            }
+                            free(pszUtf8);
+                            
+                            // Set up resumed file state
+                            if (szOriginalPath[0] != L'\0') {
+                                wcscpy(g_szFileName, szOriginalPath);
+                                const WCHAR* pszFileTitle = wcsrchr(szOriginalPath, L'\\');
+                                if (pszFileTitle) {
+                                    wcscpy(g_szFileTitle, pszFileTitle + 1);
+                                } else {
+                                    wcscpy(g_szFileTitle, szOriginalPath);
+                                }
+                            } else {
+                                g_szFileName[0] = L'\0';
+                                g_szFileTitle[0] = L'\0';
+                            }
+                            
+                            wcscpy(g_szResumeFilePath, szResumeFile);
+                            wcscpy(g_szOriginalFilePath, szOriginalPath);
+                            g_bIsResumedFile = TRUE;
+                            g_bModified = TRUE;  // Mark as modified
+                            
+                            // Update title bar to show [Resumed] indicator
+                            UpdateTitle(g_hWndMain);
+                            
+                            // DON'T add to MRU list
+                            // DON'T delete resume file yet (keep as backup)
+                        }
+                    }
+                    CloseHandle(hFile);
+                }
+            }
+            
+            // Clear INI entry (one-time recovery)
+            ClearResumeFromINI();
+        }
     }
     
     // Message loop
