@@ -3126,6 +3126,14 @@ BOOL PromptSaveChanges()
         case IDYES:
             return FileSave(); // Save and continue if successful
         case IDNO:
+            // User chose to discard changes
+            // If this is a resumed file, clean up resume state now
+            if (g_bIsResumedFile) {
+                DeleteResumeFile(g_szResumeFilePath);
+                g_bIsResumedFile = FALSE;
+                g_szResumeFilePath[0] = L'\0';
+                g_szOriginalFilePath[0] = L'\0';
+            }
             return TRUE; // Don't save, but continue
         case IDCANCEL:
         default:
