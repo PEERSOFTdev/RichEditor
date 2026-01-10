@@ -1041,14 +1041,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     } else {
                         // Traditional mode - prompt user
                         if (!PromptSaveChanges()) {
-                            // User cancelled or chose "No" - clean up resume file if exists
-                            if (g_bIsResumedFile && g_szResumeFilePath[0] != L'\0') {
-                                DeleteResumeFile(g_szResumeFilePath);
-                                g_bIsResumedFile = FALSE;
-                                g_szResumeFilePath[0] = L'\0';
-                                g_szOriginalFilePath[0] = L'\0';
-                            }
-                            return 0; // User cancelled
+                            return 0; // User cancelled - keep editing
                         }
                     }
                 }
