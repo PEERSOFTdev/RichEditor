@@ -316,13 +316,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
         return 1;
     }
     
-    // Create main window (800x600, centered)
-    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-    int windowWidth = 800;
-    int windowHeight = 600;
-    int x = (screenWidth - windowWidth) / 2;
-    int y = (screenHeight - windowHeight) / 2;
+    // Create main window (80% of work area, centered, with reasonable bounds)
+    // Use work area instead of screen to respect taskbar and other system UI
+    RECT rcWork;
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &rcWork, 0);
+    int workWidth = rcWork.right - rcWork.left;
+    int workHeight = rcWork.bottom - rcWork.top;
+    
+    // Default to 80% of work area
+    int windowWidth = (workWidth * 80) / 100;
+    int windowHeight = (workHeight * 80) / 100;
+    
+    // Enforce reasonable bounds: minimum 640x480, maximum work area size
+    if (windowWidth < 640) windowWidth = (workWidth < 640) ? workWidth : 640;
+    if (windowHeight < 480) windowHeight = (workHeight < 480) ? workHeight : 480;
+    if (windowWidth > workWidth) windowWidth = workWidth;
+    if (windowHeight > workHeight) windowHeight = workHeight;
+    
+    // Center in work area (not screen, so it appears correctly with taskbar)
+    int x = rcWork.left + (workWidth - windowWidth) / 2;
+    int y = rcWork.top + (workHeight - windowHeight) / 2;
     
     g_hWndMain = CreateWindowEx(
         0,
