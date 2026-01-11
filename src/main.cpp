@@ -4935,8 +4935,13 @@ void DoAutosave()
         return;
     }
     
-    // Save the file silently (but DON'T delete resume file - this is autosave, not explicit save)
+    // Save the file silently (passing FALSE to preserve resume file and MRU behavior)
     if (SaveTextFile(g_szFileName, FALSE)) {
+        // Autosave succeeded - clear the modified flag
+        // (The file is now saved, so there are no unsaved changes)
+        g_bModified = FALSE;
+        UpdateTitle();  // Remove asterisk from title bar
+        
         // Update status briefly to show autosave happened
         WCHAR szOldStatus[512];
         SendMessage(g_hWndStatus, SB_GETTEXT, 0, (LPARAM)szOldStatus);
