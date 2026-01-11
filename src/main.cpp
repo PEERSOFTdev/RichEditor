@@ -3476,7 +3476,7 @@ void ExecuteFilterDisplay(const std::string& outputData)
     if (displayMode == FILTER_DISPLAY_STATUSBAR) {
         // Show in status bar for 30 seconds
         wcscpy(g_szFilterStatusBarText, L"[");
-        wcscat(g_szFilterStatusBarText, g_Filters[g_nCurrentFilter].szName);
+        wcscat(g_szFilterStatusBarText, g_Filters[g_nCurrentFilter].szLocalizedName);
         wcscat(g_szFilterStatusBarText, L"]: ");
         wcscat(g_szFilterStatusBarText, pszOutput);
         g_szFilterStatusBarText[511] = L'\0';  // Ensure null termination
@@ -3493,7 +3493,7 @@ void ExecuteFilterDisplay(const std::string& outputData)
         WCHAR szResult[32];
         LoadStringResource(IDS_FILTER_RESULT_TITLE, szResult, 32);
         
-        wcscpy(szTitle, g_Filters[g_nCurrentFilter].szName);
+        wcscpy(szTitle, g_Filters[g_nCurrentFilter].szLocalizedName);
         wcscat(szTitle, L" ");
         wcscat(szTitle, szResult);
         
@@ -5047,7 +5047,7 @@ void StartREPLFilter(int filterIndex)
         
         wcscpy(szMsg, szError);
         wcscat(szMsg, L": ");
-        wcscat(szMsg, g_Filters[filterIndex].szName);
+        wcscat(szMsg, g_Filters[filterIndex].szLocalizedName);
         
         MessageBox(g_hWndMain, szMsg, szErrorTitle, MB_ICONERROR);
         return;
