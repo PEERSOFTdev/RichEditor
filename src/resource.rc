@@ -218,6 +218,16 @@ BEGIN
     IDS_STATUS_FILTER_NONE       "None"
     IDS_INFORMATION              "Information"
     IDS_RESUMED                  "Resumed"
+    
+    // REPL error messages and UI strings (Phase 2.7)
+    IDS_REPL_FAILED_START           "Failed to start interactive filter"
+    IDS_REPL_FAILED_PIPE_STDOUT     "Failed to create stdout pipe"
+    IDS_REPL_FAILED_PIPE_STDIN      "Failed to create stdin pipe"
+    IDS_REPL_FAILED_PIPE_STDERR     "Failed to create stderr pipe"
+    IDS_REPL_FAILED_THREAD_STDOUT   "Failed to create stdout reader thread"
+    IDS_REPL_FAILED_THREAD_STDERR   "Failed to create stderr reader thread"
+    IDS_INTERACTIVE_MODE_INDICATOR  "Interactive Mode"
+    IDS_FILTER_RESULT_TITLE         "Result"
 END
 
 // ============================================================================
@@ -387,4 +397,14 @@ BEGIN
     IDS_STATUS_FILTER_NONE       "Žádný"
     IDS_INFORMATION              "Informace"
     IDS_RESUMED                  "Obnoveno"
+    
+    // REPL error messages and UI strings (Phase 2.7)
+    IDS_REPL_FAILED_START           "Nepodařilo se spustit interaktivní filtr"
+    IDS_REPL_FAILED_PIPE_STDOUT     "Nepodařilo se vytvořit stdout rouru"
+    IDS_REPL_FAILED_PIPE_STDIN      "Nepodařilo se vytvořit stdin rouru"
+    IDS_REPL_FAILED_PIPE_STDERR     "Nepodařilo se vytvořit stderr rouru"
+    IDS_REPL_FAILED_THREAD_STDOUT   "Nepodařilo se vytvořit vlákno pro čtení stdout"
+    IDS_REPL_FAILED_THREAD_STDERR   "Nepodařilo se vytvořit vlákno pro čtení stderr"
+    IDS_INTERACTIVE_MODE_INDICATOR  "Interaktivní režim"
+    IDS_FILTER_RESULT_TITLE         "Výsledek"
 END

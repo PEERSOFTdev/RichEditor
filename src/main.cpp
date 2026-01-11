@@ -2146,7 +2146,11 @@ void UpdateTitle(HWND hwnd)
     
     // Append [Interactive Mode] indicator if in REPL mode
     if (g_bREPLMode) {
-        wcscat(szTitle, L" [Interactive Mode]");
+        WCHAR szInteractiveMode[64];
+        LoadStringResource(IDS_INTERACTIVE_MODE_INDICATOR, szInteractiveMode, 64);
+        wcscat(szTitle, L" [");
+        wcscat(szTitle, szInteractiveMode);
+        wcscat(szTitle, L"]");
     }
     
     // Append application name
@@ -3471,8 +3475,10 @@ void ExecuteFilterDisplay(const std::string& outputData)
     
     if (displayMode == FILTER_DISPLAY_STATUSBAR) {
         // Show in status bar for 30 seconds
-        _snwprintf(g_szFilterStatusBarText, 512, L"[%s]: %s", 
-                   g_Filters[g_nCurrentFilter].szName, pszOutput);
+        wcscpy(g_szFilterStatusBarText, L"[");
+        wcscat(g_szFilterStatusBarText, g_Filters[g_nCurrentFilter].szName);
+        wcscat(g_szFilterStatusBarText, L"]: ");
+        wcscat(g_szFilterStatusBarText, pszOutput);
         g_szFilterStatusBarText[511] = L'\0';  // Ensure null termination
         
         g_bFilterStatusBarActive = TRUE;
@@ -3483,9 +3489,13 @@ void ExecuteFilterDisplay(const std::string& outputData)
         
     } else {  // FILTER_DISPLAY_MESSAGEBOX
         // Show in message box
-        WCHAR szTitle[128];
-        _snwprintf(szTitle, 128, L"%s Result", g_Filters[g_nCurrentFilter].szName);
-        szTitle[127] = L'\0';
+        WCHAR szTitle[MAX_FILTER_NAME + 64];
+        WCHAR szResult[32];
+        LoadStringResource(IDS_FILTER_RESULT_TITLE, szResult, 32);
+        
+        wcscpy(szTitle, g_Filters[g_nCurrentFilter].szName);
+        wcscat(szTitle, L" ");
+        wcscat(szTitle, szResult);
         
         MessageBox(g_hWndMain, pszOutput, szTitle, MB_ICONINFORMATION);
     }
@@ -4965,7 +4975,11 @@ void StartREPLFilter(int filterIndex)
     
     // Create stdout pipe
     if (!CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0)) {
-        MessageBox(g_hWndMain, L"Failed to create stdout pipe", L"Error", MB_ICONERROR);
+        WCHAR szError[256];
+        WCHAR szErrorTitle[64];
+        LoadStringResource(IDS_REPL_FAILED_PIPE_STDOUT, szError, 256);
+        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
+        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
         return;
     }
     SetHandleInformation(hStdoutRead, HANDLE_FLAG_INHERIT, 0);
@@ -4974,7 +4988,11 @@ void StartREPLFilter(int filterIndex)
     if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0)) {
         CloseHandle(hStdoutRead);
         CloseHandle(hStdoutWrite);
-        MessageBox(g_hWndMain, L"Failed to create stdin pipe", L"Error", MB_ICONERROR);
+        WCHAR szError[256];
+        WCHAR szErrorTitle[64];
+        LoadStringResource(IDS_REPL_FAILED_PIPE_STDIN, szError, 256);
+        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
+        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
         return;
     }
     SetHandleInformation(hStdinWrite, HANDLE_FLAG_INHERIT, 0);
@@ -4985,7 +5003,11 @@ void StartREPLFilter(int filterIndex)
         CloseHandle(hStdoutWrite);
         CloseHandle(hStdinRead);
         CloseHandle(hStdinWrite);
-        MessageBox(g_hWndMain, L"Failed to create stderr pipe", L"Error", MB_ICONERROR);
+        WCHAR szError[256];
+        WCHAR szErrorTitle[64];
+        LoadStringResource(IDS_REPL_FAILED_PIPE_STDERR, szError, 256);
+        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
+        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
         return;
     }
     SetHandleInformation(hStderrRead, HANDLE_FLAG_INHERIT, 0);
@@ -5017,9 +5039,17 @@ void StartREPLFilter(int filterIndex)
         CloseHandle(hStderrRead);
         CloseHandle(hStderrWrite);
         
-        WCHAR szMsg[256];
-        swprintf(szMsg, 256, L"Failed to start interactive filter: %s", g_Filters[filterIndex].szName);
-        MessageBox(g_hWndMain, szMsg, L"Error", MB_ICONERROR);
+        WCHAR szMsg[512];
+        WCHAR szError[256];
+        WCHAR szErrorTitle[64];
+        LoadStringResource(IDS_REPL_FAILED_START, szError, 256);
+        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
+        
+        wcscpy(szMsg, szError);
+        wcscat(szMsg, L": ");
+        wcscat(szMsg, g_Filters[filterIndex].szName);
+        
+        MessageBox(g_hWndMain, szMsg, szErrorTitle, MB_ICONERROR);
         return;
     }
     
@@ -5044,14 +5074,22 @@ void StartREPLFilter(int filterIndex)
     g_hREPLStdoutThread = CreateThread(NULL, 0, REPLStdoutThread, NULL, 0, &g_dwREPLStdoutThreadId);
     if (g_hREPLStdoutThread == NULL) {
         ExitREPLMode();
-        MessageBox(g_hWndMain, L"Failed to create stdout reader thread", L"Error", MB_ICONERROR);
+        WCHAR szError[256];
+        WCHAR szErrorTitle[64];
+        LoadStringResource(IDS_REPL_FAILED_THREAD_STDOUT, szError, 256);
+        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
+        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
         return;
     }
     
     g_hREPLStderrThread = CreateThread(NULL, 0, REPLStderrThread, NULL, 0, &g_dwREPLStderrThreadId);
     if (g_hREPLStderrThread == NULL) {
         ExitREPLMode();
-        MessageBox(g_hWndMain, L"Failed to create stderr reader thread", L"Error", MB_ICONERROR);
+        WCHAR szError[256];
+        WCHAR szErrorTitle[64];
+        LoadStringResource(IDS_REPL_FAILED_THREAD_STDERR, szError, 256);
+        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
+        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
         return;
     }
     

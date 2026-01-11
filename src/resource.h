@@ -137,4 +137,14 @@
 // Resume file strings (Phase 2.6)
 #define IDS_RESUMED                     2089
 
+// REPL error and localization strings (Phase 2.7)
+#define IDS_REPL_FAILED_START           2090
+#define IDS_REPL_FAILED_PIPE_STDOUT     2092
+#define IDS_REPL_FAILED_PIPE_STDIN      2094
+#define IDS_REPL_FAILED_PIPE_STDERR     2096
+#define IDS_REPL_FAILED_THREAD_STDOUT   2098
+#define IDS_REPL_FAILED_THREAD_STDERR   2100
+#define IDS_INTERACTIVE_MODE_INDICATOR  2102
+#define IDS_FILTER_RESULT_TITLE         2104
+
 #endif // RESOURCE_H
