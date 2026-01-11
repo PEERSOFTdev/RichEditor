@@ -186,8 +186,8 @@ void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
-BOOL LoadTextFile(LPCWSTR pszFileName);
-BOOL SaveTextFile(LPCWSTR pszFileName);
+BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
+BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
 void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError);
 void FileNew();
@@ -227,6 +227,11 @@ int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefa
 BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue);
 
 // Resume file functions (Phase 2.6)
+enum ResumeFileSaveMode {
+    RESUME_SAVE_WITH_INI = 0,      // Normal save, register in INI (default)
+    RESUME_SAVE_WITHOUT_INI = 1    // Shutdown save, don't register yet (for two-phase commit)
+};
+
 BOOL GetRichEditorTempDir(WCHAR* pszPath, DWORD dwSize);
 BOOL EnsureRichEditorTempDirExists();
 BOOL GenerateResumeFileName(const WCHAR* pszOriginalPath, WCHAR* pszResumeFile, DWORD dwSize);
@@ -234,7 +239,7 @@ void WriteResumeToINI(const WCHAR* pszResumeFile, const WCHAR* pszOriginalPath);
 BOOL ReadResumeFromINI(WCHAR* pszResumeFile, DWORD dwResumeSize, WCHAR* pszOriginalPath, DWORD dwOriginalSize);
 void ClearResumeFromINI();
 BOOL DeleteResumeFile(const WCHAR* pszResumeFile);
-BOOL SaveToResumeFile();
+BOOL SaveToResumeFile(ResumeFileSaveMode mode = RESUME_SAVE_WITH_INI);
 
 // REPL filter functions (Phase 2.5)
 void StartREPLFilter(int filterIndex);
@@ -348,7 +353,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     // unsaved work for the next launch without arguments
     if (szCommandLineFile[0] != L'\0') {
         // Command-line file specified - load it and ignore resume file
-        LoadTextFile(szCommandLineFile);
+        // Pass FALSE to not delete resume file (user might have multiple instances)
+        LoadTextFile(szCommandLineFile, FALSE);
         
         // DON'T clear resume from INI - defer recovery to next launch without args
         // User's unsaved work is preserved for later
@@ -362,9 +368,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
             // Check if resume file actually exists
             DWORD dwAttrib = GetFileAttributes(szResumeFile);
             if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
+                // Temporarily set g_bNoMRU to prevent adding temp file to MRU
+                BOOL bPrevNoMRU = g_bNoMRU;
+                g_bNoMRU = TRUE;
+                
                 // Use the working LoadTextFile() function to load content
                 // This ensures consistent UTF-8 decoding without bugs
-                if (LoadTextFile(szResumeFile)) {
+                // Pass FALSE to prevent deleting the resume file we're loading
+                if (LoadTextFile(szResumeFile, FALSE)) {
+                    // Restore g_bNoMRU
+                    g_bNoMRU = bPrevNoMRU;
+                    
                     // LoadTextFile() set g_szFileName to the resume file path
                     // Override with original file path (if available)
                     if (szOriginalPath[0] != L'\0') {
@@ -390,8 +404,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
                     // Update title bar to show [Resumed] indicator
                     UpdateTitle(g_hWndMain);
                     
-                    // DON'T add to MRU list (LoadTextFile does this, but we'll skip it)
-                    // DON'T delete resume file yet (keep as backup)
+                    // Resume file temp path is NOT added to MRU (g_bNoMRU was TRUE)
+                    // Resume file will be kept as backup until explicit save
+                } else {
+                    // LoadTextFile failed - restore g_bNoMRU
+                    g_bNoMRU = bPrevNoMRU;
                 }
             }
             
@@ -940,42 +957,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 
                 // Handle unsaved changes - save to temp file but don't register in INI yet
                 if (g_bModified) {
-                    WCHAR szResumeFile[EXTENDED_PATH_MAX];
-                    
-                    // Generate resume file name
-                    if (GenerateResumeFileName(g_szFileName, szResumeFile, EXTENDED_PATH_MAX)) {
-                        // Get text from editor
-                        GETTEXTLENGTHEX gtl;
-                        gtl.flags = GTL_DEFAULT;
-                        gtl.codepage = 1200; // Unicode
-                        LONG nTextLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-                        
-                        if (nTextLen >= 0 && nTextLen < INT_MAX - 1) {
-                            WCHAR* pszText = (WCHAR*)malloc((nTextLen + 1) * sizeof(WCHAR));
-                            if (pszText) {
-                                GetWindowText(g_hWndEdit, pszText, nTextLen + 1);
-                                
-                                // Save to temp file (UTF-8 without BOM)
-                                HANDLE hFile = CreateFile(szResumeFile, GENERIC_WRITE, 0, NULL,
-                                                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-                                if (hFile != INVALID_HANDLE_VALUE) {
-                                    // Convert to UTF-8 using helper (prevents data loss bug)
-                                    char* pszUtf8 = UTF16ToUTF8(pszText);
-                                    if (pszUtf8) {
-                                        DWORD dwBytesToWrite = (DWORD)strlen(pszUtf8);
-                                        DWORD dwWritten;
-                                        WriteFile(hFile, pszUtf8, dwBytesToWrite, &dwWritten, NULL);
-                                        free(pszUtf8);
-                                    }
-                                    CloseHandle(hFile);
-                                    
-                                    // Store resume file path (but don't write to INI yet)
-                                    wcscpy(g_szResumeFilePath, szResumeFile);
-                                }
-                                free(pszText);
-                            }
-                        }
-                    }
+                    // Use SaveToResumeFile with WITHOUT_INI mode for two-phase commit
+                    // This saves the file content but doesn't register in INI yet
+                    // WM_ENDSESSION will register in INI if shutdown is confirmed
+                    SaveToResumeFile(RESUME_SAVE_WITHOUT_INI);
                 }
                 
                 // Allow Windows to proceed with shutdown
@@ -1004,8 +989,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 if (g_bModified) {
                     BOOL isUntitled = (g_szFileName[0] == L'\0');
                     
-                    if (g_bAutoSaveUntitledOnClose && isUntitled) {
-                        // Modern mode - auto-save untitled files only (no prompt)
+                    // For resumed files, always save back to resume file (note-taker behavior)
+                    // For untitled files with AutoSaveUntitledOnClose, also save to resume
+                    if (g_bIsResumedFile || (g_bAutoSaveUntitledOnClose && isUntitled)) {
+                        // Auto-save to resume file (no prompt)
                         if (!SaveToResumeFile()) {
                             // Error already shown - ask if user wants to close anyway
                             WCHAR szPrompt[256];
@@ -1023,14 +1010,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             return 0; // User cancelled - keep editing
                         }
                     }
-                }
-                
-                // Clean up resume file if user closed without saving a resumed file
-                if (g_bIsResumedFile && g_szResumeFilePath[0] != L'\0' && !g_bModified) {
-                    DeleteResumeFile(g_szResumeFilePath);
-                    g_bIsResumedFile = FALSE;
-                    g_szResumeFilePath[0] = L'\0';
-                    g_szOriginalFilePath[0] = L'\0';
                 }
                 
                 // Close the window
@@ -1439,7 +1418,8 @@ BOOL WriteResumeFileContent(LPCWSTR pszResumeFile)
     
     // Use the working SaveTextFile() function to save content
     // This ensures consistent UTF-8 encoding without bugs
-    BOOL bSuccess = SaveTextFile(pszResumeFile);
+    // Pass FALSE to prevent deleting the resume file we're currently writing!
+    BOOL bSuccess = SaveTextFile(pszResumeFile, FALSE);
     
     // Restore document state (we're saving to resume file, not actually saving the document)
     wcscpy(g_szFileName, szSavedFileName);
@@ -1465,7 +1445,7 @@ BOOL WriteResumeFileContent(LPCWSTR pszResumeFile)
 // SaveToResumeFile - Save current document to resume file and register in INI
 // Returns: TRUE on success, FALSE on failure
 //============================================================================
-BOOL SaveToResumeFile()
+BOOL SaveToResumeFile(ResumeFileSaveMode mode)
 {
     WCHAR szResumeFile[EXTENDED_PATH_MAX];
     
@@ -1485,8 +1465,10 @@ BOOL SaveToResumeFile()
         return FALSE;  // Error already shown to user
     }
     
-    // Store resume file path and original path in INI
-    WriteResumeToINI(szResumeFile, g_szFileName[0] ? g_szFileName : L"");
+    // Store resume file path and original path in INI (if requested)
+    if (mode == RESUME_SAVE_WITH_INI) {
+        WriteResumeToINI(szResumeFile, g_szFileName[0] ? g_szFileName : L"");
+    }
     
     // Remember resume file path globally
     wcscpy(g_szResumeFilePath, szResumeFile);
@@ -2299,9 +2281,10 @@ LPSTR UTF16ToUTF8(LPCWSTR pszUTF16)
 }
 
 //============================================================================
-// LoadTextFile - Load UTF-8 text file into RichEdit control
+// LoadTextFile - Load a text file into the RichEdit control
+// bClearResumeState: TRUE = delete resume file (explicit open), FALSE = keep it
 //============================================================================
-BOOL LoadTextFile(LPCWSTR pszFileName)
+BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
 {
     // Open file
     HANDLE hFile = CreateFile(pszFileName, GENERIC_READ, FILE_SHARE_READ, NULL,
@@ -2366,8 +2349,8 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     
     g_bModified = FALSE;
     
-    // Clear resume file state when loading a new file
-    if (g_bIsResumedFile) {
+    // Clear resume file state when loading a new file (if requested)
+    if (bClearResumeState && g_bIsResumedFile) {
         DeleteResumeFile(g_szResumeFilePath);
         g_bIsResumedFile = FALSE;
         g_szResumeFilePath[0] = L'\0';
@@ -2377,16 +2360,19 @@ BOOL LoadTextFile(LPCWSTR pszFileName)
     UpdateTitle();
     UpdateStatusBar();
     
-    // Add to MRU list
-    AddToMRU(pszFileName);
+    // Add to MRU list (only for explicit opens, not resume loads)
+    if (bClearResumeState) {
+        AddToMRU(pszFileName);
+    }
     
     return TRUE;
 }
 
 //============================================================================
 // SaveTextFile - Save RichEdit control content as UTF-8 text file
+// bClearResumeState: TRUE = delete resume file (explicit save), FALSE = keep it (autosave)
 //============================================================================
-BOOL SaveTextFile(LPCWSTR pszFileName)
+BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
 {
     // Get text length
     int cchText = GetWindowTextLength(g_hWndEdit);
@@ -2444,10 +2430,14 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
         wcscpy_s(g_szFileTitle, MAX_PATH, pszFileName);
     }
     
-    g_bModified = FALSE;
+    // Clear modified flag only for explicit saves, not autosaves
+    // (Autosaves shouldn't affect the "unsaved changes" state)
+    if (bClearResumeState) {
+        g_bModified = FALSE;
+    }
     
-    // Clear resume file state after successful save
-    if (g_bIsResumedFile) {
+    // Clear resume file state after successful save (if requested)
+    if (bClearResumeState && g_bIsResumedFile) {
         DeleteResumeFile(g_szResumeFilePath);
         g_bIsResumedFile = FALSE;
         g_szResumeFilePath[0] = L'\0';
@@ -2457,8 +2447,10 @@ BOOL SaveTextFile(LPCWSTR pszFileName)
     UpdateTitle();
     UpdateStatusBar();
     
-    // Add to MRU list
-    AddToMRU(pszFileName);
+    // Add to MRU list (only for explicit saves, not autosaves/resume saves)
+    if (bClearResumeState) {
+        AddToMRU(pszFileName);
+    }
     
     return TRUE;
 }
@@ -4920,8 +4912,8 @@ void DoAutosave()
         return;
     }
     
-    // Save the file silently
-    if (SaveTextFile(g_szFileName)) {
+    // Save the file silently (but DON'T delete resume file - this is autosave, not explicit save)
+    if (SaveTextFile(g_szFileName, FALSE)) {
         // Update status briefly to show autosave happened
         WCHAR szOldStatus[512];
         SendMessage(g_hWndStatus, SB_GETTEXT, 0, (LPARAM)szOldStatus);
