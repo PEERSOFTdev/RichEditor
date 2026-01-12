@@ -220,6 +220,7 @@ void SaveMRU();
 void AddToMRU(LPCWSTR pszFilePath);
 void UpdateMRUMenu(HWND hwnd);
 void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
+void GetINIFilePath(LPWSTR pszPath, DWORD dwSize);
 
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
@@ -1343,16 +1344,29 @@ BOOL GenerateResumeFileName(const WCHAR* pszOriginalPath, WCHAR* pszResumeFile, 
 }
 
 //============================================================================
+// GetINIFilePath - Get path to RichEditor.ini (same directory as .exe)
+//============================================================================
+void GetINIFilePath(LPWSTR pszPath, DWORD dwSize)
+{
+    if (!pszPath || dwSize == 0) return;
+    
+    // Get executable path
+    GetModuleFileName(NULL, pszPath, dwSize);
+    
+    // Replace .exe extension with .ini
+    WCHAR* pszExt = wcsrchr(pszPath, L'.');
+    if (pszExt) {
+        wcscpy(pszExt, L".ini");
+    }
+}
+
+//============================================================================
 // WriteResumeToINI - Store resume file info in INI
 //============================================================================
 void WriteResumeToINI(const WCHAR* pszResumeFile, const WCHAR* pszOriginalPath)
 {
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    WCHAR* pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     WriteINIValue(szIniPath, L"Resume", L"ResumeFile", pszResumeFile);
     WriteINIValue(szIniPath, L"Resume", L"OriginalPath", 
@@ -1367,11 +1381,7 @@ BOOL ReadResumeFromINI(WCHAR* pszResumeFile, DWORD dwResumeSize,
                        WCHAR* pszOriginalPath, DWORD dwOriginalSize)
 {
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    WCHAR* pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     ReadINIValue(szIniPath, L"Resume", L"ResumeFile", pszResumeFile, dwResumeSize, L"");
     ReadINIValue(szIniPath, L"Resume", L"OriginalPath", pszOriginalPath, dwOriginalSize, L"");
@@ -1385,11 +1395,7 @@ BOOL ReadResumeFromINI(WCHAR* pszResumeFile, DWORD dwResumeSize,
 void ClearResumeFromINI()
 {
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    WCHAR* pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     WriteINIValue(szIniPath, L"Resume", L"ResumeFile", L"");
     WriteINIValue(szIniPath, L"Resume", L"OriginalPath", L"");
@@ -3744,13 +3750,7 @@ void CreateDefaultINI()
 {
     // Get path to INI file (in same directory as executable)
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    
-    // Replace .exe with .ini
-    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     // Check if file already exists
     DWORD dwAttrib = GetFileAttributes(szIniPath);
@@ -3959,13 +3959,7 @@ void LoadSettings()
 {
     // Get path to INI file (in same directory as executable)
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    
-    // Replace .exe with .ini
-    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     // Load settings from [Settings] section using direct file reading
     // Also ensure each setting exists in the INI file with its default value
@@ -4059,13 +4053,7 @@ void LoadFilters()
 {
     // Get path to INI file (in same directory as executable)
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    
-    // Replace .exe with .ini
-    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     // Read filter count using direct file reading
     g_nFilterCount = ReadINIInt(szIniPath, L"Filters", L"Count", 0);
@@ -4363,12 +4351,7 @@ void SaveCurrentFilter()
 {
     // Get path to INI file
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    
-    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     // Determine classic filter name to save
     WCHAR szFilterName[MAX_FILTER_NAME] = L"";
@@ -4395,12 +4378,7 @@ void SaveCurrentREPLFilter()
 {
     // Get path to INI file
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    
-    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     // Determine REPL filter name to save
     WCHAR szREPLFilterName[MAX_FILTER_NAME] = L"";
@@ -4538,12 +4516,7 @@ void LoadMRU()
 {
     // Get path to INI file
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    
-    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     // Load up to MAX_MRU files
     g_nMRUCount = 0;
@@ -4568,12 +4541,7 @@ void SaveMRU()
 {
     // Get path to INI file
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    
-    LPWSTR pszExt = wcsrchr(szIniPath, L'.');
-    if (pszExt) {
-        wcscpy(pszExt, L".ini");
-    }
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     // Read entire INI file
     std::string existingData;
