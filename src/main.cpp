@@ -37,6 +37,7 @@ BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
 UINT g_nAutosaveIntervalMinutes = 1;         // Autosave interval in minutes (0 = disabled)
 BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
 BOOL g_bPromptingForSave = FALSE;            // TRUE when showing save prompt (prevents autosave on focus loss)
+BOOL g_bShowingErrorDialog = FALSE;          // TRUE when showing error dialog (prevents autosave infinite loop)
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar display
 
@@ -537,8 +538,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
         case WM_KILLFOCUS:
             // Autosave on focus loss if enabled
-            // BUT: Don't autosave if we're showing the save prompt (prevents saving before user responds)
-            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss && !g_bPromptingForSave) {
+            // BUT: Don't autosave if we're showing the save prompt OR error dialog (prevents saving before user responds / infinite loop)
+            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss && !g_bPromptingForSave && !g_bShowingErrorDialog) {
                 DoAutosave();
             }
             return 0;
@@ -2136,7 +2137,7 @@ void UpdateStatusBar()
 //============================================================================
 void UpdateTitle(HWND hwnd)
 {
-    WCHAR szTitle[MAX_PATH + 100];  // Increased size for [Interactive Mode] and [Obnoveno]
+    WCHAR szTitle[MAX_PATH + 100];  // Increased size for [Interactive Mode] and [Resumed]
     WCHAR szUntitled[64];
     WCHAR szResumed[32];
     
@@ -2155,7 +2156,7 @@ void UpdateTitle(HWND hwnd)
                    g_bModified ? L"*" : L"", szUntitled);
     }
     
-    // Append [Obnoveno] indicator if this is a resumed file
+    // Append [Resumed] indicator if this is a resumed file
     if (g_bIsResumedFile) {
         LoadStringResource(IDS_RESUMED, szResumed, 32);
         wcscat(szTitle, L" [");
@@ -2556,7 +2557,12 @@ void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError)
     
     WCHAR szTitle[64];
     LoadStringResource(IDS_ERROR, szTitle, 64);
+    
+    // Set flag to prevent autosave-on-focus-loss while showing error dialog
+    // (MessageBox steals focus, triggering WM_KILLFOCUS, which would cause infinite loop!)
+    g_bShowingErrorDialog = TRUE;
     MessageBox(g_hWndMain, szError, szTitle, MB_OK | MB_ICONERROR);
+    g_bShowingErrorDialog = FALSE;
 }
 
 //============================================================================
@@ -2596,9 +2602,6 @@ void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode)
     _snwprintf(pszLangCode, cchLangCode, L"%s_%s", szLang, szCountry);
 }
 
-//============================================================================
-// NormalizePathForINI - Not needed anymore, will read INI files directly
-// Keeping this for reference but replacing GetPrivateProfile* with direct file reading
 //============================================================================
 // Simple INI reader that works with UNC paths
 // Reads entire INI file into memory and parses it
