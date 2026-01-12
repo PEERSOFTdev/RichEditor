@@ -2247,6 +2247,27 @@ void UpdateMenuUndoRedo(HMENU hMenu)
     mii.dwTypeData = szRedoFinal;
     mii.fState = canRedo ? MFS_ENABLED : MFS_GRAYED;
     SetMenuItemInfo(hMenu, ID_EDIT_REDO, FALSE, &mii);
+    
+    // Update Cut, Copy, Paste menu items based on current state
+    // (Same logic as context menu for consistency)
+    BOOL canPaste = SendMessage(g_hWndEdit, EM_CANPASTE, 0, 0);
+    
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    BOOL hasSelection = (cr.cpMin != cr.cpMax);
+    
+    // Update Cut - enabled only if there's a selection
+    mii.fMask = MIIM_STATE;
+    mii.fState = hasSelection ? MFS_ENABLED : MFS_GRAYED;
+    SetMenuItemInfo(hMenu, ID_EDIT_CUT, FALSE, &mii);
+    
+    // Update Copy - enabled only if there's a selection
+    mii.fState = hasSelection ? MFS_ENABLED : MFS_GRAYED;
+    SetMenuItemInfo(hMenu, ID_EDIT_COPY, FALSE, &mii);
+    
+    // Update Paste - enabled only if clipboard has pastable content
+    mii.fState = canPaste ? MFS_ENABLED : MFS_GRAYED;
+    SetMenuItemInfo(hMenu, ID_EDIT_PASTE, FALSE, &mii);
 }
 
 //============================================================================
