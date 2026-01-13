@@ -42,7 +42,7 @@ BEGIN
         MENUITEM "&Start Interactive Mode\tCtrl+Shift+I", ID_TOOLS_START_INTERACTIVE, GRAYED
         MENUITEM "E&xit Interactive Mode\tCtrl+Shift+Q", ID_TOOLS_EXIT_INTERACTIVE, GRAYED
         MENUITEM SEPARATOR
-        MENUITEM "Filter &Help...", ID_TOOLS_MANAGEFILTERS
+        MENUITEM "Filter &Help...", ID_TOOLS_FILTER_HELP
         MENUITEM SEPARATOR
         POPUP "Select &Filter"
         BEGIN
@@ -270,7 +270,7 @@ BEGIN
         MENUITEM "S&pustit interaktivní režim\tCtrl+Shift+I", ID_TOOLS_START_INTERACTIVE, GRAYED
         MENUITEM "&Ukončit interaktivní režim\tCtrl+Shift+Q", ID_TOOLS_EXIT_INTERACTIVE, GRAYED
         MENUITEM SEPARATOR
-        MENUITEM "&Nápověda k filtrům...", ID_TOOLS_MANAGEFILTERS
+        MENUITEM "&Nápověda k filtrům...", ID_TOOLS_FILTER_HELP
         MENUITEM SEPARATOR
         POPUP "Vybrat &filtr"
         BEGIN

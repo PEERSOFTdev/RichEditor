@@ -643,7 +643,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     break;
                 
                 // Tools -> Filter Help
-                case ID_TOOLS_MANAGEFILTERS:
+                case ID_TOOLS_FILTER_HELP:
                     {
                         WCHAR szHelpText[2048], szTitle[64];
                         LoadStringResource(IDS_FILTER_HELP_TEXT, szHelpText, 2048);
@@ -4369,7 +4369,6 @@ void SaveCurrentFilter()
         wcscpy_s(szREPLFilterName, MAX_FILTER_NAME, g_Filters[g_nSelectedREPLFilter].szName);
     }
     
-    // Use our custom WriteINIValue to save (works with UNC paths)
     WriteINIValue(szIniPath, L"Settings", L"CurrentFilter", szFilterName);
     WriteINIValue(szIniPath, L"Settings", L"CurrentREPLFilter", szREPLFilterName);
 }
@@ -4389,7 +4388,6 @@ void SaveCurrentREPLFilter()
         wcscpy_s(szREPLFilterName, MAX_FILTER_NAME, g_Filters[g_nSelectedREPLFilter].szName);
     }
     
-    // Use our custom WriteINIValue to save (works with UNC paths)
     WriteINIValue(szIniPath, L"Settings", L"CurrentREPLFilter", szREPLFilterName);
 }
 
