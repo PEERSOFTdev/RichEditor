@@ -1366,6 +1366,19 @@ void BuildFileNewMenu(HWND hwnd)
                 continue;
             }
             
+            // Skip unknown extensions (only show known types: md, txt, html, htm)
+            BOOL isKnownExtension = FALSE;
+            if (_wcsicmp(g_Templates[i].szFileExtension, L"md") == 0 ||
+                _wcsicmp(g_Templates[i].szFileExtension, L"txt") == 0 ||
+                _wcsicmp(g_Templates[i].szFileExtension, L"html") == 0 ||
+                _wcsicmp(g_Templates[i].szFileExtension, L"htm") == 0) {
+                isKnownExtension = TRUE;
+            }
+            
+            if (!isKnownExtension) {
+                continue;  // Skip this template for File→New menu
+            }
+            
             // Find or create file type
             int typeIndex = -1;
             for (int t = 0; t < fileTypeCount; t++) {
@@ -1380,7 +1393,7 @@ void BuildFileNewMenu(HWND hwnd)
                 typeIndex = fileTypeCount++;
                 wcscpy(fileTypes[typeIndex].szExtension, g_Templates[i].szFileExtension);
                 
-                // Generate display name based on extension
+                // Generate display name based on extension (only known types reach here)
                 if (_wcsicmp(g_Templates[i].szFileExtension, L"md") == 0) {
                     LoadString(GetModuleHandle(NULL), IDS_MARKDOWN_DOCUMENT, fileTypes[typeIndex].szTypeName, 64);
                 } else if (_wcsicmp(g_Templates[i].szFileExtension, L"txt") == 0) {
@@ -1388,13 +1401,8 @@ void BuildFileNewMenu(HWND hwnd)
                 } else if (_wcsicmp(g_Templates[i].szFileExtension, L"html") == 0 || 
                            _wcsicmp(g_Templates[i].szFileExtension, L"htm") == 0) {
                     LoadString(GetModuleHandle(NULL), IDS_HTML_DOCUMENT, fileTypes[typeIndex].szTypeName, 64);
-                } else {
-                    // Generic name: "XXX Document" (fallback for unknown extensions)
-                    WCHAR szUpper[MAX_TEMPLATE_FILEEXT];
-                    wcscpy(szUpper, g_Templates[i].szFileExtension);
-                    _wcsupr(szUpper);  // Convert to uppercase
-                    swprintf(fileTypes[typeIndex].szTypeName, 64, L"%s Document", szUpper);
                 }
+                // Note: No fallback needed - unknown extensions filtered earlier
                 
                 fileTypes[typeIndex].count = 0;
             }
@@ -4151,23 +4159,90 @@ BOOL FileSaveAs()
     
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
-    // Build localized filter string
-    WCHAR szFilterText[64], szFilterAll[64];
-    WCHAR szFilter[256];
-    LoadStringResource(IDS_FILE_FILTER_TEXT, szFilterText, 64);
-    LoadStringResource(IDS_FILE_FILTER_ALL, szFilterAll, 64);
-    
-    // Manually build the double-null-terminated filter string
+    // Build dynamic filter string based on template file types
+    // Format: "Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+    WCHAR szFilter[1024];  // Large buffer for multiple file types
     int pos = 0;
-    wcscpy(szFilter + pos, szFilterText);
-    pos += wcslen(szFilterText) + 1;
-    wcscpy(szFilter + pos, L"*.txt");
-    pos += wcslen(L"*.txt") + 1;
+    
+    // Track which extensions we've added
+    WCHAR addedExtensions[32][MAX_TEMPLATE_FILEEXT];
+    int addedCount = 0;
+    
+    // Add filters for template file types (only known extensions)
+    for (int i = 0; i < g_nTemplateCount; i++) {
+        if (g_Templates[i].szFileExtension[0] == L'\0') continue;
+        
+        // Only process known extensions
+        BOOL isKnownExtension = FALSE;
+        if (_wcsicmp(g_Templates[i].szFileExtension, L"md") == 0 ||
+            _wcsicmp(g_Templates[i].szFileExtension, L"txt") == 0 ||
+            _wcsicmp(g_Templates[i].szFileExtension, L"html") == 0 ||
+            _wcsicmp(g_Templates[i].szFileExtension, L"htm") == 0) {
+            isKnownExtension = TRUE;
+        }
+        
+        if (!isKnownExtension) continue;  // Skip unknown extensions
+        
+        // Check if we've already added this extension
+        BOOL alreadyAdded = FALSE;
+        for (int j = 0; j < addedCount; j++) {
+            if (_wcsicmp(addedExtensions[j], g_Templates[i].szFileExtension) == 0) {
+                alreadyAdded = TRUE;
+                break;
+            }
+        }
+        
+        if (!alreadyAdded && addedCount < 32) {
+            // Store extension as added
+            wcscpy(addedExtensions[addedCount++], g_Templates[i].szFileExtension);
+            
+            // Generate filter label: "Markdown Files (*.md)" or "Text Files (*.txt)"
+            WCHAR szFilterLabel[128];
+            WCHAR szPattern[64];
+            
+            if (_wcsicmp(g_Templates[i].szFileExtension, L"md") == 0) {
+                wcscpy(szFilterLabel, L"Markdown Files (*.md)");
+                wcscpy(szPattern, L"*.md");
+            } else if (_wcsicmp(g_Templates[i].szFileExtension, L"txt") == 0) {
+                wcscpy(szFilterLabel, L"Text Files (*.txt)");
+                wcscpy(szPattern, L"*.txt");
+            } else if (_wcsicmp(g_Templates[i].szFileExtension, L"html") == 0 ||
+                       _wcsicmp(g_Templates[i].szFileExtension, L"htm") == 0) {
+                wcscpy(szFilterLabel, L"HTML Files (*.html;*.htm)");
+                wcscpy(szPattern, L"*.html;*.htm");
+            } else {
+                // Unknown extension - skip it (shouldn't reach here due to earlier filter)
+                addedCount--;  // Don't count it
+                continue;
+            }
+            
+            // Add to filter string
+            wcscpy(szFilter + pos, szFilterLabel);
+            pos += wcslen(szFilterLabel) + 1;
+            wcscpy(szFilter + pos, szPattern);
+            pos += wcslen(szPattern) + 1;
+        }
+    }
+    
+    // Always add "All Files (*.*)" as last option
+    WCHAR szFilterAll[64];
+    LoadStringResource(IDS_FILE_FILTER_ALL, szFilterAll, 64);
     wcscpy(szFilter + pos, szFilterAll);
     pos += wcslen(szFilterAll) + 1;
     wcscpy(szFilter + pos, L"*.*");
     pos += wcslen(L"*.*") + 1;
     szFilter[pos] = L'\0';  // Double null terminator
+    
+    // Determine default extension based on current file or "txt" as fallback
+    WCHAR szDefExt[MAX_TEMPLATE_FILEEXT] = L"txt";
+    if (g_szFileName[0] != L'\0') {
+        // Extract extension from current filename
+        ExtractFileExtension(g_szFileName, szDefExt, MAX_TEMPLATE_FILEEXT);
+        // If no extension found, default to txt
+        if (szDefExt[0] == L'\0') {
+            wcscpy(szDefExt, L"txt");
+        }
+    }
     
     ofn.lStructSize = sizeof(OPENFILENAME);
     ofn.hwndOwner = g_hWndMain;
@@ -4176,7 +4251,7 @@ BOOL FileSaveAs()
     ofn.lpstrFilter = szFilter;
     ofn.nFilterIndex = 1;
     ofn.lpstrInitialDir = szInitialDir;
-    ofn.lpstrDefExt = L"txt";
+    ofn.lpstrDefExt = szDefExt;  // Dynamic default extension based on current file
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
     
     // Show dialog
