@@ -726,6 +726,436 @@ if (g_bIsResumedFile) {
 6. **Never leave orphaned temp files** - Always cleanup on WriteFile failures
 7. **Never forget to clear INI after reading** - Multi-instance will break
 
+## Phase 2.7: Template System Implementation (Important Patterns)
+
+### Overview
+
+Phase 2.7 implements a template system for quick text insertion with variable expansion. Similar to Markdown editors (Typora, Obsidian) and IDEs (Visual Studio Code snippets).
+
+**Key Design Goals:**
+- Fast template insertion with keyboard shortcuts
+- Variable expansion (%cursor%, %date%, %selection%, etc.)
+- File type filtering (Markdown templates only in .md files)
+- Category organization (similar to filter system)
+- Dynamic File→New submenu (create files from templates)
+- Accessibility-first (menu descriptions, screen reader support)
+
+### Template System Architecture
+
+**Storage:**
+- Templates stored in `[Templates]` section of INI file
+- Up to 100 templates supported (MAX_TEMPLATES constant)
+- Auto-generated defaults: 15 Markdown templates
+
+**Template Structure:**
+```ini
+[Template1]
+Name=Heading 1
+Name.cs_CZ=Nadpis 1                    ; Optional Czech translation
+Description=Insert a level 1 heading
+Description.cs_CZ=Vložit nadpis úrovně 1
+Category=Markdown                      ; Menu grouping
+FileExtension=md                       ; Filter by file type
+Template=# %cursor%                    ; Template text with variables
+Shortcut=Ctrl+1                        ; Optional keyboard shortcut
+```
+
+**Core Components:**
+- `TemplateInfo` struct - Holds template metadata (name, description, shortcut, etc.)
+- `g_Templates[]` - Global array of loaded templates (MAX_TEMPLATES=100)
+- `g_nTemplateCount` - Number of loaded templates
+- `g_szCurrentFileExtension` - Current file's extension (affects filtering)
+
+### Critical Pattern: Dynamic Accelerator Table
+
+**Problem Solved:** Template keyboard shortcuts must work alongside built-in shortcuts (Ctrl+S, Ctrl+N, etc.) without conflicts.
+
+**Solution:** Build dynamic accelerator table at startup combining built-in + template shortcuts.
+
+**Implementation:**
+```cpp
+// In WinMain (line ~205):
+LoadTemplates(szIniPath);  // Load templates from INI
+g_hAccel = BuildAcceleratorTable();  // Build dynamic table
+
+// Message loop:
+while (GetMessage(&msg, NULL, 0, 0)) {
+    if (!TranslateAccelerator(g_hWndMain, g_hAccel, &msg)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+}
+
+// Cleanup:
+if (g_hAccel) DestroyAcceleratorTable(g_hAccel);
+```
+
+**BuildAcceleratorTable() Function (~line 922):**
+```cpp
+HACCEL BuildAcceleratorTable() {
+    ACCEL accels[128];  // 14 built-in + up to 100 templates
+    int count = 0;
+    
+    // Add built-in shortcuts (14 total)
+    accels[count++] = {FVIRTKEY | FCONTROL, 'N', ID_FILE_NEW};
+    accels[count++] = {FVIRTKEY | FCONTROL, 'O', ID_FILE_OPEN};
+    // ... etc
+    
+    // Add template shortcuts (skip if conflicts with built-in)
+    for (int i = 0; i < g_nTemplateCount; i++) {
+        if (g_Templates[i].vkKey != 0) {  // Has shortcut
+            if (!IsShortcutReserved(g_Templates[i].vkKey, g_Templates[i].dwModifiers)) {
+                accels[count].fVirt = FVIRTKEY | g_Templates[i].dwModifiers;
+                accels[count].key = g_Templates[i].vkKey;
+                accels[count].cmd = ID_TOOLS_TEMPLATE_BASE + i;
+                count++;
+            }
+        }
+    }
+    
+    return CreateAcceleratorTable(accels, count);
+}
+```
+
+**Why This Pattern:**
+- Static RC accelerator table replaced with dynamic generation
+- Template shortcuts loaded from INI at runtime
+- Conflicts automatically prevented via IsShortcutReserved()
+- User can add/remove template shortcuts without recompiling
+
+### Critical Pattern: Variable Expansion
+
+**Problem Solved:** Templates need dynamic content (cursor position, current date, selected text, clipboard contents).
+
+**Solution:** String replacement with special variable handling for `%cursor%`.
+
+**ExpandTemplateVariables() Function (~line 1107):**
+```cpp
+LPWSTR ExpandTemplateVariables(const WCHAR *szTemplate, LONG *pCursorOffset) {
+    size_t len = wcslen(szTemplate);
+    size_t bufferSize = len * 4 + 4096;  // Extra space for expansions
+    LPWSTR pszResult = (LPWSTR)malloc(bufferSize * sizeof(WCHAR));
+    LPWSTR pDest = pszResult;
+    const WCHAR *pSrc = szTemplate;
+    
+    *pCursorOffset = -1;  // No cursor marker found yet
+    
+    while (*pSrc) {
+        if (wcsncmp(pSrc, L"%cursor%", 8) == 0) {
+            if (*pCursorOffset < 0) {
+                // First occurrence - mark position
+                *pCursorOffset = (LONG)(pDest - pszResult);
+            }
+            // Skip "%cursor%" (don't insert literal text)
+            pSrc += 8;
+        }
+        else if (wcsncmp(pSrc, L"%selection%", 11) == 0) {
+            // Get current selection from RichEdit
+            CHARRANGE cr;
+            SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+            int nSelLen = cr.cpMax - cr.cpMin;
+            if (nSelLen > 0) {
+                WCHAR *szSelection = GetSelectedText();
+                wcscpy(pDest, szSelection);
+                pDest += wcslen(szSelection);
+                free(szSelection);
+            }
+            pSrc += 11;
+        }
+        else if (wcsncmp(pSrc, L"%date%", 6) == 0) {
+            // Insert current date (YYYY-MM-DD)
+            SYSTEMTIME st;
+            GetLocalTime(&st);
+            swprintf(pDest, 16, L"%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
+            pDest += wcslen(pDest);
+            pSrc += 6;
+        }
+        // ... similar for %time%, %datetime%, %clipboard%
+        else {
+            *pDest++ = *pSrc++;  // Copy literal character
+        }
+    }
+    
+    *pDest = L'\0';
+    return pszResult;  // Caller must free!
+}
+```
+
+**Key Details:**
+- `%cursor%` is special: first occurrence marks position, rest removed
+- Caller receives cursor offset in `*pCursorOffset` parameter
+- Returned string must be freed by caller (malloc'd memory)
+- Buffer oversized to prevent overflow during expansion
+- Unknown variables left as literals (e.g., `%foo%` stays `%foo%`)
+
+### Critical Pattern: File Extension Tracking
+
+**Problem Solved:** Template menu must filter by current file type (Markdown templates only in .md files).
+
+**Solution:** Track current extension globally, rebuild menu when it changes.
+
+**Global Variable:**
+```cpp
+WCHAR g_szCurrentFileExtension[MAX_TEMPLATE_FILEEXT] = L"txt";  // Default
+```
+
+**UpdateFileExtension() Function (~line 1063):**
+```cpp
+void UpdateFileExtension(const WCHAR *szFilePath) {
+    if (szFilePath == NULL || szFilePath[0] == L'\0') {
+        wcscpy(g_szCurrentFileExtension, L"txt");  // Default for untitled
+    } else {
+        ExtractFileExtension(szFilePath, g_szCurrentFileExtension, MAX_TEMPLATE_FILEEXT);
+    }
+    
+    // Rebuild template menu with new filter
+    if (g_hWndMain) {
+        BuildTemplateMenu(g_hWndMain);
+        BuildFileNewMenu(g_hWndMain);  // Also rebuild File→New
+    }
+}
+```
+
+**Called From:**
+- `WM_CREATE` - Initialize to "txt"
+- `FileNew()` - Reset to "txt" for untitled
+- `LoadTextFile()` - Extract extension from opened file
+- `SaveTextFile()` - Update if extension changed (Save As)
+- `FileNewFromTemplate()` - Set based on template's FileExtension field
+
+**Why This Pattern:**
+- Menu automatically updates when file type changes
+- No manual refresh needed
+- Works seamlessly with Save As (change .txt → .md)
+- User sees only relevant templates
+
+### Critical Pattern: File→New Submenu Conversion
+
+**Problem Solved:** Convert File→New from menu item to submenu without breaking Ctrl+N.
+
+**Solution:** Replace menu item with submenu, add "Blank Document" as first item, map both IDs to FileNew().
+
+**BuildFileNewMenu() Function (~line 1320):**
+```cpp
+void BuildFileNewMenu(HWND hwnd) {
+    HMENU hMenu = GetMenu(hwnd);
+    HMENU hFileMenu = GetSubMenu(hMenu, 0);  // File menu is first
+    
+    // Find existing "New" item
+    int newPos = -1;
+    for (int i = 0; i < GetMenuItemCount(hFileMenu); i++) {
+        if (GetMenuItemID(hFileMenu, i) == ID_FILE_NEW) {
+            newPos = i;
+            break;
+        }
+    }
+    
+    // Convert to submenu if needed
+    HMENU hNewMenu = NULL;
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(MENUITEMINFO);
+    mii.fMask = MIIM_SUBMENU;
+    GetMenuItemInfo(hFileMenu, newPos, TRUE, &mii);
+    
+    if (mii.hSubMenu == NULL) {
+        // Create new submenu
+        hNewMenu = CreatePopupMenu();
+        mii.fMask = MIIM_SUBMENU | MIIM_STRING;
+        mii.hSubMenu = hNewMenu;
+        mii.dwTypeData = L"&New";
+        SetMenuItemInfo(hFileMenu, newPos, TRUE, &mii);
+    } else {
+        hNewMenu = mii.hSubMenu;
+        // Clear existing items
+        while (GetMenuItemCount(hNewMenu) > 0) {
+            DeleteMenu(hNewMenu, 0, MF_BYPOSITION);
+        }
+    }
+    
+    // Add "Blank Document" as first item (preserves Ctrl+N behavior)
+    WCHAR szBlankDoc[64];
+    LoadString(GetModuleHandle(NULL), IDS_BLANK_DOCUMENT, szBlankDoc, 64);
+    WCHAR szMenuItem[80];
+    swprintf(szMenuItem, 80, L"&%s\tCtrl+N", szBlankDoc);
+    AppendMenu(hNewMenu, MF_STRING, ID_FILE_NEW_BLANK, szMenuItem);
+    
+    AppendMenu(hNewMenu, MF_SEPARATOR, 0, NULL);
+    
+    // Group templates by file extension
+    // Add "Markdown Document", "Text Document", etc.
+    // (uses first template of each type)
+    // ...
+    
+    DrawMenuBar(hwnd);
+}
+```
+
+**WM_COMMAND Handling:**
+```cpp
+case ID_FILE_NEW:
+case ID_FILE_NEW_BLANK:  // Both IDs call FileNew()
+    FileNew();
+    break;
+
+// In default case:
+else if (wmId >= ID_FILE_NEW_TEMPLATE_BASE && wmId < ID_FILE_NEW_TEMPLATE_BASE + 32) {
+    int templateIdx = wmId - ID_FILE_NEW_TEMPLATE_BASE;
+    if (templateIdx >= 0 && templateIdx < g_nTemplateCount) {
+        FileNewFromTemplate(templateIdx);
+    }
+}
+```
+
+**Why This Pattern:**
+- Ctrl+N accelerator still works (mapped to ID_FILE_NEW)
+- ID_FILE_NEW and ID_FILE_NEW_BLANK both call FileNew() (backwards compatible)
+- Template items use separate ID range (ID_FILE_NEW_TEMPLATE_BASE = 8000)
+- Menu can be converted at runtime without RC file changes
+
+### Global Variables (Phase 2.7)
+
+```cpp
+// Template system
+TemplateInfo g_Templates[MAX_TEMPLATES];  // Array of loaded templates
+int g_nTemplateCount = 0;                 // Number of loaded templates
+WCHAR g_szCurrentFileExtension[MAX_TEMPLATE_FILEEXT] = L"txt";  // Current file extension
+HACCEL g_hAccel = NULL;                   // Dynamic accelerator table
+```
+
+**Line Numbers:** Global declarations around line 40-50 in main.cpp
+
+### Key Functions (Phase 2.7)
+
+**Template Loading & Parsing:**
+- `LoadTemplates()` - Load templates from INI with localization (~line 652)
+- `ParseShortcut()` - Parse "Ctrl+Shift+F1" strings to VK codes (~line 540)
+- `IsShortcutReserved()` - Check if shortcut conflicts with built-in (~line 636)
+- `UnescapeTemplateString()` - Handle \n, \t, \\ escapes (~line 593)
+
+**Template Expansion & Insertion:**
+- `ExpandTemplateVariables()` - Replace all variables with values (~line 1107)
+- `InsertTemplate()` - Main insertion logic with cursor positioning (~line 1221)
+- `ExtractFileExtension()` - Extract extension from file path (~line 1028)
+- `UpdateFileExtension()` - Update global extension, rebuild menus (~line 1063)
+
+**Menu Building:**
+- `BuildAcceleratorTable()` - Dynamic accelerator table (~line 922)
+- `BuildTemplateMenu()` - Tools→Insert Template submenu (~line 1149)
+- `BuildFileNewMenu()` - File→New submenu with templates (~line 1320)
+
+**File Creation:**
+- `FileNewFromTemplate()` - Create new file with template (~line 3822)
+
+### Important Implementation Notes
+
+**Shortcut Parsing:**
+```cpp
+// Supports: Ctrl+Key, Ctrl+Shift+Key, Ctrl+Alt+Key, F1-F12, etc.
+BOOL ParseShortcut(const WCHAR *szShortcut, WORD *pvkKey, DWORD *pdwModifiers) {
+    *pvkKey = 0;
+    *pdwModifiers = 0;
+    
+    // Parse modifiers
+    if (wcsstr(szShortcut, L"Ctrl+")) *pdwModifiers |= FCONTROL;
+    if (wcsstr(szShortcut, L"Shift+")) *pdwModifiers |= FSHIFT;
+    if (wcsstr(szShortcut, L"Alt+")) *pdwModifiers |= FALT;
+    
+    // Find last '+' to get key part
+    const WCHAR *pKey = wcsrchr(szShortcut, L'+');
+    if (pKey) pKey++; else pKey = szShortcut;
+    
+    // Map key name to VK code using KeyMapping table
+    for (int i = 0; i < KeyMappingCount; i++) {
+        if (_wcsicmp(pKey, KeyMapping[i].name) == 0) {
+            *pvkKey = KeyMapping[i].vkCode;
+            return TRUE;
+        }
+    }
+    
+    return FALSE;  // Unknown key
+}
+```
+
+**Reserved Shortcuts Table:**
+```cpp
+struct ReservedShortcut {
+    WORD vkKey;
+    DWORD dwModifiers;
+    const WCHAR *description;
+};
+
+ReservedShortcut g_ReservedShortcuts[] = {
+    {VK_N, FCONTROL, L"Ctrl+N (File→New)"},
+    {VK_O, FCONTROL, L"Ctrl+O (File→Open)"},
+    {VK_S, FCONTROL, L"Ctrl+S (File→Save)"},
+    // ... 14 total
+};
+```
+
+**Template Insertion Behavior:**
+```cpp
+void InsertTemplate(int nTemplateIndex) {
+    TemplateInfo *pTemplate = &g_Templates[nTemplateIndex];
+    
+    // Check file extension filter
+    if (pTemplate->szFileExtension[0] != L'\0') {
+        if (_wcsicmp(pTemplate->szFileExtension, g_szCurrentFileExtension) != 0) {
+            return;  // Silently fail (wrong file type)
+        }
+    }
+    
+    // Expand variables
+    LONG nCursorOffset = -1;
+    LPWSTR pszExpanded = ExpandTemplateVariables(pTemplate->szTemplate, &nCursorOffset);
+    
+    if (pszExpanded) {
+        // Replace selection with expanded template
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+        
+        // Position cursor if %cursor% was found
+        if (nCursorOffset >= 0) {
+            CHARRANGE cr;
+            SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+            cr.cpMin = cr.cpMax - wcslen(pszExpanded) + nCursorOffset;
+            cr.cpMax = cr.cpMin;
+            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+        }
+        
+        free(pszExpanded);
+        g_bModified = TRUE;
+        UpdateTitle();
+    }
+}
+```
+
+### String Resources (Phase 2.7)
+
+```cpp
+#define IDS_BLANK_DOCUMENT              2106
+#define IDS_MARKDOWN_DOCUMENT           2108
+#define IDS_TEXT_DOCUMENT               2110
+#define IDS_HTML_DOCUMENT               2112
+#define IDS_NO_TEMPLATES                2114
+#define IDS_NO_TEMPLATES_FOR_FILETYPE   2116
+```
+
+**Localization:**
+- English: "Blank Document", "Markdown Document", etc.
+- Czech: "Prázdný dokument", "Markdown dokument", etc.
+
+**Usage:** BuildFileNewMenu() and BuildTemplateMenu() use LoadString() for all display text.
+
+### Important Don'ts (Phase 2.7 Specific)
+
+1. **Never override reserved shortcuts** - Check IsShortcutReserved() before adding
+2. **Never forget to rebuild menus after extension change** - Call BuildTemplateMenu() in UpdateFileExtension()
+3. **Never assume %cursor% exists** - Check nCursorOffset >= 0 before positioning
+4. **Never forget to free expanded template** - ExpandTemplateVariables() returns malloc'd memory
+5. **Never use static accelerator table** - Build dynamically with BuildAcceleratorTable()
+6. **Never show error dialogs for wrong file type** - Silently skip (better UX)
+7. **Never forget to call UpdateFileExtension() in file operations** - Affects menu filtering
+
 ## Common Tasks
 
 ### Adding a New Setting

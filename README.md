@@ -411,6 +411,191 @@ OriginalPath=                 ; Empty for untitled, or original file path for sa
 - Resume file visible in `%TEMP%\RichEditor\` until explicitly saved
   - This is by design: serves as backup until you save
 
+### Phase 2.7 (Complete)
+
+**Template System:**
+- Pre-defined text snippets with variable expansion
+- Dynamic File → New submenu (create files from templates)
+- Tools → Insert Template menu (insert templates into current document)
+- Keyboard shortcuts for quick template insertion (Ctrl+1, Ctrl+B, etc.)
+- File type associations (templates filter by current file extension)
+- Category organization (Markdown, Plain Text, HTML, etc.)
+- Full localization support (English + Czech)
+
+**Template Variables:**
+- `%cursor%` - Positions cursor after template insertion (first occurrence)
+- `%selection%` - Inserts current text selection
+- `%date%` - Current date in YYYY-MM-DD format
+- `%time%` - Current time in HH:MM:SS format
+- `%datetime%` - Combined date and time
+- `%clipboard%` - Inserts clipboard contents
+- Unknown variables preserved as literals
+
+**File → New Menu:**
+- **Blank Document** (Ctrl+N) - Traditional empty document (default)
+- **Markdown Document** - Creates file with Front Matter template
+- **Text Document** - Creates file with Plain Text template
+- **HTML Document** - Creates file with HTML boilerplate template
+- Dynamic menu items based on available templates
+- Document extension set automatically (affects template filtering)
+- Document marked as modified (prompts to save on first save)
+
+**Tools → Insert Template Menu:**
+- Grouped by category (e.g., "Markdown" with 15 templates)
+- Filtered by current file extension (Markdown templates only show in .md files)
+- Shows template descriptions for accessibility (configurable)
+- Keyboard shortcuts shown in menu (Ctrl+1 for "Heading 1", etc.)
+- Right-click → Insert Template also available
+
+**15 Default Markdown Templates:**
+1. **Heading 1** (Ctrl+1) - `# %cursor%`
+2. **Heading 2** (Ctrl+2) - `## %cursor%`
+3. **Heading 3** (Ctrl+3) - `### %cursor%`
+4. **Bold** (Ctrl+B) - `**%selection%**` (wraps selected text)
+5. **Italic** (Ctrl+I) - `*%selection%*`
+6. **Code Block** (Ctrl+Shift+C) - Fenced code block with cursor inside
+7. **Inline Code** (Ctrl+`) - Backtick-wrapped code
+8. **Unordered List** (Ctrl+Shift+U) - `- %cursor%`
+9. **Ordered List** (Ctrl+Shift+O) - `1. %cursor%`
+10. **Checkbox** (Ctrl+Shift+X) - `- [ ] %cursor%`
+11. **Link** (Ctrl+K) - `[%selection%](url)`
+12. **Blockquote** (Ctrl+Shift+Q) - `> %cursor%`
+13. **Horizontal Rule** (Ctrl+Shift+H) - `---`
+14. **Table** (Ctrl+Shift+T) - 3-column table template
+15. **Front Matter** (Ctrl+Shift+F) - YAML front matter with `%date%` variable
+
+**How It Works:**
+1. **File → New → Markdown Document**:
+   - Creates new untitled document
+   - Inserts Front Matter template:
+     ```yaml
+     ---
+     title: [cursor here]
+     date: 2026-01-14
+     author: 
+     ---
+     
+     ```
+   - Extension set to "md" (enables Markdown templates in menu)
+   - Document marked as modified
+
+2. **Tools → Insert Template → Markdown → Bold** (or Ctrl+B):
+   - Selects text: "important"
+   - Press Ctrl+B
+   - Text becomes: "**important**"
+   - Works like traditional Markdown editors
+
+3. **Custom Template Creation**:
+   - Edit `RichEditor.ini` (same folder as .exe)
+   - Add template to `[Templates]` section
+   - Supports all variable types
+   - Restart editor to reload templates
+
+**INI Configuration:**
+```ini
+[Templates]
+Count=15
+
+[Template1]
+Name=Heading 1
+Name.cs_CZ=Nadpis 1
+Description=Insert a level 1 heading
+Description.cs_CZ=Vložit nadpis úrovně 1
+Category=Markdown
+FileExtension=md
+Template=# %cursor%
+Shortcut=Ctrl+1
+
+[Template5]
+Name=Bold
+Name.cs_CZ=Tučné
+Description=Wrap selected text in bold formatting
+Description.cs_CZ=Obalit vybraný text tučným formátováním
+Category=Markdown
+FileExtension=md
+Template=**%selection%**
+Shortcut=Ctrl+B
+
+[Template15]
+Name=Front Matter
+Description=Insert YAML front matter with title, date, and author fields
+Category=Markdown
+FileExtension=md
+Template=---\ntitle: %cursor%\ndate: %date%\nauthor: \n---\n\n
+Shortcut=Ctrl+Shift+F
+```
+
+**Template Fields:**
+- `Name=` - Template name (required)
+- `Name.cs_CZ=` - Czech translation (optional, for localization)
+- `Description=` - Template description (optional, for accessibility)
+- `Description.cs_CZ=` - Czech description (optional)
+- `Category=` - Category for menu grouping (default: "General")
+- `FileExtension=` - File type filter (e.g., "md", "txt", "html")
+  - Leave empty for universal templates (available in all file types)
+- `Template=` - Template text with variables (required)
+  - Use `\n` for newlines, `\t` for tabs, `\\` for literal backslash
+- `Shortcut=` - Keyboard shortcut (optional)
+  - Format: `Ctrl+Key`, `Ctrl+Shift+Key`, `Ctrl+Alt+Key`, `F1`-`F12`
+  - Cannot override built-in shortcuts (Ctrl+S, Ctrl+N, etc.)
+
+**Reserved Keyboard Shortcuts (Cannot Be Used):**
+- File: Ctrl+N, Ctrl+O, Ctrl+S
+- Edit: Ctrl+Z, Ctrl+Y, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+A
+- View: Ctrl+W
+- Tools: Ctrl+Enter, Ctrl+Shift+I, Ctrl+Shift+Q
+- Other: F5, Alt+F4
+
+**Accessibility:**
+- Template descriptions shown in menu items by default
+- Format: "Heading 1: Insert a level 1 heading"
+- Screen readers (NVDA, JAWS, Narrator) read descriptions automatically
+- Configurable via `ShowMenuDescriptions=1` in INI
+- Keyboard shortcuts shown in menu (e.g., "Ctrl+1")
+- Full support for tab navigation and arrow key navigation
+
+**User Workflows:**
+
+1. **Markdown Note-Taking**:
+   - File → New → Markdown Document
+   - Front matter inserted automatically (title, date, author)
+   - Type title after "title: " field
+   - Press Ctrl+1 for main heading
+   - Press Ctrl+Shift+U for bulleted list
+   - Save as `notes.md`
+
+2. **Quick Formatting**:
+   - Type "important concept"
+   - Select the text
+   - Press Ctrl+B → becomes "**important concept**"
+   - Press Ctrl+I → becomes "***important concept***"
+   - Undo works normally (Ctrl+Z)
+
+3. **Custom Templates**:
+   - Create email signature template
+   - Add to INI: `Template=Best regards,\n%clipboard%` (inserts name from clipboard)
+   - Assign Ctrl+Shift+S shortcut
+   - Use in any text file
+
+**Technical Details:**
+- Up to 100 templates supported
+- Template text up to 4,096 characters
+- Dynamic accelerator table (combines built-in + template shortcuts)
+- Menu rebuilds when file extension changes (automatic filtering)
+- Variable expansion is case-insensitive
+- Multiple `%cursor%` markers: first one used, rest removed
+- Template insertion replaces current selection (or inserts at cursor)
+- Document marked as modified after insertion
+- Undo/Redo fully supported
+
+**Limitations:**
+- Template shortcuts cannot override built-in editor shortcuts
+- Reserved shortcut warnings not shown (silently ignored)
+- Template names limited to 64 characters
+- Category names limited to 64 characters
+- File extensions limited to 16 characters
+- Template text limited to 4,096 characters
+
 ### Future Phases (Ideas)
 - Find/Replace functionality
 - Font selection dialog
