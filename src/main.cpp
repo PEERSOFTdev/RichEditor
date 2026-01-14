@@ -84,6 +84,105 @@ BOOL g_bLastOperationWasFilter = FALSE;  // TRUE if last operation was a filter
 #define ID_FILE_MRU_BASE 5000      // Base ID for MRU menu items (5000-5009)
 #define ID_CONTEXT_FILTER_BASE 6000  // Base ID for context menu filter items (6000-6099)
 
+//============================================================================
+// Template System
+//============================================================================
+#define MAX_TEMPLATES 100
+#define MAX_TEMPLATE_NAME 64
+#define MAX_TEMPLATE_VALUE 4096     // Template text with variables (increased for complex templates)
+#define MAX_TEMPLATE_DESC 256
+#define MAX_TEMPLATE_CATEGORY 32
+#define MAX_TEMPLATE_FILEEXT 16
+
+#define ID_TOOLS_TEMPLATE_BASE 7000      // Base ID for template menu items (7000-7099)
+#define ID_FILE_NEW_TEMPLATE_BASE 8000   // Base ID for File→New submenu (8000-8031)
+
+#define ID_TOOLS_TEMPLATE_BASE 7000      // Base ID for template menu items (7000-7099)
+#define ID_FILE_NEW_TEMPLATE_BASE 8000   // Base ID for File→New submenu (8000-8031)
+
+//============================================================================
+// Keyboard Shortcut Support for Templates
+//============================================================================
+
+struct KeyMapping {
+    LPCWSTR szName;
+    WORD wVirtualKey;
+};
+
+// Map key names to VK codes for shortcut parsing
+const KeyMapping g_KeyMap[] = {
+    // Function keys
+    { L"F1", VK_F1 }, { L"F2", VK_F2 }, { L"F3", VK_F3 }, { L"F4", VK_F4 },
+    { L"F5", VK_F5 }, { L"F6", VK_F6 }, { L"F7", VK_F7 }, { L"F8", VK_F8 },
+    { L"F9", VK_F9 }, { L"F10", VK_F10 }, { L"F11", VK_F11 }, { L"F12", VK_F12 },
+    
+    // Number keys
+    { L"0", '0' }, { L"1", '1' }, { L"2", '2' }, { L"3", '3' }, { L"4", '4' },
+    { L"5", '5' }, { L"6", '6' }, { L"7", '7' }, { L"8", '8' }, { L"9", '9' },
+    
+    // Letter keys
+    { L"A", 'A' }, { L"B", 'B' }, { L"C", 'C' }, { L"D", 'D' }, { L"E", 'E' },
+    { L"F", 'F' }, { L"G", 'G' }, { L"H", 'H' }, { L"I", 'I' }, { L"J", 'J' },
+    { L"K", 'K' }, { L"L", 'L' }, { L"M", 'M' }, { L"N", 'N' }, { L"O", 'O' },
+    { L"P", 'P' }, { L"Q", 'Q' }, { L"R", 'R' }, { L"S", 'S' }, { L"T", 'T' },
+    { L"U", 'U' }, { L"V", 'V' }, { L"W", 'W' }, { L"X", 'X' }, { L"Y", 'Y' },
+    { L"Z", 'Z' },
+    
+    // Special keys
+    { L"Enter", VK_RETURN },
+    { L"Return", VK_RETURN },
+    { L"Space", VK_SPACE },
+    { L"Tab", VK_TAB },
+    { L"Backspace", VK_BACK },
+    { L"Delete", VK_DELETE },
+    { L"Insert", VK_INSERT },
+    { L"Home", VK_HOME },
+    { L"End", VK_END },
+    { L"PageUp", VK_PRIOR },
+    { L"PageDown", VK_NEXT },
+    { L"Up", VK_UP },
+    { L"Down", VK_DOWN },
+    { L"Left", VK_LEFT },
+    { L"Right", VK_RIGHT },
+    { L"Escape", VK_ESCAPE },
+    
+    // Punctuation
+    { L"Plus", VK_OEM_PLUS },
+    { L"Minus", VK_OEM_MINUS },
+    { L"Comma", VK_OEM_COMMA },
+    { L"Period", VK_OEM_PERIOD },
+    
+    { NULL, 0 }  // Sentinel
+};
+
+const int g_nKeyMapCount = (sizeof(g_KeyMap) / sizeof(KeyMapping)) - 1;
+
+// Built-in shortcuts that cannot be overridden by templates
+struct ReservedShortcut {
+    WORD wVirtualKey;
+    BYTE fModifiers;
+    LPCWSTR szDescription;
+};
+
+const ReservedShortcut g_ReservedShortcuts[] = {
+    { 'N', FCONTROL | FVIRTKEY, L"Ctrl+N (New File)" },
+    { 'O', FCONTROL | FVIRTKEY, L"Ctrl+O (Open)" },
+    { 'S', FCONTROL | FVIRTKEY, L"Ctrl+S (Save)" },
+    { 'Z', FCONTROL | FVIRTKEY, L"Ctrl+Z (Undo)" },
+    { 'Y', FCONTROL | FVIRTKEY, L"Ctrl+Y (Redo)" },
+    { 'X', FCONTROL | FVIRTKEY, L"Ctrl+X (Cut)" },
+    { 'C', FCONTROL | FVIRTKEY, L"Ctrl+C (Copy)" },
+    { 'V', FCONTROL | FVIRTKEY, L"Ctrl+V (Paste)" },
+    { 'A', FCONTROL | FVIRTKEY, L"Ctrl+A (Select All)" },
+    { 'W', FCONTROL | FVIRTKEY, L"Ctrl+W (Word Wrap)" },
+    { VK_F5, FVIRTKEY, L"F5 (Time/Date)" },
+    { VK_RETURN, FCONTROL | FVIRTKEY, L"Ctrl+Enter (Execute Filter)" },
+    { 'I', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+I (Start Interactive)" },
+    { 'Q', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+Q (Exit Interactive)" },
+    { 'T', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+T (Insert Template)" },
+    { 0, 0, NULL }  // Sentinel
+};
+
 enum FilterAction {
     FILTER_ACTION_INSERT = 0,
     FILTER_ACTION_DISPLAY = 1,
@@ -143,6 +242,44 @@ FilterInfo g_Filters[MAX_FILTERS];
 int g_nFilterCount = 0;
 int g_nCurrentFilter = -1;  // -1 = no filter selected, 0-99 = filter index (classic filters for Execute)
 int g_nSelectedREPLFilter = -1;  // Index of selected REPL filter (for Start Interactive Mode)
+
+//============================================================================
+// Template System
+//============================================================================
+
+struct TemplateInfo {
+    WCHAR szName[MAX_TEMPLATE_NAME];
+    WCHAR szDescription[MAX_TEMPLATE_DESC];
+    WCHAR szCategory[MAX_TEMPLATE_CATEGORY];
+    WCHAR szFileExtension[MAX_TEMPLATE_FILEEXT];  // Empty = always available
+    WCHAR szTemplate[MAX_TEMPLATE_VALUE];          // Raw template with variables
+    
+    // Localized display strings (for UI only)
+    WCHAR szLocalizedName[MAX_TEMPLATE_NAME];
+    WCHAR szLocalizedDescription[MAX_TEMPLATE_DESC];
+    
+    // Keyboard shortcuts
+    WORD wVirtualKey;      // 0 = no shortcut, VK_F1-VK_F12, '0'-'9', 'A'-'Z', etc.
+    BYTE fModifiers;       // FCONTROL, FSHIFT, FALT (bitwise OR)
+};
+
+TemplateInfo g_Templates[MAX_TEMPLATES];
+int g_nTemplateCount = 0;
+
+// Current file extension for template filtering
+WCHAR g_szCurrentFileExtension[MAX_TEMPLATE_FILEEXT] = L"txt";
+
+// File type tracking for File→New submenu
+struct FileTypeInfo {
+    WCHAR szCategory[MAX_TEMPLATE_CATEGORY];
+    WCHAR szExtension[MAX_TEMPLATE_FILEEXT];
+};
+
+FileTypeInfo g_FileTypes[32];  // Max 32 file types in New submenu
+int g_nFileTypeCount = 0;
+
+// Accelerator table management
+HACCEL g_hAccel = NULL;  // Dynamic accelerator table (includes built-in + template shortcuts)
 
 // REPL mode state (Phase 2.5)
 BOOL g_bREPLMode = FALSE;              // TRUE when in Interactive Mode
@@ -222,6 +359,13 @@ void AddToMRU(LPCWSTR pszFilePath);
 void UpdateMRUMenu(HWND hwnd);
 void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
 void GetINIFilePath(LPWSTR pszPath, DWORD dwSize);
+
+// Template system functions
+BOOL ParseShortcut(LPCWSTR pszShortcut, WORD* pVirtualKey, BYTE* pModifiers);
+BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers);
+void UnescapeTemplateString(LPCWSTR pszInput, LPWSTR pszOutput, DWORD dwOutputSize);
+void LoadTemplates();
+HACCEL BuildAcceleratorTable();
 
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
@@ -356,8 +500,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
         return 1;
     }
     
-    // Load accelerators
-    HACCEL hAccel = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDR_ACCELERATOR));
+    // Load accelerators - use dynamic table with template shortcuts
+    g_hAccel = BuildAcceleratorTable();
     
     // Show window
     ShowWindow(g_hWndMain, nCmdShow);
@@ -435,18 +579,297 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     // Message loop
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
-        if (!TranslateAccelerator(g_hWndMain, hAccel, &msg)) {
+        if (!TranslateAccelerator(g_hWndMain, g_hAccel, &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
     }
     
     // Cleanup
+    if (g_hAccel) {
+        DestroyAcceleratorTable(g_hAccel);
+    }
     if (g_hRichEditLib) {
         FreeLibrary(g_hRichEditLib);
     }
     
     return (int)msg.wParam;
+}
+
+//============================================================================
+// ParseShortcut - Parse shortcut string like "Ctrl+Shift+F1" into VK code + modifiers
+// Returns: TRUE if valid, FALSE if invalid
+//============================================================================
+BOOL ParseShortcut(LPCWSTR pszShortcut, WORD* pVirtualKey, BYTE* pModifiers)
+{
+    if (!pszShortcut || !pVirtualKey || !pModifiers) return FALSE;
+    
+    *pVirtualKey = 0;
+    *pModifiers = FVIRTKEY;  // Always virtual key
+    
+    // Copy shortcut string for tokenization (max 64 chars)
+    WCHAR szShortcut[64];
+    wcsncpy(szShortcut, pszShortcut, 63);
+    szShortcut[63] = L'\0';
+    
+    // Trim whitespace
+    LPWSTR psz = szShortcut;
+    while (*psz == L' ' || *psz == L'\t') psz++;
+    
+    if (*psz == L'\0') return FALSE;  // Empty string
+    
+    // Split by '+' and process tokens
+    WCHAR* pToken = wcstok(psz, L"+");
+    WCHAR szKeyName[32] = L"";
+    
+    while (pToken) {
+        // Trim whitespace from token
+        while (*pToken == L' ' || *pToken == L'\t') pToken++;
+        LPWSTR pEnd = pToken + wcslen(pToken) - 1;
+        while (pEnd > pToken && (*pEnd == L' ' || *pEnd == L'\t')) {
+            *pEnd = L'\0';
+            pEnd--;
+        }
+        
+        // Check if it's a modifier (case-insensitive)
+        if (_wcsicmp(pToken, L"Ctrl") == 0 || _wcsicmp(pToken, L"Control") == 0) {
+            *pModifiers |= FCONTROL;
+        } else if (_wcsicmp(pToken, L"Shift") == 0) {
+            *pModifiers |= FSHIFT;
+        } else if (_wcsicmp(pToken, L"Alt") == 0) {
+            *pModifiers |= FALT;
+        } else {
+            // This is the key name (last token)
+            wcscpy(szKeyName, pToken);
+        }
+        
+        pToken = wcstok(NULL, L"+");
+    }
+    
+    // Must have a key name
+    if (szKeyName[0] == L'\0') return FALSE;
+    
+    // Look up key name in mapping table (case-insensitive)
+    for (int i = 0; i < g_nKeyMapCount; i++) {
+        if (_wcsicmp(szKeyName, g_KeyMap[i].szName) == 0) {
+            *pVirtualKey = g_KeyMap[i].wVirtualKey;
+            return TRUE;
+        }
+    }
+    
+    // Key name not found
+    return FALSE;
+}
+
+//============================================================================
+// IsShortcutReserved - Check if shortcut conflicts with built-in shortcuts
+// Returns: TRUE if reserved (cannot be used), FALSE if available
+//============================================================================
+BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers)
+{
+    for (int i = 0; g_ReservedShortcuts[i].szDescription != NULL; i++) {
+        if (g_ReservedShortcuts[i].wVirtualKey == wVirtualKey &&
+            g_ReservedShortcuts[i].fModifiers == fModifiers) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+//============================================================================
+// UnescapeTemplateString - Convert escape sequences like \n, \t, \\ to actual characters
+//============================================================================
+void UnescapeTemplateString(LPCWSTR pszInput, LPWSTR pszOutput, DWORD dwOutputSize)
+{
+    if (!pszInput || !pszOutput || dwOutputSize == 0) return;
+    
+    DWORD idx = 0;
+    const WCHAR* p = pszInput;
+    
+    while (*p && idx < dwOutputSize - 1) {
+        if (*p == L'\\' && *(p + 1)) {
+            // Escape sequence
+            p++;
+            switch (*p) {
+                case L'n':
+                    pszOutput[idx++] = L'\n';
+                    break;
+                case L't':
+                    pszOutput[idx++] = L'\t';
+                    break;
+                case L'r':
+                    pszOutput[idx++] = L'\r';
+                    break;
+                case L'\\':
+                    pszOutput[idx++] = L'\\';
+                    break;
+                default:
+                    // Unknown escape - keep backslash and character
+                    pszOutput[idx++] = L'\\';
+                    if (idx < dwOutputSize - 1) {
+                        pszOutput[idx++] = *p;
+                    }
+                    break;
+            }
+            p++;
+        } else {
+            pszOutput[idx++] = *p++;
+        }
+    }
+    
+    pszOutput[idx] = L'\0';
+}
+
+//============================================================================
+// LoadTemplates - Load templates from INI file
+//============================================================================
+void LoadTemplates()
+{
+    // Get path to INI file
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+    
+    // Read template count
+    g_nTemplateCount = ReadINIInt(szIniPath, L"Templates", L"Count", 0);
+    if (g_nTemplateCount > MAX_TEMPLATES) {
+        g_nTemplateCount = MAX_TEMPLATES;
+    }
+    
+    // Load each template
+    for (int i = 0; i < g_nTemplateCount; i++) {
+        WCHAR szSection[32];
+        swprintf(szSection, 32, L"Template%d", i + 1);
+        
+        // Read basic fields
+        ReadINIValue(szIniPath, szSection, L"Name", 
+                     g_Templates[i].szName, MAX_TEMPLATE_NAME, L"");
+        ReadINIValue(szIniPath, szSection, L"Description", 
+                     g_Templates[i].szDescription, MAX_TEMPLATE_DESC, L"");
+        ReadINIValue(szIniPath, szSection, L"Category", 
+                     g_Templates[i].szCategory, MAX_TEMPLATE_CATEGORY, L"General");
+        ReadINIValue(szIniPath, szSection, L"FileExtension", 
+                     g_Templates[i].szFileExtension, MAX_TEMPLATE_FILEEXT, L"");
+        
+        // Read template value (with escape sequences)
+        WCHAR szTemplateRaw[MAX_TEMPLATE_VALUE];
+        ReadINIValue(szIniPath, szSection, L"Template", 
+                     szTemplateRaw, MAX_TEMPLATE_VALUE, L"");
+        
+        // Unescape the template string (\n → newline, \t → tab, etc.)
+        UnescapeTemplateString(szTemplateRaw, g_Templates[i].szTemplate, MAX_TEMPLATE_VALUE);
+        
+        // Get system language code for localized strings
+        WCHAR szLangCode[16];
+        GetSystemLanguageCode(szLangCode, 16);
+        
+        // Try to load localized name
+        WCHAR szLocalizedKey[64];
+        _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
+        szLocalizedKey[63] = L'\0';
+        ReadINIValue(szIniPath, szSection, szLocalizedKey, 
+                     g_Templates[i].szLocalizedName, MAX_TEMPLATE_NAME, L"");
+        
+        // If no localized name, use default name
+        if (g_Templates[i].szLocalizedName[0] == L'\0') {
+            wcscpy(g_Templates[i].szLocalizedName, g_Templates[i].szName);
+        }
+        
+        // Try to load localized description
+        _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangCode);
+        szLocalizedKey[63] = L'\0';
+        ReadINIValue(szIniPath, szSection, szLocalizedKey, 
+                     g_Templates[i].szLocalizedDescription, MAX_TEMPLATE_DESC, L"");
+        
+        // If no localized description, use default description
+        if (g_Templates[i].szLocalizedDescription[0] == L'\0') {
+            wcscpy(g_Templates[i].szLocalizedDescription, g_Templates[i].szDescription);
+        }
+        
+        // Parse Shortcut field (optional)
+        WCHAR szShortcut[64];
+        ReadINIValue(szIniPath, szSection, L"Shortcut", szShortcut, 64, L"");
+        if (szShortcut[0] != L'\0') {
+            WORD wVirtualKey;
+            BYTE fModifiers;
+            
+            if (ParseShortcut(szShortcut, &wVirtualKey, &fModifiers)) {
+                // Check if reserved
+                if (IsShortcutReserved(wVirtualKey, fModifiers)) {
+                    // Skip - reserved shortcut
+                    g_Templates[i].wVirtualKey = 0;
+                    g_Templates[i].fModifiers = 0;
+                } else {
+                    g_Templates[i].wVirtualKey = wVirtualKey;
+                    g_Templates[i].fModifiers = fModifiers;
+                }
+            } else {
+                // Invalid shortcut format - ignore
+                g_Templates[i].wVirtualKey = 0;
+                g_Templates[i].fModifiers = 0;
+            }
+        } else {
+            // No shortcut defined
+            g_Templates[i].wVirtualKey = 0;
+            g_Templates[i].fModifiers = 0;
+        }
+    }
+}
+
+//============================================================================
+// BuildAcceleratorTable - Build dynamic accelerator table with built-in + template shortcuts
+// Returns: HACCEL handle (caller must eventually DestroyAcceleratorTable)
+//============================================================================
+HACCEL BuildAcceleratorTable()
+{
+    // Count total accelerators needed
+    const int BUILTIN_COUNT = 14;  // Built-in shortcuts (no template insert yet)
+    int nTemplateShortcuts = 0;
+    
+    for (int i = 0; i < g_nTemplateCount; i++) {
+        if (g_Templates[i].wVirtualKey != 0) {
+            nTemplateShortcuts++;
+        }
+    }
+    
+    int nTotalAccel = BUILTIN_COUNT + nTemplateShortcuts;
+    
+    // Allocate ACCEL array
+    ACCEL* pAccel = (ACCEL*)malloc(nTotalAccel * sizeof(ACCEL));
+    if (!pAccel) return NULL;
+    
+    int idx = 0;
+    
+    // Add built-in shortcuts (must match resource.rc order!)
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'N'; pAccel[idx++].cmd = ID_FILE_NEW;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'O'; pAccel[idx++].cmd = ID_FILE_OPEN;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'S'; pAccel[idx++].cmd = ID_FILE_SAVE;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'Z'; pAccel[idx++].cmd = ID_EDIT_UNDO;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'Y'; pAccel[idx++].cmd = ID_EDIT_REDO;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'X'; pAccel[idx++].cmd = ID_EDIT_CUT;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'C'; pAccel[idx++].cmd = ID_EDIT_COPY;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'V'; pAccel[idx++].cmd = ID_EDIT_PASTE;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'A'; pAccel[idx++].cmd = ID_EDIT_SELECTALL;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'W'; pAccel[idx++].cmd = ID_VIEW_WORDWRAP;
+    pAccel[idx].fVirt = FVIRTKEY; pAccel[idx].key = VK_F5; pAccel[idx++].cmd = ID_EDIT_TIMEDATE;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = VK_RETURN; pAccel[idx++].cmd = ID_TOOLS_EXECUTEFILTER;
+    pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'I'; pAccel[idx++].cmd = ID_TOOLS_START_INTERACTIVE;
+    pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'Q'; pAccel[idx++].cmd = ID_TOOLS_EXIT_INTERACTIVE;
+    
+    // Add template shortcuts
+    for (int i = 0; i < g_nTemplateCount; i++) {
+        if (g_Templates[i].wVirtualKey != 0) {
+            pAccel[idx].fVirt = g_Templates[i].fModifiers;
+            pAccel[idx].key = g_Templates[i].wVirtualKey;
+            pAccel[idx].cmd = ID_TOOLS_TEMPLATE_BASE + i;
+            idx++;
+        }
+    }
+    
+    // Create accelerator table
+    HACCEL hAccel = CreateAcceleratorTable(pAccel, nTotalAccel);
+    free(pAccel);
+    
+    return hAccel;
 }
 
 //============================================================================
@@ -482,6 +905,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             CreateDefaultINI();  // Create default INI if it doesn't exist
             LoadSettings();
             LoadFilters();
+            LoadTemplates();  // Load templates with keyboard shortcuts
             BuildFilterMenu(hwnd);
             UpdateFilterDisplay();
             UpdateMenuStates(hwnd);
@@ -3948,7 +4372,161 @@ void CreateDefaultINI()
         "EOLDetection=lf\r\n"
         "ExitNotification=1\r\n"
         "ContextMenu=0\r\n"
-        "ContextMenuOrder=999\r\n";
+        "ContextMenuOrder=999\r\n"
+        "\r\n"
+        "; Template System\r\n"
+        "; Templates insert pre-defined text snippets with variable expansion\r\n"
+        "; Variables: %cursor%, %selection%, %date%, %time%, %datetime%, %clipboard%\r\n"
+        "; FileExtension: Empty=always available, or specify extension like 'md', 'txt'\r\n"
+        "; Shortcut: Optional keyboard shortcut (e.g., Ctrl+1, Ctrl+Shift+C)\r\n"
+        "; Escape sequences: \\n (newline), \\t (tab), \\r (carriage return), \\\\ (backslash)\r\n"
+        "\r\n"
+        "[Templates]\r\n"
+        "Count=15\r\n"
+        "\r\n"
+        "; === MARKDOWN TEMPLATES ===\r\n"
+        "; Templates specific to Markdown files\r\n"
+        "\r\n"
+        "[Template1]\r\n"
+        "Name=Heading 1\r\n"
+        "Name.cs=Nadpis 1\r\n"
+        "Description=Insert a level 1 heading\r\n"
+        "Description.cs=Vložit nadpis úrovně 1\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=# %cursor%\r\n"
+        "Shortcut=Ctrl+1\r\n"
+        "\r\n"
+        "[Template2]\r\n"
+        "Name=Heading 2\r\n"
+        "Name.cs=Nadpis 2\r\n"
+        "Description=Insert a level 2 heading\r\n"
+        "Description.cs=Vložit nadpis úrovně 2\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=## %cursor%\r\n"
+        "Shortcut=Ctrl+2\r\n"
+        "\r\n"
+        "[Template3]\r\n"
+        "Name=Heading 3\r\n"
+        "Name.cs=Nadpis 3\r\n"
+        "Description=Insert a level 3 heading\r\n"
+        "Description.cs=Vložit nadpis úrovně 3\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=### %cursor%\r\n"
+        "Shortcut=Ctrl+3\r\n"
+        "\r\n"
+        "[Template4]\r\n"
+        "Name=Bold Text\r\n"
+        "Name.cs=Tučný text\r\n"
+        "Description=Make text bold (wraps selection or inserts template)\r\n"
+        "Description.cs=Udělat text tučným (obalí výběr nebo vloží šablonu)\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=**%selection%%cursor%**\r\n"
+        "Shortcut=Ctrl+B\r\n"
+        "\r\n"
+        "[Template5]\r\n"
+        "Name=Italic Text\r\n"
+        "Name.cs=Kurzíva\r\n"
+        "Description=Make text italic (wraps selection or inserts template)\r\n"
+        "Description.cs=Udělat text kurzívou (obalí výběr nebo vloží šablonu)\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=*%selection%%cursor%*\r\n"
+        "Shortcut=Ctrl+I\r\n"
+        "\r\n"
+        "[Template6]\r\n"
+        "Name=Bold Italic\r\n"
+        "Name.cs=Tučná kurzíva\r\n"
+        "Description=Make text bold and italic\r\n"
+        "Description.cs=Udělat text tučným a kurzívou\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=***%selection%%cursor%***\r\n"
+        "\r\n"
+        "[Template7]\r\n"
+        "Name=Strikethrough\r\n"
+        "Name.cs=Přeškrtnutí\r\n"
+        "Description=Strikethrough text\r\n"
+        "Description.cs=Přeškrtnout text\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=~~%selection%%cursor%~~\r\n"
+        "\r\n"
+        "[Template8]\r\n"
+        "Name=Inline Code\r\n"
+        "Name.cs=Vložený kód\r\n"
+        "Description=Insert inline code\r\n"
+        "Description.cs=Vložit vložený kód\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=`%selection%%cursor%`\r\n"
+        "\r\n"
+        "[Template9]\r\n"
+        "Name=Code Block\r\n"
+        "Name.cs=Blok kódu\r\n"
+        "Description=Insert a code block\r\n"
+        "Description.cs=Vložit blok kódu\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=```\\n%cursor%\\n```\r\n"
+        "Shortcut=Ctrl+Shift+C\r\n"
+        "\r\n"
+        "[Template10]\r\n"
+        "Name=Unordered List\r\n"
+        "Name.cs=Nečíslovaný seznam\r\n"
+        "Description=Insert unordered list item\r\n"
+        "Description.cs=Vložit položku nečíslovaného seznamu\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=- %cursor%\r\n"
+        "\r\n"
+        "[Template11]\r\n"
+        "Name=Ordered List\r\n"
+        "Name.cs=Číslovaný seznam\r\n"
+        "Description=Insert ordered list item\r\n"
+        "Description.cs=Vložit položku číslovaného seznamu\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=1. %cursor%\r\n"
+        "\r\n"
+        "[Template12]\r\n"
+        "Name=Task List\r\n"
+        "Name.cs=Seznam úkolů\r\n"
+        "Description=Insert task list item (checkbox)\r\n"
+        "Description.cs=Vložit položku seznamu úkolů (zaškrtávací pole)\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=- [ ] %cursor%\r\n"
+        "\r\n"
+        "[Template13]\r\n"
+        "Name=Link\r\n"
+        "Name.cs=Odkaz\r\n"
+        "Description=Insert a hyperlink\r\n"
+        "Description.cs=Vložit hypertextový odkaz\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=[%selection%%cursor%](url)\r\n"
+        "\r\n"
+        "[Template14]\r\n"
+        "Name=Blockquote\r\n"
+        "Name.cs=Citace\r\n"
+        "Description=Insert a blockquote\r\n"
+        "Description.cs=Vložit citaci\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=> %cursor%\r\n"
+        "\r\n"
+        "[Template15]\r\n"
+        "Name=Front Matter\r\n"
+        "Name.cs=Záhlaví\r\n"
+        "Description=Insert YAML front matter with current date\r\n"
+        "Description.cs=Vložit YAML záhlaví s aktuálním datem\r\n"
+        "Category=Markdown\r\n"
+        "FileExtension=md\r\n"
+        "Template=---\\ntitle: %cursor%\\ndate: %date%\\nauthor: \\n---\\n\\n\r\n";
     
     
     WriteFile(hFile, szDefaultINI, strlen(szDefaultINI), &dwWritten, NULL);
