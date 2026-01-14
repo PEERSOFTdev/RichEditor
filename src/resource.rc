@@ -236,6 +236,7 @@ BEGIN
     IDS_HTML_DOCUMENT               "HTML Document"
     IDS_NO_TEMPLATES                "No templates configured"
     IDS_NO_TEMPLATES_FOR_FILETYPE   "No templates for this file type"
+    IDS_MENU_INSERT_TEMPLATE        "Insert &Template"
 END
 
 // ============================================================================
@@ -423,4 +424,5 @@ BEGIN
     IDS_HTML_DOCUMENT               "HTML dokument"
     IDS_NO_TEMPLATES                "Nejsou nakonfigurovány žádné šablony"
     IDS_NO_TEMPLATES_FOR_FILETYPE   "Pro tento typ souboru nejsou žádné šablony"
+    IDS_MENU_INSERT_TEMPLATE        "Vložit ša&blonu"
 END

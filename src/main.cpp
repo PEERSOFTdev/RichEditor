@@ -1197,8 +1197,7 @@ void BuildTemplateMenu(HWND hwnd)
         }
         
         WCHAR szInsertTemplate[64];
-        LoadStringResource(IDS_INFORMATION, szInsertTemplate, 64);  // Temporary - will add proper string
-        wcscpy(szInsertTemplate, L"Insert &Template");
+        LoadString(GetModuleHandle(NULL), IDS_MENU_INSERT_TEMPLATE, szInsertTemplate, 64);
         
         InsertMenu(hToolsMenu, insertPos, MF_BYPOSITION | MF_STRING | MF_POPUP, 
                    (UINT_PTR)hTemplateMenu, szInsertTemplate);
@@ -1339,8 +1338,10 @@ void BuildFileNewMenu(HWND hwnd)
     // Add "Blank Document" as first item (default behavior)
     WCHAR szBlankDoc[64];
     LoadString(GetModuleHandle(NULL), IDS_BLANK_DOCUMENT, szBlankDoc, 64);
-    WCHAR szBlankMenuItem[80];
-    swprintf(szBlankMenuItem, 80, L"&%s\tCtrl+N", szBlankDoc);
+    WCHAR szBlankMenuItem[128];
+    wcscpy(szBlankMenuItem, L"&");
+    wcscat(szBlankMenuItem, szBlankDoc);
+    wcscat(szBlankMenuItem, L"\tCtrl+N");
     AppendMenu(hNewMenu, MF_STRING, ID_FILE_NEW_BLANK, szBlankMenuItem);
     
     // Add separator
@@ -4007,18 +4008,71 @@ void FileOpen()
     
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
-    // Build localized filter string: "Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
-    WCHAR szFilterText[64], szFilterAll[64];
-    WCHAR szFilter[256];
-    LoadStringResource(IDS_FILE_FILTER_TEXT, szFilterText, 64);
-    LoadStringResource(IDS_FILE_FILTER_ALL, szFilterAll, 64);
-    
-    // Manually build the double-null-terminated filter string
+    // Build dynamic filter string based on template file types
+    // Format: "Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+    WCHAR szFilter[1024];  // Large buffer for multiple file types
     int pos = 0;
-    wcscpy(szFilter + pos, szFilterText);
-    pos += wcslen(szFilterText) + 1;
-    wcscpy(szFilter + pos, L"*.txt");
-    pos += wcslen(L"*.txt") + 1;
+    
+    // Track which extensions we've added
+    WCHAR addedExtensions[32][MAX_TEMPLATE_FILEEXT];
+    int addedCount = 0;
+    
+    // Add filters for template file types
+    for (int i = 0; i < g_nTemplateCount; i++) {
+        if (g_Templates[i].szFileExtension[0] == L'\0') continue;
+        
+        // Check if we've already added this extension
+        BOOL alreadyAdded = FALSE;
+        for (int j = 0; j < addedCount; j++) {
+            if (_wcsicmp(addedExtensions[j], g_Templates[i].szFileExtension) == 0) {
+                alreadyAdded = TRUE;
+                break;
+            }
+        }
+        
+        if (!alreadyAdded && addedCount < 32) {
+            // Store extension as added
+            wcscpy(addedExtensions[addedCount++], g_Templates[i].szFileExtension);
+            
+            // Generate filter label: "Markdown Files (*.md)" or "TXT Files (*.txt)"
+            WCHAR szFilterLabel[128];
+            WCHAR szPattern[64];
+            
+            if (_wcsicmp(g_Templates[i].szFileExtension, L"md") == 0) {
+                wcscpy(szFilterLabel, L"Markdown Files (*.md)");
+                wcscpy(szPattern, L"*.md");
+            } else if (_wcsicmp(g_Templates[i].szFileExtension, L"txt") == 0) {
+                wcscpy(szFilterLabel, L"Text Files (*.txt)");
+                wcscpy(szPattern, L"*.txt");
+            } else if (_wcsicmp(g_Templates[i].szFileExtension, L"html") == 0 ||
+                       _wcsicmp(g_Templates[i].szFileExtension, L"htm") == 0) {
+                wcscpy(szFilterLabel, L"HTML Files (*.html;*.htm)");
+                wcscpy(szPattern, L"*.html;*.htm");
+            } else {
+                // Generic format: "XXX Files (*.xxx)"
+                WCHAR szUpper[MAX_TEMPLATE_FILEEXT];
+                wcscpy(szUpper, g_Templates[i].szFileExtension);
+                _wcsupr(szUpper);
+                wcscpy(szFilterLabel, szUpper);
+                wcscat(szFilterLabel, L" Files (*.");
+                wcscat(szFilterLabel, g_Templates[i].szFileExtension);
+                wcscat(szFilterLabel, L")");
+                
+                wcscpy(szPattern, L"*.");
+                wcscat(szPattern, g_Templates[i].szFileExtension);
+            }
+            
+            // Add to filter string
+            wcscpy(szFilter + pos, szFilterLabel);
+            pos += wcslen(szFilterLabel) + 1;
+            wcscpy(szFilter + pos, szPattern);
+            pos += wcslen(szPattern) + 1;
+        }
+    }
+    
+    // Always add "All Files (*.*)" as last option
+    WCHAR szFilterAll[64];
+    LoadStringResource(IDS_FILE_FILTER_ALL, szFilterAll, 64);
     wcscpy(szFilter + pos, szFilterAll);
     pos += wcslen(szFilterAll) + 1;
     wcscpy(szFilter + pos, L"*.*");
