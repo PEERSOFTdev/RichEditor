@@ -238,6 +238,7 @@ BEGIN
     IDS_NO_TEMPLATES_FOR_FILETYPE   "No templates for this file type"
     IDS_MENU_INSERT_TEMPLATE        "Insert &Template"
     IDS_MENU_NEW                    "&New"
+    IDS_FILES                       "Files"
 END
 
 // ============================================================================
@@ -427,4 +428,5 @@ BEGIN
     IDS_NO_TEMPLATES_FOR_FILETYPE   "Pro tento typ souboru nejsou žádné šablony"
     IDS_MENU_INSERT_TEMPLATE        "Vložit ša&blonu"
     IDS_MENU_NEW                    "&Nový"
+    IDS_FILES                       "Soubory"
 END
