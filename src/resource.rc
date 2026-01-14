@@ -228,6 +228,14 @@ BEGIN
     IDS_REPL_FAILED_THREAD_STDERR   "Failed to create stderr reader thread"
     IDS_INTERACTIVE_MODE_INDICATOR  "Interactive Mode"
     IDS_FILTER_RESULT_TITLE         "Result"
+    
+    // Template system strings
+    IDS_BLANK_DOCUMENT              "Blank Document"
+    IDS_MARKDOWN_DOCUMENT           "Markdown Document"
+    IDS_TEXT_DOCUMENT               "Text Document"
+    IDS_HTML_DOCUMENT               "HTML Document"
+    IDS_NO_TEMPLATES                "No templates configured"
+    IDS_NO_TEMPLATES_FOR_FILETYPE   "No templates for this file type"
 END
 
 // ============================================================================
@@ -407,4 +415,12 @@ BEGIN
     IDS_REPL_FAILED_THREAD_STDERR   "Nepodařilo se vytvořit vlákno pro čtení stderr"
     IDS_INTERACTIVE_MODE_INDICATOR  "Interaktivní režim"
     IDS_FILTER_RESULT_TITLE         "Výsledek"
+    
+    // Template system strings
+    IDS_BLANK_DOCUMENT              "Prázdný dokument"
+    IDS_MARKDOWN_DOCUMENT           "Markdown dokument"
+    IDS_TEXT_DOCUMENT               "Textový dokument"
+    IDS_HTML_DOCUMENT               "HTML dokument"
+    IDS_NO_TEMPLATES                "Nejsou nakonfigurovány žádné šablony"
+    IDS_NO_TEMPLATES_FOR_FILETYPE   "Pro tento typ souboru nejsou žádné šablony"
 END

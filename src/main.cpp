@@ -1214,7 +1214,9 @@ void BuildTemplateMenu(HWND hwnd)
     
     // Add templates or "No templates" message
     if (g_nTemplateCount == 0) {
-        AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, L"No templates configured");
+        WCHAR szNoTemplates[64];
+        LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES, szNoTemplates, 64);
+        AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, szNoTemplates);
     } else {
         // Build category map
         struct TemplateCategoryInfo {
@@ -1254,8 +1256,10 @@ void BuildTemplateMenu(HWND hwnd)
         
         // If no templates match current file type, show message
         if (categoryCount == 0) {
+            WCHAR szNoTemplatesForType[64];
+            LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES_FOR_FILETYPE, szNoTemplatesForType, 64);
             AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, 
-                      L"No templates for this file type");
+                      szNoTemplatesForType);
         } else {
             // Create submenu for each category
             for (int c = 0; c < categoryCount; c++) {
@@ -1333,7 +1337,11 @@ void BuildFileNewMenu(HWND hwnd)
     }
     
     // Add "Blank Document" as first item (default behavior)
-    AppendMenu(hNewMenu, MF_STRING, ID_FILE_NEW_BLANK, L"&Blank Document\tCtrl+N");
+    WCHAR szBlankDoc[64];
+    LoadString(GetModuleHandle(NULL), IDS_BLANK_DOCUMENT, szBlankDoc, 64);
+    WCHAR szBlankMenuItem[80];
+    swprintf(szBlankMenuItem, 80, L"&%s\tCtrl+N", szBlankDoc);
+    AppendMenu(hNewMenu, MF_STRING, ID_FILE_NEW_BLANK, szBlankMenuItem);
     
     // Add separator
     AppendMenu(hNewMenu, MF_SEPARATOR, 0, NULL);
@@ -1373,13 +1381,14 @@ void BuildFileNewMenu(HWND hwnd)
                 
                 // Generate display name based on extension
                 if (_wcsicmp(g_Templates[i].szFileExtension, L"md") == 0) {
-                    wcscpy(fileTypes[typeIndex].szTypeName, L"Markdown Document");
+                    LoadString(GetModuleHandle(NULL), IDS_MARKDOWN_DOCUMENT, fileTypes[typeIndex].szTypeName, 64);
                 } else if (_wcsicmp(g_Templates[i].szFileExtension, L"txt") == 0) {
-                    wcscpy(fileTypes[typeIndex].szTypeName, L"Text Document");
-                } else if (_wcsicmp(g_Templates[i].szFileExtension, L"html") == 0) {
-                    wcscpy(fileTypes[typeIndex].szTypeName, L"HTML Document");
+                    LoadString(GetModuleHandle(NULL), IDS_TEXT_DOCUMENT, fileTypes[typeIndex].szTypeName, 64);
+                } else if (_wcsicmp(g_Templates[i].szFileExtension, L"html") == 0 || 
+                           _wcsicmp(g_Templates[i].szFileExtension, L"htm") == 0) {
+                    LoadString(GetModuleHandle(NULL), IDS_HTML_DOCUMENT, fileTypes[typeIndex].szTypeName, 64);
                 } else {
-                    // Generic name: "XXX Document"
+                    // Generic name: "XXX Document" (fallback for unknown extensions)
                     WCHAR szUpper[MAX_TEMPLATE_FILEEXT];
                     wcscpy(szUpper, g_Templates[i].szFileExtension);
                     _wcsupr(szUpper);  // Convert to uppercase
