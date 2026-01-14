@@ -366,6 +366,10 @@ BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers);
 void UnescapeTemplateString(LPCWSTR pszInput, LPWSTR pszOutput, DWORD dwOutputSize);
 void LoadTemplates();
 HACCEL BuildAcceleratorTable();
+void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize);
+void UpdateFileExtension(LPCWSTR pszFilePath);
+LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset);
+void InsertTemplate(int nTemplateIndex);
 
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
@@ -873,6 +877,253 @@ HACCEL BuildAcceleratorTable()
 }
 
 //============================================================================
+// ExtractFileExtension - Extract file extension from path (without dot)
+// Example: "file.txt" -> "txt", "file.md" -> "md", "file" -> ""
+//============================================================================
+void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize)
+{
+    if (!pszFilePath || !pszExt || dwExtSize == 0) return;
+    
+    pszExt[0] = L'\0';  // Default: no extension
+    
+    // Find last dot in filename (ignore path separators)
+    const WCHAR* pszLastDot = NULL;
+    const WCHAR* pszLastSlash = NULL;
+    
+    for (const WCHAR* p = pszFilePath; *p; p++) {
+        if (*p == L'\\' || *p == L'/') {
+            pszLastSlash = p;
+        } else if (*p == L'.') {
+            pszLastDot = p;
+        }
+    }
+    
+    // Extension must be after last slash (if any)
+    if (pszLastDot && (!pszLastSlash || pszLastDot > pszLastSlash)) {
+        // Copy extension (without dot)
+        wcsncpy(pszExt, pszLastDot + 1, dwExtSize - 1);
+        pszExt[dwExtSize - 1] = L'\0';
+        
+        // Convert to lowercase for case-insensitive comparison
+        for (WCHAR* p = pszExt; *p; p++) {
+            *p = towlower(*p);
+        }
+    }
+}
+
+//============================================================================
+// UpdateFileExtension - Update g_szCurrentFileExtension based on current filename
+//============================================================================
+void UpdateFileExtension(LPCWSTR pszFilePath)
+{
+    if (pszFilePath && pszFilePath[0] != L'\0') {
+        ExtractFileExtension(pszFilePath, g_szCurrentFileExtension, MAX_TEMPLATE_FILEEXT);
+    } else {
+        // No file (Untitled) - default to txt
+        wcscpy(g_szCurrentFileExtension, L"txt");
+    }
+}
+
+//============================================================================
+// ExpandTemplateVariables - Replace %varname% with actual values
+// Returns: Allocated string (caller must free()), or NULL on failure
+// pCursorOffset: Receives cursor position offset (-1 if no %cursor%)
+//============================================================================
+LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset)
+{
+    if (!pszTemplate) return NULL;
+    
+    // Allocate output buffer (max 64 KB for expanded template)
+    const DWORD MAX_EXPANDED = 65536;
+    LPWSTR pszOutput = (LPWSTR)malloc(MAX_EXPANDED * sizeof(WCHAR));
+    if (!pszOutput) return NULL;
+    
+    *pCursorOffset = -1;  // No cursor marker found yet
+    BOOL bCursorFound = FALSE;
+    
+    DWORD outIdx = 0;
+    const WCHAR* p = pszTemplate;
+    
+    while (*p && outIdx < MAX_EXPANDED - 1) {
+        if (*p == L'%') {
+            // Potential variable
+            const WCHAR* pVarStart = p + 1;
+            const WCHAR* pVarEnd = wcschr(pVarStart, L'%');
+            
+            if (pVarEnd) {
+                // Extract variable name
+                size_t varLen = pVarEnd - pVarStart;
+                WCHAR szVarName[64];
+                
+                if (varLen < 63) {
+                    wcsncpy(szVarName, pVarStart, varLen);
+                    szVarName[varLen] = L'\0';
+                    
+                    // Convert to lowercase for case-insensitive comparison
+                    for (WCHAR* pv = szVarName; *pv; pv++) {
+                        *pv = towlower(*pv);
+                    }
+                    
+                    // Handle variables
+                    if (wcscmp(szVarName, L"cursor") == 0) {
+                        // %cursor% - Mark cursor position
+                        if (!bCursorFound) {
+                            *pCursorOffset = (LONG)outIdx;
+                            bCursorFound = TRUE;
+                        }
+                        // Don't insert anything for cursor
+                        p = pVarEnd + 1;
+                        continue;
+                    } else if (wcscmp(szVarName, L"selection") == 0) {
+                        // %selection% - Insert current selection
+                        CHARRANGE cr;
+                        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                        
+                        if (cr.cpMin != cr.cpMax) {
+                            int selLen = cr.cpMax - cr.cpMin;
+                            LPWSTR pszSel = (LPWSTR)malloc((selLen + 1) * sizeof(WCHAR));
+                            if (pszSel) {
+                                TEXTRANGE tr;
+                                tr.chrg = cr;
+                                tr.lpstrText = pszSel;
+                                SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                                pszSel[selLen] = L'\0';
+                                
+                                // Copy selection to output
+                                for (int i = 0; i < selLen && outIdx < MAX_EXPANDED - 1; i++) {
+                                    pszOutput[outIdx++] = pszSel[i];
+                                }
+                                
+                                free(pszSel);
+                            }
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                    } else if (wcscmp(szVarName, L"date") == 0) {
+                        // %date% - Insert current date (YYYY-MM-DD)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szDate[32];
+                        swprintf(szDate, 32, L"%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
+                        
+                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
+                            pszOutput[outIdx++] = *pd;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                    } else if (wcscmp(szVarName, L"time") == 0) {
+                        // %time% - Insert current time (HH:MM:SS)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szTime[32];
+                        swprintf(szTime, 32, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+                        
+                        for (const WCHAR* pt = szTime; *pt && outIdx < MAX_EXPANDED - 1; pt++) {
+                            pszOutput[outIdx++] = *pt;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                    } else if (wcscmp(szVarName, L"datetime") == 0) {
+                        // %datetime% - Insert date and time (YYYY-MM-DD HH:MM:SS)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szDateTime[64];
+                        swprintf(szDateTime, 64, L"%04d-%02d-%02d %02d:%02d:%02d", 
+                                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+                        
+                        for (const WCHAR* pdt = szDateTime; *pdt && outIdx < MAX_EXPANDED - 1; pdt++) {
+                            pszOutput[outIdx++] = *pdt;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                    } else if (wcscmp(szVarName, L"clipboard") == 0) {
+                        // %clipboard% - Insert clipboard text
+                        if (OpenClipboard(g_hWndMain)) {
+                            HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+                            if (hData) {
+                                LPCWSTR pszClip = (LPCWSTR)GlobalLock(hData);
+                                if (pszClip) {
+                                    for (const WCHAR* pc = pszClip; *pc && outIdx < MAX_EXPANDED - 1; pc++) {
+                                        pszOutput[outIdx++] = *pc;
+                                    }
+                                    GlobalUnlock(hData);
+                                }
+                            }
+                            CloseClipboard();
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                    } else {
+                        // Unknown variable - leave as literal
+                        pszOutput[outIdx++] = L'%';
+                        for (size_t i = 0; i < varLen && outIdx < MAX_EXPANDED - 1; i++) {
+                            pszOutput[outIdx++] = pVarStart[i];
+                        }
+                        if (outIdx < MAX_EXPANDED - 1) {
+                            pszOutput[outIdx++] = L'%';
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        // Regular character
+        pszOutput[outIdx++] = *p++;
+    }
+    
+    pszOutput[outIdx] = L'\0';
+    return pszOutput;
+}
+
+//============================================================================
+// InsertTemplate - Insert template at cursor position with variable expansion
+//============================================================================
+void InsertTemplate(int nTemplateIndex)
+{
+    if (nTemplateIndex < 0 || nTemplateIndex >= g_nTemplateCount) return;
+    
+    TemplateInfo* pTemplate = &g_Templates[nTemplateIndex];
+    
+    // Check if template is available for current file type
+    if (pTemplate->szFileExtension[0] != L'\0') {
+        // Template has file extension requirement
+        if (_wcsicmp(pTemplate->szFileExtension, g_szCurrentFileExtension) != 0) {
+            // File extension doesn't match - don't insert
+            // Silent fail (user probably used wrong shortcut)
+            return;
+        }
+    }
+    
+    // Expand variables
+    LONG nCursorOffset = -1;
+    LPWSTR pszExpanded = ExpandTemplateVariables(pTemplate->szTemplate, &nCursorOffset);
+    if (!pszExpanded) return;
+    
+    // Get current selection
+    CHARRANGE crOriginal;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crOriginal);
+    
+    // Replace selection with expanded template
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+    
+    // Position cursor if %cursor% was found
+    if (nCursorOffset >= 0) {
+        CHARRANGE crNew;
+        crNew.cpMin = crOriginal.cpMin + nCursorOffset;
+        crNew.cpMax = crNew.cpMin;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crNew);
+    }
+    
+    free(pszExpanded);
+    
+    // Mark document as modified
+    g_bModified = TRUE;
+    UpdateTitle(g_hWndMain);
+}
+
+//============================================================================
 // WndProc - Main Window Procedure
 //============================================================================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -884,6 +1135,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             g_szFileName[0] = L'\0';
             g_szFileTitle[0] = L'\0';
             g_bModified = FALSE;
+            wcscpy(g_szCurrentFileExtension, L"txt");  // Default to txt for Untitled files
             
             // Create RichEdit control
             g_hWndEdit = CreateRichEditControl(hwnd);
@@ -1115,6 +1367,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 g_szContextMenuURL[0] = L'\0';  // Clear after use
                             }
                             return 0;
+                        }
+                        // Handle template shortcuts (Ctrl+1, Ctrl+B, etc.)
+                        else if (wmId >= ID_TOOLS_TEMPLATE_BASE && wmId < ID_TOOLS_TEMPLATE_BASE + MAX_TEMPLATES) {
+                            int templateIdx = wmId - ID_TOOLS_TEMPLATE_BASE;
+                            if (templateIdx >= 0 && templateIdx < g_nTemplateCount) {
+                                InsertTemplate(templateIdx);
+                            }
                         }
                         // Handle filter selection from Tools menu
                         else if (wmId >= ID_TOOLS_FILTER_BASE && wmId < ID_TOOLS_FILTER_BASE + 100) {
@@ -2818,6 +3077,9 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     
     g_bModified = FALSE;
     
+    // Update file extension for template filtering
+    UpdateFileExtension(pszFileName);
+    
     // Clear resume file state when loading a new file (if requested)
     if (bClearResumeState && g_bIsResumedFile) {
         DeleteResumeFile(g_szResumeFilePath);
@@ -2898,6 +3160,9 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     } else {
         wcscpy_s(g_szFileTitle, MAX_PATH, pszFileName);
     }
+    
+    // Update file extension for template filtering
+    UpdateFileExtension(pszFileName);
     
     // Clear modified flag only for explicit saves, not autosaves
     // (Autosaves shouldn't affect the "unsaved changes" state)
@@ -3353,6 +3618,7 @@ void FileNew()
     g_szFileName[0] = L'\0';
     g_szFileTitle[0] = L'\0';
     g_bModified = FALSE;
+    wcscpy(g_szCurrentFileExtension, L"txt");  // Reset to txt for new file
     
     UpdateTitle();
     UpdateStatusBar();
