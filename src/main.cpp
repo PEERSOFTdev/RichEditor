@@ -329,6 +329,7 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
 void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError);
 void FileNew();
+void FileNewFromTemplate(int nTemplateIndex);
 void FileOpen();
 BOOL FileSave();
 BOOL FileSaveAs();
@@ -371,6 +372,7 @@ void UpdateFileExtension(LPCWSTR pszFilePath);
 LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset);
 void InsertTemplate(int nTemplateIndex);
 void BuildTemplateMenu(HWND hwnd);
+void BuildFileNewMenu(HWND hwnd);
 
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
@@ -1285,6 +1287,128 @@ void BuildTemplateMenu(HWND hwnd)
 }
 
 //============================================================================
+// BuildFileNewMenu - Build dynamic File→New submenu with template file types
+//============================================================================
+void BuildFileNewMenu(HWND hwnd)
+{
+    HMENU hMenu = GetMenu(hwnd);
+    if (!hMenu) return;
+    
+    // Find File menu (first menu)
+    HMENU hFileMenu = GetSubMenu(hMenu, 0);
+    if (!hFileMenu) return;
+    
+    // Find or convert "New" menu item to submenu
+    // Look for ID_FILE_NEW in File menu
+    int newItemPos = -1;
+    int fileItemCount = GetMenuItemCount(hFileMenu);
+    
+    for (int i = 0; i < fileItemCount; i++) {
+        if (GetMenuItemID(hFileMenu, i) == ID_FILE_NEW) {
+            newItemPos = i;
+            break;
+        }
+    }
+    
+    if (newItemPos == -1) return;
+    
+    // Check if it's already a submenu
+    HMENU hNewMenu = GetSubMenu(hFileMenu, newItemPos);
+    
+    if (!hNewMenu) {
+        // Convert from menu item to submenu
+        hNewMenu = CreatePopupMenu();
+        
+        // Remove old "New" item
+        DeleteMenu(hFileMenu, newItemPos, MF_BYPOSITION);
+        
+        // Insert "New" submenu at same position
+        InsertMenu(hFileMenu, newItemPos, MF_BYPOSITION | MF_STRING | MF_POPUP,
+                   (UINT_PTR)hNewMenu, L"&New");
+    } else {
+        // Clear existing submenu items
+        while (GetMenuItemCount(hNewMenu) > 0) {
+            DeleteMenu(hNewMenu, 0, MF_BYPOSITION);
+        }
+    }
+    
+    // Add "Blank Document" as first item (default behavior)
+    AppendMenu(hNewMenu, MF_STRING, ID_FILE_NEW_BLANK, L"&Blank Document\tCtrl+N");
+    
+    // Add separator
+    AppendMenu(hNewMenu, MF_SEPARATOR, 0, NULL);
+    
+    // Group templates by file type (extension)
+    if (g_nTemplateCount > 0) {
+        // Build file type map
+        struct FileTypeTemplateInfo {
+            WCHAR szExtension[MAX_TEMPLATE_FILEEXT];
+            WCHAR szTypeName[64];  // Display name like "Markdown Document"
+            int templateIndices[MAX_TEMPLATES];
+            int count;
+        };
+        FileTypeTemplateInfo fileTypes[32];
+        int fileTypeCount = 0;
+        
+        // Group templates by file extension
+        for (int i = 0; i < g_nTemplateCount; i++) {
+            // Skip templates without file extension (universal templates)
+            if (g_Templates[i].szFileExtension[0] == L'\0') {
+                continue;
+            }
+            
+            // Find or create file type
+            int typeIndex = -1;
+            for (int t = 0; t < fileTypeCount; t++) {
+                if (_wcsicmp(fileTypes[t].szExtension, g_Templates[i].szFileExtension) == 0) {
+                    typeIndex = t;
+                    break;
+                }
+            }
+            
+            if (typeIndex == -1) {
+                // Create new file type entry
+                typeIndex = fileTypeCount++;
+                wcscpy(fileTypes[typeIndex].szExtension, g_Templates[i].szFileExtension);
+                
+                // Generate display name based on extension
+                if (_wcsicmp(g_Templates[i].szFileExtension, L"md") == 0) {
+                    wcscpy(fileTypes[typeIndex].szTypeName, L"Markdown Document");
+                } else if (_wcsicmp(g_Templates[i].szFileExtension, L"txt") == 0) {
+                    wcscpy(fileTypes[typeIndex].szTypeName, L"Text Document");
+                } else if (_wcsicmp(g_Templates[i].szFileExtension, L"html") == 0) {
+                    wcscpy(fileTypes[typeIndex].szTypeName, L"HTML Document");
+                } else {
+                    // Generic name: "XXX Document"
+                    WCHAR szUpper[MAX_TEMPLATE_FILEEXT];
+                    wcscpy(szUpper, g_Templates[i].szFileExtension);
+                    _wcsupr(szUpper);  // Convert to uppercase
+                    swprintf(fileTypes[typeIndex].szTypeName, 64, L"%s Document", szUpper);
+                }
+                
+                fileTypes[typeIndex].count = 0;
+            }
+            
+            fileTypes[typeIndex].templateIndices[fileTypes[typeIndex].count++] = i;
+        }
+        
+        // Add file type menu items
+        // For each file type, add ONE menu item that creates file with first template
+        for (int t = 0; t < fileTypeCount; t++) {
+            // Use first template of this type for File→New
+            int templateIndex = fileTypes[t].templateIndices[0];
+            
+            // Menu text: "Markdown Document"
+            AppendMenu(hNewMenu, MF_STRING, 
+                      ID_FILE_NEW_TEMPLATE_BASE + templateIndex,
+                      fileTypes[t].szTypeName);
+        }
+    }
+    
+    DrawMenuBar(hwnd);
+}
+
+//============================================================================
 // WndProc - Main Window Procedure
 //============================================================================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1321,6 +1445,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             LoadTemplates();  // Load templates with keyboard shortcuts
             BuildFilterMenu(hwnd);
             BuildTemplateMenu(hwnd);  // Build template submenu
+            BuildFileNewMenu(hwnd);   // Build File→New submenu
             UpdateFilterDisplay();
             UpdateMenuStates(hwnd);
             
@@ -1409,6 +1534,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             switch (LOWORD(wParam)) {
                 // File menu
                 case ID_FILE_NEW:
+                case ID_FILE_NEW_BLANK:
                     FileNew();
                     break;
                 case ID_FILE_OPEN:
@@ -1535,6 +1661,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             int templateIdx = wmId - ID_TOOLS_TEMPLATE_BASE;
                             if (templateIdx >= 0 && templateIdx < g_nTemplateCount) {
                                 InsertTemplate(templateIdx);
+                            }
+                        }
+                        // Handle File→New template items
+                        else if (wmId >= ID_FILE_NEW_TEMPLATE_BASE && wmId < ID_FILE_NEW_TEMPLATE_BASE + 32) {
+                            int templateIdx = wmId - ID_FILE_NEW_TEMPLATE_BASE;
+                            if (templateIdx >= 0 && templateIdx < g_nTemplateCount) {
+                                FileNewFromTemplate(templateIdx);
                             }
                         }
                         // Handle filter selection from Tools menu
@@ -3781,6 +3914,67 @@ void FileNew()
     g_szFileTitle[0] = L'\0';
     g_bModified = FALSE;
     wcscpy(g_szCurrentFileExtension, L"txt");  // Reset to txt for new file
+    
+    UpdateTitle();
+    UpdateStatusBar();
+    SetFocus(g_hWndEdit);
+}
+
+//============================================================================
+// FileNewFromTemplate - Create new file with template content
+//============================================================================
+void FileNewFromTemplate(int nTemplateIndex)
+{
+    if (nTemplateIndex < 0 || nTemplateIndex >= g_nTemplateCount) {
+        return;
+    }
+    
+    // Check for unsaved changes
+    if (!PromptSaveChanges()) {
+        return;
+    }
+    
+    TemplateInfo* pTemplate = &g_Templates[nTemplateIndex];
+    
+    // Expand template variables
+    LONG nCursorOffset = -1;
+    LPWSTR pszExpanded = ExpandTemplateVariables(pTemplate->szTemplate, &nCursorOffset);
+    if (!pszExpanded) {
+        // Fall back to blank document if expansion fails
+        FileNew();
+        return;
+    }
+    
+    // Set expanded template as document content (block EN_CHANGE notifications)
+    g_bSettingText = TRUE;
+    SetWindowText(g_hWndEdit, pszExpanded);
+    g_bSettingText = FALSE;
+    
+    free(pszExpanded);
+    
+    // Reset state (untitled document with template content)
+    g_szFileName[0] = L'\0';
+    g_szFileTitle[0] = L'\0';
+    g_bModified = TRUE;  // Mark as modified (has unsaved template content)
+    
+    // Set file extension based on template's file type
+    if (pTemplate->szFileExtension[0] != L'\0') {
+        wcscpy(g_szCurrentFileExtension, pTemplate->szFileExtension);
+    } else {
+        wcscpy(g_szCurrentFileExtension, L"txt");
+    }
+    
+    // Position cursor if %cursor% was found
+    if (nCursorOffset >= 0) {
+        CHARRANGE cr;
+        cr.cpMin = nCursorOffset;
+        cr.cpMax = nCursorOffset;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);  // Scroll cursor into view
+    } else {
+        // No cursor marker - position at start
+        SendMessage(g_hWndEdit, EM_SETSEL, 0, 0);
+    }
     
     UpdateTitle();
     UpdateStatusBar();

@@ -11,6 +11,8 @@
 
 // File menu
 #define ID_FILE_NEW                     1001
+#define ID_FILE_NEW_BLANK               1006  // New blank document (default)
+#define ID_FILE_NEW_TEMPLATE_BASE       8000  // Base for File→New template items (8000-8031)
 #define ID_FILE_OPEN                    1002
 #define ID_FILE_SAVE                    1003
 #define ID_FILE_SAVEAS                  1004
