@@ -1325,9 +1325,11 @@ void BuildFileNewMenu(HWND hwnd)
         // Remove old "New" item
         DeleteMenu(hFileMenu, newItemPos, MF_BYPOSITION);
         
-        // Insert "New" submenu at same position
+        // Insert "New" submenu at same position with localized text
+        WCHAR szNew[64];
+        LoadString(GetModuleHandle(NULL), IDS_MENU_NEW, szNew, 64);
         InsertMenu(hFileMenu, newItemPos, MF_BYPOSITION | MF_STRING | MF_POPUP,
-                   (UINT_PTR)hNewMenu, L"&New");
+                   (UINT_PTR)hNewMenu, szNew);
     } else {
         // Clear existing submenu items
         while (GetMenuItemCount(hNewMenu) > 0) {
@@ -4017,7 +4019,7 @@ void FileOpen()
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
     // Build dynamic filter string based on template file types
-    // Format: "Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+    // Format: "Text Files (*.txt)\0*.txt\0Markdown Files (*.md)\0*.md\0All Files (*.*)\0*.*\0"
     WCHAR szFilter[1024];  // Large buffer for multiple file types
     int pos = 0;
     
@@ -4025,7 +4027,14 @@ void FileOpen()
     WCHAR addedExtensions[32][MAX_TEMPLATE_FILEEXT];
     int addedCount = 0;
     
-    // Add filters for template file types
+    // ALWAYS add "Text Files (*.txt)" as first filter (default)
+    wcscpy(szFilter + pos, L"Text Files (*.txt)");
+    pos += wcslen(L"Text Files (*.txt)") + 1;
+    wcscpy(szFilter + pos, L"*.txt");
+    pos += wcslen(L"*.txt") + 1;
+    wcscpy(addedExtensions[addedCount++], L"txt");  // Mark as added
+    
+    // Add filters for other template file types
     for (int i = 0; i < g_nTemplateCount; i++) {
         if (g_Templates[i].szFileExtension[0] == L'\0') continue;
         
@@ -4160,7 +4169,7 @@ BOOL FileSaveAs()
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
     // Build dynamic filter string based on template file types
-    // Format: "Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+    // Format: "Text Files (*.txt)\0*.txt\0Markdown Files (*.md)\0*.md\0All Files (*.*)\0*.*\0"
     WCHAR szFilter[1024];  // Large buffer for multiple file types
     int pos = 0;
     
@@ -4168,7 +4177,14 @@ BOOL FileSaveAs()
     WCHAR addedExtensions[32][MAX_TEMPLATE_FILEEXT];
     int addedCount = 0;
     
-    // Add filters for template file types (only known extensions)
+    // ALWAYS add "Text Files (*.txt)" as first filter (default)
+    wcscpy(szFilter + pos, L"Text Files (*.txt)");
+    pos += wcslen(L"Text Files (*.txt)") + 1;
+    wcscpy(szFilter + pos, L"*.txt");
+    pos += wcslen(L"*.txt") + 1;
+    wcscpy(addedExtensions[addedCount++], L"txt");  // Mark as added
+    
+    // Add filters for other template file types (only known extensions)
     for (int i = 0; i < g_nTemplateCount; i++) {
         if (g_Templates[i].szFileExtension[0] == L'\0') continue;
         
