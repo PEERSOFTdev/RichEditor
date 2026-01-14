@@ -36,6 +36,12 @@
 #define ID_TOOLS_START_INTERACTIVE      1090  // Start Interactive Mode (Phase 2.5b)
 #define ID_TOOLS_EXIT_INTERACTIVE       1091  // Exit Interactive Mode (Phase 2.5b)
 #define ID_TOOLS_FILTER_BASE            1300  // Base for dynamic filter menu items (1300-1399)
+#define ID_TOOLS_INSERT_TEMPLATE        1203  // Insert Template submenu
+#define ID_TOOLS_SHOW_TEMPLATE_DESCRIPTIONS 1204  // Toggle template descriptions in menu
+#define ID_TOOLS_TEMPLATE_BASE          7000  // Base for template menu items (7000-7099)
+
+// File menu - MRU list
+#define ID_FILE_MRU_BASE                6000  // Base for MRU menu items (6000-6009)
 
 // Help menu
 #define ID_HELP_ABOUT                   1901

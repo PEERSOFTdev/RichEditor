@@ -81,7 +81,7 @@ BOOL g_bLastOperationWasFilter = FALSE;  // TRUE if last operation was a filter
 #define MAX_FILTER_CATEGORY 32
 
 #define MAX_MRU 10                 // Maximum number of MRU items
-#define ID_FILE_MRU_BASE 5000      // Base ID for MRU menu items (5000-5009)
+// ID_FILE_MRU_BASE is now defined in resource.h (6000-6009)
 #define ID_CONTEXT_FILTER_BASE 6000  // Base ID for context menu filter items (6000-6099)
 
 //============================================================================
@@ -370,6 +370,7 @@ void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize);
 void UpdateFileExtension(LPCWSTR pszFilePath);
 LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset);
 void InsertTemplate(int nTemplateIndex);
+void BuildTemplateMenu(HWND hwnd);
 
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
@@ -913,6 +914,7 @@ void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize)
 
 //============================================================================
 // UpdateFileExtension - Update g_szCurrentFileExtension based on current filename
+// Also rebuilds template menu to show only relevant templates
 //============================================================================
 void UpdateFileExtension(LPCWSTR pszFilePath)
 {
@@ -921,6 +923,11 @@ void UpdateFileExtension(LPCWSTR pszFilePath)
     } else {
         // No file (Untitled) - default to txt
         wcscpy(g_szCurrentFileExtension, L"txt");
+    }
+    
+    // Rebuild template menu to filter by new extension
+    if (g_hWndMain) {
+        BuildTemplateMenu(g_hWndMain);
     }
 }
 
@@ -1124,6 +1131,160 @@ void InsertTemplate(int nTemplateIndex)
 }
 
 //============================================================================
+// BuildTemplateMenu - Build dynamic template menu with categories
+// Similar to BuildFilterMenu but for templates
+//============================================================================
+void BuildTemplateMenu(HWND hwnd)
+{
+    HMENU hMenu = GetMenu(hwnd);
+    if (!hMenu) return;
+    
+    // Find Tools menu
+    int toolsMenuPos = -1;
+    int menuCount = GetMenuItemCount(hMenu);
+    for (int i = 0; i < menuCount; i++) {
+        HMENU hSubMenu = GetSubMenu(hMenu, i);
+        if (hSubMenu) {
+            int subItemCount = GetMenuItemCount(hSubMenu);
+            for (int j = 0; j < subItemCount; j++) {
+                if (GetMenuItemID(hSubMenu, j) == ID_TOOLS_EXECUTEFILTER) {
+                    toolsMenuPos = i;
+                    break;
+                }
+            }
+            if (toolsMenuPos != -1) break;
+        }
+    }
+    
+    if (toolsMenuPos == -1) return;
+    
+    HMENU hToolsMenu = GetSubMenu(hMenu, toolsMenuPos);
+    if (!hToolsMenu) return;
+    
+    // Find or create "Insert Template" submenu
+    // It should be the second submenu (after Select Filter)
+    int insertTemplatePos = -1;
+    int foundSubmenus = 0;
+    int toolsItemCount = GetMenuItemCount(hToolsMenu);
+    
+    for (int i = 0; i < toolsItemCount; i++) {
+        HMENU hSubMenu = GetSubMenu(hToolsMenu, i);
+        if (hSubMenu) {
+            foundSubmenus++;
+            if (foundSubmenus == 2) {  // Second submenu is Insert Template
+                insertTemplatePos = i;
+                break;
+            }
+        }
+    }
+    
+    HMENU hTemplateMenu;
+    
+    if (insertTemplatePos == -1) {
+        // Create new "Insert Template" submenu if not found
+        hTemplateMenu = CreatePopupMenu();
+        
+        // Insert after Select Filter submenu (typically position 1 or 2)
+        // Find position after first submenu
+        int insertPos = 0;
+        for (int i = 0; i < toolsItemCount; i++) {
+            if (GetSubMenu(hToolsMenu, i)) {
+                insertPos = i + 1;
+                break;
+            }
+        }
+        
+        WCHAR szInsertTemplate[64];
+        LoadStringResource(IDS_INFORMATION, szInsertTemplate, 64);  // Temporary - will add proper string
+        wcscpy(szInsertTemplate, L"Insert &Template");
+        
+        InsertMenu(hToolsMenu, insertPos, MF_BYPOSITION | MF_STRING | MF_POPUP, 
+                   (UINT_PTR)hTemplateMenu, szInsertTemplate);
+    } else {
+        hTemplateMenu = GetSubMenu(hToolsMenu, insertTemplatePos);
+        if (!hTemplateMenu) return;
+        
+        // Clear existing items
+        while (GetMenuItemCount(hTemplateMenu) > 0) {
+            DeleteMenu(hTemplateMenu, 0, MF_BYPOSITION);
+        }
+    }
+    
+    // Add templates or "No templates" message
+    if (g_nTemplateCount == 0) {
+        AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, L"No templates configured");
+    } else {
+        // Build category map
+        struct TemplateCategoryInfo {
+            WCHAR szName[MAX_TEMPLATE_CATEGORY];
+            int templateIndices[MAX_TEMPLATES];
+            int count;
+        };
+        TemplateCategoryInfo categories[32];
+        int categoryCount = 0;
+        
+        // Group templates by category, filtered by current file extension
+        for (int i = 0; i < g_nTemplateCount; i++) {
+            // Skip templates not available for current file type
+            if (g_Templates[i].szFileExtension[0] != L'\0') {
+                if (_wcsicmp(g_Templates[i].szFileExtension, g_szCurrentFileExtension) != 0) {
+                    continue;  // Skip this template
+                }
+            }
+            
+            // Find or create category
+            int catIndex = -1;
+            for (int c = 0; c < categoryCount; c++) {
+                if (wcscmp(categories[c].szName, g_Templates[i].szCategory) == 0) {
+                    catIndex = c;
+                    break;
+                }
+            }
+            
+            if (catIndex == -1) {
+                catIndex = categoryCount++;
+                wcscpy(categories[catIndex].szName, g_Templates[i].szCategory);
+                categories[catIndex].count = 0;
+            }
+            
+            categories[catIndex].templateIndices[categories[catIndex].count++] = i;
+        }
+        
+        // If no templates match current file type, show message
+        if (categoryCount == 0) {
+            AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, 
+                      L"No templates for this file type");
+        } else {
+            // Create submenu for each category
+            for (int c = 0; c < categoryCount; c++) {
+                HMENU hCategoryMenu = CreatePopupMenu();
+                
+                // Add templates in this category
+                for (int t = 0; t < categories[c].count; t++) {
+                    int templateIndex = categories[c].templateIndices[t];
+                    
+                    // Build menu text with description if enabled
+                    WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
+                    wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
+                    
+                    if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
+                        wcscat(szMenuText, L": ");
+                        wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
+                    }
+                    
+                    AppendMenu(hCategoryMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
+                }
+                
+                // Add category submenu
+                AppendMenu(hTemplateMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
+            }
+        }
+    }
+    
+    DrawMenuBar(hwnd);
+}
+
+//============================================================================
 // WndProc - Main Window Procedure
 //============================================================================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1159,6 +1320,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             LoadFilters();
             LoadTemplates();  // Load templates with keyboard shortcuts
             BuildFilterMenu(hwnd);
+            BuildTemplateMenu(hwnd);  // Build template submenu
             UpdateFilterDisplay();
             UpdateMenuStates(hwnd);
             
