@@ -4002,6 +4002,29 @@ void FileNewFromTemplate(int nTemplateIndex)
 }
 
 //============================================================================
+// IsExtensionInList - Check if extension exists in semicolon-separated list
+//============================================================================
+BOOL IsExtensionInList(const WCHAR *szExt, const WCHAR *szList)
+{
+    if (!szExt || !szList || szExt[0] == L'\0' || szList[0] == L'\0') {
+        return FALSE;
+    }
+    
+    WCHAR szListCopy[512];
+    wcscpy(szListCopy, szList);
+    
+    WCHAR *pToken = wcstok(szListCopy, L";");
+    while (pToken != NULL) {
+        if (_wcsicmp(pToken, szExt) == 0) {
+            return TRUE;
+        }
+        pToken = wcstok(NULL, L";");
+    }
+    
+    return FALSE;
+}
+
+//============================================================================
 // FileOpen - Open file dialog and load file
 //============================================================================
 void FileOpen()
@@ -4018,65 +4041,120 @@ void FileOpen()
     
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
-    // Build dynamic filter string based on template file types
-    // Format: "MD Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+    // Build dynamic filter string based on template categories
+    // Format: "Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
     WCHAR szFilter[1024];  // Large buffer for multiple file types
     int pos = 0;
     
-    // Track which extensions we've added
-    WCHAR addedExtensions[32][MAX_TEMPLATE_FILEEXT];
-    int addedCount = 0;
+    // Structure to map category names to their extensions
+    struct CategoryFilter {
+        WCHAR szCategoryName[MAX_FILTER_NAME];
+        WCHAR szExtensions[256];
+    };
+    CategoryFilter categoryFilters[32];
+    int categoryCount = 0;
     
-    // Load localized "Files" string
+    // Load localized strings
     WCHAR szFiles[64];
+    WCHAR szTextFiles[64];
     LoadString(GetModuleHandle(NULL), IDS_FILES, szFiles, 64);
+    LoadString(GetModuleHandle(NULL), IDS_TEXT_FILES, szTextFiles, 64);
     
-    // Add filters for template file types (user-defined extensions first)
+    // Build category → extensions mapping from templates
     for (int i = 0; i < g_nTemplateCount; i++) {
         if (g_Templates[i].szFileExtension[0] == L'\0') continue;
         
-        // Check if we've already added this extension
-        BOOL alreadyAdded = FALSE;
-        for (int j = 0; j < addedCount; j++) {
-            if (_wcsicmp(addedExtensions[j], g_Templates[i].szFileExtension) == 0) {
-                alreadyAdded = TRUE;
+        // Determine category name (use Category field or fallback to uppercase extension)
+        WCHAR szCategory[MAX_FILTER_NAME];
+        if (g_Templates[i].szCategory[0] != L'\0') {
+            wcscpy(szCategory, g_Templates[i].szCategory);
+        } else {
+            // Fallback: use uppercase extension as category name
+            wcscpy(szCategory, g_Templates[i].szFileExtension);
+            _wcsupr(szCategory);
+        }
+        
+        // Find existing category or create new one
+        int catIndex = -1;
+        for (int j = 0; j < categoryCount; j++) {
+            if (wcscmp(categoryFilters[j].szCategoryName, szCategory) == 0) {
+                catIndex = j;
                 break;
             }
         }
         
-        if (!alreadyAdded && addedCount < 32) {
-            // Store extension as added
-            wcscpy(addedExtensions[addedCount++], g_Templates[i].szFileExtension);
-            
-            // Generic format: "MD Files (*.md)" using localized "Files"
-            WCHAR szFilterLabel[128];
-            WCHAR szPattern[64];
-            WCHAR szUpper[MAX_TEMPLATE_FILEEXT];
-            
-            wcscpy(szUpper, g_Templates[i].szFileExtension);
-            _wcsupr(szUpper);
-            wcscpy(szFilterLabel, szUpper);
-            wcscat(szFilterLabel, L" ");
-            wcscat(szFilterLabel, szFiles);  // Localized "Files"
-            wcscat(szFilterLabel, L" (*.");
-            wcscat(szFilterLabel, g_Templates[i].szFileExtension);
-            wcscat(szFilterLabel, L")");
-            
-            wcscpy(szPattern, L"*.");
-            wcscat(szPattern, g_Templates[i].szFileExtension);
-            
-            // Add to filter string
-            wcscpy(szFilter + pos, szFilterLabel);
-            pos += wcslen(szFilterLabel) + 1;
-            wcscpy(szFilter + pos, szPattern);
-            pos += wcslen(szPattern) + 1;
+        if (catIndex == -1) {
+            // New category - create it
+            if (categoryCount < 32) {
+                wcscpy(categoryFilters[categoryCount].szCategoryName, szCategory);
+                wcscpy(categoryFilters[categoryCount].szExtensions, g_Templates[i].szFileExtension);
+                categoryCount++;
+            }
+        } else {
+            // Existing category - append extension if not already present
+            if (!IsExtensionInList(g_Templates[i].szFileExtension, categoryFilters[catIndex].szExtensions)) {
+                wcscat(categoryFilters[catIndex].szExtensions, L";");
+                wcscat(categoryFilters[catIndex].szExtensions, g_Templates[i].szFileExtension);
+            }
         }
     }
     
-    // Add "Text Files (*.txt)" after template extensions
+    // Build filter string from categories
+    for (int i = 0; i < categoryCount; i++) {
+        // Build label: "Markdown Files (*.md)" or "HTML Files (*.htm;*.html)"
+        WCHAR szFilterLabel[256];
+        wcscpy(szFilterLabel, categoryFilters[i].szCategoryName);
+        wcscat(szFilterLabel, L" ");
+        wcscat(szFilterLabel, szFiles);  // Localized "Files"
+        wcscat(szFilterLabel, L" (*.");
+        
+        // Replace semicolons with ";*." for display
+        WCHAR szDisplayExt[256];
+        wcscpy(szDisplayExt, categoryFilters[i].szExtensions);
+        WCHAR *pSemi = wcschr(szDisplayExt, L';');
+        while (pSemi != NULL) {
+            // Move string and insert ";*."
+            size_t remaining = wcslen(pSemi);
+            wmemmove(pSemi + 3, pSemi + 1, remaining);
+            pSemi[0] = L';';
+            pSemi[1] = L'*';
+            pSemi[2] = L'.';
+            pSemi = wcschr(pSemi + 3, L';');
+        }
+        
+        wcscat(szFilterLabel, szDisplayExt);
+        wcscat(szFilterLabel, L")");
+        
+        // Build pattern: "*.md" or "*.htm;*.html"
+        WCHAR szPattern[256];
+        wcscpy(szPattern, L"*.");
+        
+        // Replace semicolons with ";*." for pattern
+        WCHAR szPatternExt[256];
+        wcscpy(szPatternExt, categoryFilters[i].szExtensions);
+        pSemi = wcschr(szPatternExt, L';');
+        while (pSemi != NULL) {
+            size_t remaining = wcslen(pSemi);
+            wmemmove(pSemi + 3, pSemi + 1, remaining);
+            pSemi[0] = L';';
+            pSemi[1] = L'*';
+            pSemi[2] = L'.';
+            pSemi = wcschr(pSemi + 3, L';');
+        }
+        
+        wcscat(szPattern, szPatternExt);
+        
+        // Add to filter string
+        wcscpy(szFilter + pos, szFilterLabel);
+        pos += wcslen(szFilterLabel) + 1;
+        wcscpy(szFilter + pos, szPattern);
+        pos += wcslen(szPattern) + 1;
+    }
+    
+    // Add "Text Files (*.txt)" as built-in filter (if not already from templates)
     BOOL txtAlreadyAdded = FALSE;
-    for (int j = 0; j < addedCount; j++) {
-        if (_wcsicmp(addedExtensions[j], L"txt") == 0) {
+    for (int i = 0; i < categoryCount; i++) {
+        if (IsExtensionInList(L"txt", categoryFilters[i].szExtensions)) {
             txtAlreadyAdded = TRUE;
             break;
         }
@@ -4084,8 +4162,7 @@ void FileOpen()
     
     if (!txtAlreadyAdded) {
         WCHAR szTxtLabel[128];
-        wcscpy(szTxtLabel, L"TXT ");
-        wcscat(szTxtLabel, szFiles);  // Localized "Files"
+        wcscpy(szTxtLabel, szTextFiles);  // Localized "Text Files"
         wcscat(szTxtLabel, L" (*.txt)");
         
         wcscpy(szFilter + pos, szTxtLabel);
@@ -4175,74 +4252,131 @@ BOOL FileSaveAs()
     
     GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
     
-    // Build dynamic filter string based on template file types
-    // Format: "MD Files (*.md)\0*.md\0TXT Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+    // Build dynamic filter string based on template categories
+    // Format: "Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
     WCHAR szFilter[1024];  // Large buffer for multiple file types
     int pos = 0;
     
-    // Track which extensions we've added
-    WCHAR addedExtensions[32][MAX_TEMPLATE_FILEEXT];
-    int addedCount = 0;
+    // Structure to map category names to their extensions
+    struct CategoryFilter {
+        WCHAR szCategoryName[MAX_FILTER_NAME];
+        WCHAR szExtensions[256];
+    };
+    CategoryFilter categoryFilters[32];
+    int categoryCount = 0;
     
-    // Load localized "Files" string
+    // Load localized strings
     WCHAR szFiles[64];
+    WCHAR szTextFiles[64];
     LoadString(GetModuleHandle(NULL), IDS_FILES, szFiles, 64);
+    LoadString(GetModuleHandle(NULL), IDS_TEXT_FILES, szTextFiles, 64);
     
-    // Add filters for template file types (user-defined extensions first)
+    // Build category → extensions mapping from templates
     for (int i = 0; i < g_nTemplateCount; i++) {
         if (g_Templates[i].szFileExtension[0] == L'\0') continue;
         
-        // Check if we've already added this extension
-        BOOL alreadyAdded = FALSE;
-        for (int j = 0; j < addedCount; j++) {
-            if (_wcsicmp(addedExtensions[j], g_Templates[i].szFileExtension) == 0) {
-                alreadyAdded = TRUE;
+        // Determine category name (use Category field or fallback to uppercase extension)
+        WCHAR szCategory[MAX_FILTER_NAME];
+        if (g_Templates[i].szCategory[0] != L'\0') {
+            wcscpy(szCategory, g_Templates[i].szCategory);
+        } else {
+            // Fallback: use uppercase extension as category name
+            wcscpy(szCategory, g_Templates[i].szFileExtension);
+            _wcsupr(szCategory);
+        }
+        
+        // Find existing category or create new one
+        int catIndex = -1;
+        for (int j = 0; j < categoryCount; j++) {
+            if (wcscmp(categoryFilters[j].szCategoryName, szCategory) == 0) {
+                catIndex = j;
                 break;
             }
         }
         
-        if (!alreadyAdded && addedCount < 32) {
-            // Store extension as added
-            wcscpy(addedExtensions[addedCount++], g_Templates[i].szFileExtension);
-            
-            // Generic format: "MD Files (*.md)" using localized "Files"
-            WCHAR szFilterLabel[128];
-            WCHAR szPattern[64];
-            WCHAR szUpper[MAX_TEMPLATE_FILEEXT];
-            
-            wcscpy(szUpper, g_Templates[i].szFileExtension);
-            _wcsupr(szUpper);
-            wcscpy(szFilterLabel, szUpper);
-            wcscat(szFilterLabel, L" ");
-            wcscat(szFilterLabel, szFiles);  // Localized "Files"
-            wcscat(szFilterLabel, L" (*.");
-            wcscat(szFilterLabel, g_Templates[i].szFileExtension);
-            wcscat(szFilterLabel, L")");
-            
-            wcscpy(szPattern, L"*.");
-            wcscat(szPattern, g_Templates[i].szFileExtension);
-            
-            // Add to filter string
-            wcscpy(szFilter + pos, szFilterLabel);
-            pos += wcslen(szFilterLabel) + 1;
-            wcscpy(szFilter + pos, szPattern);
-            pos += wcslen(szPattern) + 1;
+        if (catIndex == -1) {
+            // New category - create it
+            if (categoryCount < 32) {
+                wcscpy(categoryFilters[categoryCount].szCategoryName, szCategory);
+                wcscpy(categoryFilters[categoryCount].szExtensions, g_Templates[i].szFileExtension);
+                categoryCount++;
+            }
+        } else {
+            // Existing category - append extension if not already present
+            if (!IsExtensionInList(g_Templates[i].szFileExtension, categoryFilters[catIndex].szExtensions)) {
+                wcscat(categoryFilters[catIndex].szExtensions, L";");
+                wcscat(categoryFilters[catIndex].szExtensions, g_Templates[i].szFileExtension);
+            }
         }
     }
     
-    // Add "Text Files (*.txt)" after template extensions
+    // Build filter string from categories
+    for (int i = 0; i < categoryCount; i++) {
+        // Build label: "Markdown Files (*.md)" or "HTML Files (*.htm;*.html)"
+        WCHAR szFilterLabel[256];
+        wcscpy(szFilterLabel, categoryFilters[i].szCategoryName);
+        wcscat(szFilterLabel, L" ");
+        wcscat(szFilterLabel, szFiles);  // Localized "Files"
+        wcscat(szFilterLabel, L" (*.");
+        
+        // Replace semicolons with ";*." for display
+        WCHAR szDisplayExt[256];
+        wcscpy(szDisplayExt, categoryFilters[i].szExtensions);
+        WCHAR *pSemi = wcschr(szDisplayExt, L';');
+        while (pSemi != NULL) {
+            // Move string and insert ";*."
+            size_t remaining = wcslen(pSemi);
+            wmemmove(pSemi + 3, pSemi + 1, remaining);
+            pSemi[0] = L';';
+            pSemi[1] = L'*';
+            pSemi[2] = L'.';
+            pSemi = wcschr(pSemi + 3, L';');
+        }
+        
+        wcscat(szFilterLabel, szDisplayExt);
+        wcscat(szFilterLabel, L")");
+        
+        // Build pattern: "*.md" or "*.htm;*.html"
+        WCHAR szPattern[256];
+        wcscpy(szPattern, L"*.");
+        
+        // Replace semicolons with ";*." for pattern
+        WCHAR szPatternExt[256];
+        wcscpy(szPatternExt, categoryFilters[i].szExtensions);
+        pSemi = wcschr(szPatternExt, L';');
+        while (pSemi != NULL) {
+            size_t remaining = wcslen(pSemi);
+            wmemmove(pSemi + 3, pSemi + 1, remaining);
+            pSemi[0] = L';';
+            pSemi[1] = L'*';
+            pSemi[2] = L'.';
+            pSemi = wcschr(pSemi + 3, L';');
+        }
+        
+        wcscat(szPattern, szPatternExt);
+        
+        // Add to filter string
+        wcscpy(szFilter + pos, szFilterLabel);
+        pos += wcslen(szFilterLabel) + 1;
+        wcscpy(szFilter + pos, szPattern);
+        pos += wcslen(szPattern) + 1;
+    }
+    
+    // Add "Text Files (*.txt)" as built-in filter (if not already from templates)
     BOOL txtAlreadyAdded = FALSE;
-    for (int j = 0; j < addedCount; j++) {
-        if (_wcsicmp(addedExtensions[j], L"txt") == 0) {
+    int txtFilterIndex = -1;
+    for (int i = 0; i < categoryCount; i++) {
+        if (IsExtensionInList(L"txt", categoryFilters[i].szExtensions)) {
             txtAlreadyAdded = TRUE;
             break;
         }
     }
     
     if (!txtAlreadyAdded) {
+        txtFilterIndex = categoryCount + 1;  // 1-based index
+        
         WCHAR szTxtLabel[128];
-        wcscpy(szTxtLabel, L"TXT ");
-        wcscat(szTxtLabel, szFiles);  // Localized "Files"
+        wcscpy(szTxtLabel, szTextFiles);  // Localized "Text Files"
         wcscat(szTxtLabel, L" (*.txt)");
         
         wcscpy(szFilter + pos, szTxtLabel);
@@ -4260,14 +4394,47 @@ BOOL FileSaveAs()
     pos += wcslen(L"*.*") + 1;
     szFilter[pos] = L'\0';  // Double null terminator
     
-    // Determine default extension based on current file or "txt" as fallback
+    // Determine default filter index and extension
+    int nFilterIndex = 1;  // Default to first filter
     WCHAR szDefExt[MAX_TEMPLATE_FILEEXT] = L"txt";
-    if (g_szFileName[0] != L'\0') {
-        // Extract extension from current filename
+    
+    if (g_szFileName[0] == L'\0') {
+        // Untitled file - default to "Text Files" filter
+        if (txtFilterIndex > 0) {
+            nFilterIndex = txtFilterIndex;
+        } else {
+            // txt is in one of the category filters - find it
+            for (int i = 0; i < categoryCount; i++) {
+                if (IsExtensionInList(L"txt", categoryFilters[i].szExtensions)) {
+                    nFilterIndex = i + 1;
+                    break;
+                }
+            }
+        }
+        wcscpy(szDefExt, L"txt");
+    } else {
+        // Existing file - match current extension to filter
         ExtractFileExtension(g_szFileName, szDefExt, MAX_TEMPLATE_FILEEXT);
-        // If no extension found, default to txt
-        if (szDefExt[0] == L'\0') {
+        
+        if (szDefExt[0] != L'\0') {
+            // Search category filters for matching extension
+            BOOL found = FALSE;
+            for (int i = 0; i < categoryCount; i++) {
+                if (IsExtensionInList(szDefExt, categoryFilters[i].szExtensions)) {
+                    nFilterIndex = i + 1;  // 1-based
+                    found = TRUE;
+                    break;
+                }
+            }
+            
+            // If not in categories, check if it's txt in the built-in filter
+            if (!found && _wcsicmp(szDefExt, L"txt") == 0 && txtFilterIndex > 0) {
+                nFilterIndex = txtFilterIndex;
+            }
+        } else {
+            // No extension - default to txt
             wcscpy(szDefExt, L"txt");
+            nFilterIndex = (txtFilterIndex > 0) ? txtFilterIndex : 1;
         }
     }
     
@@ -4276,7 +4443,7 @@ BOOL FileSaveAs()
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = EXTENDED_PATH_MAX;
     ofn.lpstrFilter = szFilter;
-    ofn.nFilterIndex = 1;
+    ofn.nFilterIndex = nFilterIndex;  // Dynamic filter index based on file type
     ofn.lpstrInitialDir = szInitialDir;
     ofn.lpstrDefExt = szDefExt;  // Dynamic default extension based on current file
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;

@@ -239,6 +239,7 @@ BEGIN
     IDS_MENU_INSERT_TEMPLATE        "Insert &Template"
     IDS_MENU_NEW                    "&New"
     IDS_FILES                       "Files"
+    IDS_TEXT_FILES                  "Text Files"
 END
 
 // ============================================================================
@@ -429,4 +430,5 @@ BEGIN
     IDS_MENU_INSERT_TEMPLATE        "Vložit ša&blonu"
     IDS_MENU_NEW                    "&Nový"
     IDS_FILES                       "Soubory"
+    IDS_TEXT_FILES                  "Textové soubory"
 END

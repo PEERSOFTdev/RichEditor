@@ -155,7 +155,7 @@
 #define IDS_INTERACTIVE_MODE_INDICATOR  2102
 #define IDS_FILTER_RESULT_TITLE         2104
 
-// Template system strings (2106-2122)
+// Template system strings (2106-2124)
 #define IDS_BLANK_DOCUMENT              2106
 #define IDS_MARKDOWN_DOCUMENT           2108
 #define IDS_TEXT_DOCUMENT               2110
@@ -165,5 +165,6 @@
 #define IDS_MENU_INSERT_TEMPLATE        2118
 #define IDS_MENU_NEW                    2120
 #define IDS_FILES                       2122
+#define IDS_TEXT_FILES                  2124
 
 #endif // RESOURCE_H
