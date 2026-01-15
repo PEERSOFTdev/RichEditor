@@ -753,7 +753,7 @@ void LoadTemplates()
         ReadINIValue(szIniPath, szSection, L"Description", 
                      g_Templates[i].szDescription, MAX_TEMPLATE_DESC, L"");
         ReadINIValue(szIniPath, szSection, L"Category", 
-                     g_Templates[i].szCategory, MAX_TEMPLATE_CATEGORY, L"General");
+                     g_Templates[i].szCategory, MAX_TEMPLATE_CATEGORY, L"");
         ReadINIValue(szIniPath, szSection, L"FileExtension", 
                      g_Templates[i].szFileExtension, MAX_TEMPLATE_FILEEXT, L"");
         
@@ -1225,6 +1225,8 @@ void BuildTemplateMenu(HWND hwnd)
         };
         TemplateCategoryInfo categories[32];
         int categoryCount = 0;
+        int uncategorizedTemplates[MAX_TEMPLATES];  // Templates with no category
+        int uncategorizedCount = 0;
         
         // Group templates by category, filtered by current file extension
         for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1233,6 +1235,13 @@ void BuildTemplateMenu(HWND hwnd)
                 if (_wcsicmp(g_Templates[i].szFileExtension, g_szCurrentFileExtension) != 0) {
                     continue;  // Skip this template
                 }
+            }
+            
+            // Check if template has a category
+            if (g_Templates[i].szCategory[0] == L'\0') {
+                // No category - add to uncategorized list
+                uncategorizedTemplates[uncategorizedCount++] = i;
+                continue;
             }
             
             // Find or create category
@@ -1254,7 +1263,7 @@ void BuildTemplateMenu(HWND hwnd)
         }
         
         // If no templates match current file type, show message
-        if (categoryCount == 0) {
+        if (categoryCount == 0 && uncategorizedCount == 0) {
             WCHAR szNoTemplatesForType[64];
             LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES_FOR_FILETYPE, szNoTemplatesForType, 64);
             AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, 
@@ -1282,6 +1291,27 @@ void BuildTemplateMenu(HWND hwnd)
                 
                 // Add category submenu
                 AppendMenu(hTemplateMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
+            }
+            
+            // Add separator if we have both categorized and uncategorized templates
+            if (categoryCount > 0 && uncategorizedCount > 0) {
+                AppendMenu(hTemplateMenu, MF_SEPARATOR, 0, NULL);
+            }
+            
+            // Add uncategorized templates at root level (below categories)
+            for (int i = 0; i < uncategorizedCount; i++) {
+                int templateIndex = uncategorizedTemplates[i];
+                
+                // Build menu text with description if enabled
+                WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
+                wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
+                
+                if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
+                    wcscat(szMenuText, L": ");
+                    wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
+                }
+                
+                AppendMenu(hTemplateMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
             }
         }
     }
