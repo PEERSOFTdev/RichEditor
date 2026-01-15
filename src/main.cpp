@@ -5638,7 +5638,7 @@ void LoadFilters()
         ReadINIValue(szIniPath, szSection, L"Description", 
                      g_Filters[i].szDescription, MAX_FILTER_DESC, L"");
         ReadINIValue(szIniPath, szSection, L"Category", 
-                     g_Filters[i].szCategory, MAX_FILTER_CATEGORY, L"General");
+                     g_Filters[i].szCategory, MAX_FILTER_CATEGORY, L"");
         
         // Get system language code for localized strings
         WCHAR szLangCode[16];
@@ -6385,9 +6385,18 @@ void BuildFilterMenu(HWND hwnd)
         };
         CategoryInfo categories[32];  // Max 32 categories
         int categoryCount = 0;
+        int uncategorizedFilters[MAX_FILTERS];  // Filters with no category
+        int uncategorizedCount = 0;
         
         // Group filters by category
         for (int i = 0; i < g_nFilterCount; i++) {
+            // Check if filter has a category
+            if (g_Filters[i].szCategory[0] == L'\0') {
+                // No category - add to uncategorized list
+                uncategorizedFilters[uncategorizedCount++] = i;
+                continue;
+            }
+            
             // Find existing category or create new one
             int catIndex = -1;
             for (int c = 0; c < categoryCount; c++) {
@@ -6452,6 +6461,47 @@ void BuildFilterMenu(HWND hwnd)
             // Add category submenu to main filter menu
             AppendMenu(hFilterMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, 
                        categories[c].szName);
+        }
+        
+        // Add separator if we have both categorized and uncategorized filters
+        if (categoryCount > 0 && uncategorizedCount > 0) {
+            AppendMenu(hFilterMenu, MF_SEPARATOR, 0, NULL);
+        }
+        
+        // Add uncategorized filters at root level (below categories)
+        for (int i = 0; i < uncategorizedCount; i++) {
+            int filterIndex = uncategorizedFilters[i];
+            UINT flags = MF_STRING;
+            // Check both classic filter and REPL filter selection
+            if (filterIndex == g_nCurrentFilter || filterIndex == g_nSelectedREPLFilter) {
+                flags |= MF_CHECKED;
+            }
+            
+            // Build accessible menu text: "Name: Description" (using localized strings)
+            // Add "[Interactive] " prefix for REPL filters
+            WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 32];
+            
+            // Check if this is a REPL filter and prepend localized indicator
+            if (g_Filters[filterIndex].action == FILTER_ACTION_REPL) {
+                wcscpy(szMenuText, L"[");
+                WCHAR szInteractive[32];
+                LoadStringResource(IDS_STATUS_INTERACTIVE, szInteractive, 32);
+                wcscat(szMenuText, szInteractive);
+                wcscat(szMenuText, L"] ");
+            } else {
+                szMenuText[0] = L'\0';
+            }
+            
+            // Append localized name
+            wcscat(szMenuText, g_Filters[filterIndex].szLocalizedName);
+            
+            // Append description if enabled
+            if (g_bShowMenuDescriptions && g_Filters[filterIndex].szLocalizedDescription[0] != L'\0') {
+                wcscat(szMenuText, L": ");
+                wcscat(szMenuText, g_Filters[filterIndex].szLocalizedDescription);
+            }
+            
+            AppendMenu(hFilterMenu, flags, ID_TOOLS_FILTER_BASE + filterIndex, szMenuText);
         }
     }
     
