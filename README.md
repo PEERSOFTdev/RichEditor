@@ -444,25 +444,26 @@ OriginalPath=                 ; Empty for untitled, or original file path for sa
 - Grouped by category (e.g., "Markdown" with 15 templates)
 - Filtered by current file extension (Markdown templates only show in .md files)
 - Shows template descriptions for accessibility (configurable)
-- Keyboard shortcuts shown in menu (Ctrl+1 for "Heading 1", etc.)
+- Individual keyboard shortcuts for common templates (Ctrl+1, Ctrl+B, Ctrl+I, etc.)
+- **Ctrl+Shift+T** - Opens template picker popup menu at cursor position (quick access to all templates)
 - Right-click → Insert Template also available
 
 **15 Default Markdown Templates:**
 1. **Heading 1** (Ctrl+1) - `# %cursor%`
 2. **Heading 2** (Ctrl+2) - `## %cursor%`
 3. **Heading 3** (Ctrl+3) - `### %cursor%`
-4. **Bold** (Ctrl+B) - `**%selection%**` (wraps selected text)
-5. **Italic** (Ctrl+I) - `*%selection%*`
-6. **Code Block** (Ctrl+Shift+C) - Fenced code block with cursor inside
-7. **Inline Code** (Ctrl+`) - Backtick-wrapped code
-8. **Unordered List** (Ctrl+Shift+U) - `- %cursor%`
-9. **Ordered List** (Ctrl+Shift+O) - `1. %cursor%`
-10. **Checkbox** (Ctrl+Shift+X) - `- [ ] %cursor%`
-11. **Link** (Ctrl+K) - `[%selection%](url)`
-12. **Blockquote** (Ctrl+Shift+Q) - `> %cursor%`
-13. **Horizontal Rule** (Ctrl+Shift+H) - `---`
-14. **Table** (Ctrl+Shift+T) - 3-column table template
-15. **Front Matter** (Ctrl+Shift+F) - YAML front matter with `%date%` variable
+4. **Bold Text** (Ctrl+B) - `**%selection%**` (wraps selected text)
+5. **Italic Text** (Ctrl+I) - `*%selection%*`
+6. **Bold Italic** - `***%selection%***`
+7. **Strikethrough** - `~~%selection%~~`
+8. **Inline Code** - `` `%selection%` ``
+9. **Code Block** (Ctrl+Shift+C) - Fenced code block with cursor inside
+10. **Unordered List** - `- %cursor%`
+11. **Ordered List** - `1. %cursor%`
+12. **Task List** (Checkbox) - `- [ ] %cursor%`
+13. **Link** - `[%selection%](url)`
+14. **Blockquote** - `> %cursor%`
+15. **Front Matter** - YAML front matter with `%date%` variable
 
 **How It Works:**
 1. **File → New → Markdown Document**:
@@ -543,7 +544,7 @@ Shortcut=Ctrl+Shift+F
 - File: Ctrl+N, Ctrl+O, Ctrl+S
 - Edit: Ctrl+Z, Ctrl+Y, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+A
 - View: Ctrl+W
-- Tools: Ctrl+Enter, Ctrl+Shift+I, Ctrl+Shift+Q
+- Tools: Ctrl+Enter, Ctrl+Shift+I, Ctrl+Shift+Q, Ctrl+Shift+T
 - Other: F5, Alt+F4
 
 **Accessibility:**
@@ -758,6 +759,7 @@ RichEditor.exe "%1" /nomru
 | `Ctrl+W` | Toggle word wrap |
 | `F5` | Insert time/date |
 | `Ctrl+Enter` | Execute current filter |
+| `Ctrl+Shift+T` | Open template picker menu |
 | `Enter` | Open URL (when cursor is in URL) |
 | `Context Menu Key` | Open context menu with filters |
 | `Alt+F4` | Exit |

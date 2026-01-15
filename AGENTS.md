@@ -734,6 +734,7 @@ Phase 2.7 implements a template system for quick text insertion with variable ex
 
 **Key Design Goals:**
 - Fast template insertion with keyboard shortcuts
+- **Ctrl+Shift+T** opens template picker popup menu at cursor (quick access to all templates)
 - Variable expansion (%cursor%, %date%, %selection%, etc.)
 - File type filtering (Markdown templates only in .md files)
 - Category organization (similar to filter system)
@@ -1039,9 +1040,10 @@ HACCEL g_hAccel = NULL;                   // Dynamic accelerator table
 - `UpdateFileExtension()` - Update global extension, rebuild menus (~line 1063)
 
 **Menu Building:**
-- `BuildAcceleratorTable()` - Dynamic accelerator table (~line 922)
-- `BuildTemplateMenu()` - Tools→Insert Template submenu (~line 1149)
-- `BuildFileNewMenu()` - File→New submenu with templates (~line 1320)
+- `BuildAcceleratorTable()` - Dynamic accelerator table (~line 829)
+- `ShowTemplatePickerMenu()` - Ctrl+Shift+T popup menu at cursor (~line 1137)
+- `BuildTemplateMenu()` - Tools→Insert Template submenu (~line 1275)
+- `BuildFileNewMenu()` - File→New submenu with templates (~line 1429)
 
 **File Creation:**
 - `FileNewFromTemplate()` - Create new file with template (~line 3822)

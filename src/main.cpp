@@ -371,6 +371,7 @@ void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize);
 void UpdateFileExtension(LPCWSTR pszFilePath);
 LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset);
 void InsertTemplate(int nTemplateIndex);
+void ShowTemplatePickerMenu(HWND hwnd);
 void BuildTemplateMenu(HWND hwnd);
 void BuildFileNewMenu(HWND hwnd);
 
@@ -829,7 +830,7 @@ void LoadTemplates()
 HACCEL BuildAcceleratorTable()
 {
     // Count total accelerators needed
-    const int BUILTIN_COUNT = 14;  // Built-in shortcuts (no template insert yet)
+    const int BUILTIN_COUNT = 15;  // Built-in shortcuts (including Ctrl+Shift+T for template picker)
     int nTemplateShortcuts = 0;
     
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -861,6 +862,7 @@ HACCEL BuildAcceleratorTable()
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = VK_RETURN; pAccel[idx++].cmd = ID_TOOLS_EXECUTEFILTER;
     pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'I'; pAccel[idx++].cmd = ID_TOOLS_START_INTERACTIVE;
     pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'Q'; pAccel[idx++].cmd = ID_TOOLS_EXIT_INTERACTIVE;
+    pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'T'; pAccel[idx++].cmd = ID_TOOLS_INSERT_TEMPLATE;
     
     // Add template shortcuts
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1130,6 +1132,141 @@ void InsertTemplate(int nTemplateIndex)
     // Mark document as modified
     g_bModified = TRUE;
     UpdateTitle(g_hWndMain);
+}
+
+//============================================================================
+// ShowTemplatePickerMenu - Show template picker popup menu at cursor (Ctrl+Shift+T)
+// Creates a popup menu with templates filtered by file type and shows it at cursor position
+//============================================================================
+void ShowTemplatePickerMenu(HWND hwnd)
+{
+    if (g_nTemplateCount == 0) {
+        // No templates configured
+        WCHAR szNoTemplates[64];
+        LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES, szNoTemplates, 64);
+        MessageBox(hwnd, szNoTemplates, L"RichEditor", MB_ICONINFORMATION);
+        return;
+    }
+    
+    // Create popup menu
+    HMENU hPopupMenu = CreatePopupMenu();
+    if (!hPopupMenu) return;
+    
+    // Build category map (same logic as BuildTemplateMenu)
+    struct TemplateCategoryInfo {
+        WCHAR szName[MAX_TEMPLATE_CATEGORY];
+        int templateIndices[MAX_TEMPLATES];
+        int count;
+    };
+    TemplateCategoryInfo categories[32];
+    int categoryCount = 0;
+    int uncategorizedTemplates[MAX_TEMPLATES];
+    int uncategorizedCount = 0;
+    
+    // Group templates by category, filtered by current file extension
+    for (int i = 0; i < g_nTemplateCount; i++) {
+        // Skip templates not available for current file type
+        if (g_Templates[i].szFileExtension[0] != L'\0') {
+            if (_wcsicmp(g_Templates[i].szFileExtension, g_szCurrentFileExtension) != 0) {
+                continue;  // Skip this template
+            }
+        }
+        
+        // Check if template has a category
+        if (g_Templates[i].szCategory[0] == L'\0') {
+            // No category - add to uncategorized list
+            uncategorizedTemplates[uncategorizedCount++] = i;
+            continue;
+        }
+        
+        // Find or create category
+        int catIndex = -1;
+        for (int c = 0; c < categoryCount; c++) {
+            if (wcscmp(categories[c].szName, g_Templates[i].szCategory) == 0) {
+                catIndex = c;
+                break;
+            }
+        }
+        
+        if (catIndex == -1) {
+            catIndex = categoryCount++;
+            wcscpy(categories[catIndex].szName, g_Templates[i].szCategory);
+            categories[catIndex].count = 0;
+        }
+        
+        categories[catIndex].templateIndices[categories[catIndex].count++] = i;
+    }
+    
+    // If no templates match current file type, show message
+    if (categoryCount == 0 && uncategorizedCount == 0) {
+        DestroyMenu(hPopupMenu);
+        WCHAR szNoTemplatesForType[64];
+        LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES_FOR_FILETYPE, szNoTemplatesForType, 64);
+        MessageBox(hwnd, szNoTemplatesForType, L"RichEditor", MB_ICONINFORMATION);
+        return;
+    }
+    
+    // Add categorized templates first
+    for (int c = 0; c < categoryCount; c++) {
+        HMENU hCategoryMenu = CreatePopupMenu();
+        
+        // Add templates in this category
+        for (int t = 0; t < categories[c].count; t++) {
+            int templateIndex = categories[c].templateIndices[t];
+            
+            // Build menu text with description if enabled
+            WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
+            wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
+            
+            if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
+                wcscat(szMenuText, L": ");
+                wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
+            }
+            
+            AppendMenu(hCategoryMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
+        }
+        
+        // Add category submenu to popup
+        AppendMenu(hPopupMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
+    }
+    
+    // Add separator if we have both categorized and uncategorized templates
+    if (categoryCount > 0 && uncategorizedCount > 0) {
+        AppendMenu(hPopupMenu, MF_SEPARATOR, 0, NULL);
+    }
+    
+    // Add uncategorized templates at root level
+    for (int i = 0; i < uncategorizedCount; i++) {
+        int templateIndex = uncategorizedTemplates[i];
+        
+        // Build menu text with description if enabled
+        WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
+        wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
+        
+        if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
+            wcscat(szMenuText, L": ");
+            wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
+        }
+        
+        AppendMenu(hPopupMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
+    }
+    
+    // Get cursor position in RichEdit
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    POINTL ptlEdit = {0};
+    SendMessage(g_hWndEdit, EM_POSFROMCHAR, (WPARAM)&ptlEdit, cr.cpMin);
+    
+    // Convert to screen coordinates
+    POINT ptScreen = {ptlEdit.x, ptlEdit.y};
+    ClientToScreen(g_hWndEdit, &ptScreen);
+    
+    // Show popup menu at cursor position
+    TrackPopupMenu(hPopupMenu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_LEFTBUTTON, 
+                   ptScreen.x, ptScreen.y, 0, hwnd, NULL);
+    
+    // Cleanup
+    DestroyMenu(hPopupMenu);
 }
 
 //============================================================================
@@ -1664,6 +1801,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         LoadStringResource(IDS_FILTER_HELP_TITLE, szTitle, 64);
                         MessageBox(hwnd, szHelpText, szTitle, MB_ICONINFORMATION);
                     }
+                    break;
+                
+                // Tools -> Insert Template (Ctrl+Shift+T) - Show template picker menu
+                case ID_TOOLS_INSERT_TEMPLATE:
+                    ShowTemplatePickerMenu(hwnd);
                     break;
                 
                 // Tools -> Select Filter submenu (dynamic filter selection)
