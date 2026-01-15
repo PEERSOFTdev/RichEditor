@@ -772,11 +772,28 @@ void LoadTemplates()
         GetSystemLanguageCode(szLangCode, 16);
         
         // Try to load localized name
+        // First try full locale (e.g., "Name.cs_CZ")
         WCHAR szLocalizedKey[64];
         _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
         szLocalizedKey[63] = L'\0';
         ReadINIValue(szIniPath, szSection, szLocalizedKey, 
                      g_Templates[i].szLocalizedName, MAX_TEMPLATE_NAME, L"");
+        
+        // If not found, try just language code (e.g., "Name.cs")
+        if (g_Templates[i].szLocalizedName[0] == L'\0') {
+            // Extract language code (first 2 chars before underscore)
+            WCHAR szLangOnly[8];
+            wcscpy(szLangOnly, szLangCode);
+            WCHAR* pUnderscore = wcschr(szLangOnly, L'_');
+            if (pUnderscore) {
+                *pUnderscore = L'\0';
+            }
+            
+            _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangOnly);
+            szLocalizedKey[63] = L'\0';
+            ReadINIValue(szIniPath, szSection, szLocalizedKey, 
+                         g_Templates[i].szLocalizedName, MAX_TEMPLATE_NAME, L"");
+        }
         
         // If no localized name, use default name
         if (g_Templates[i].szLocalizedName[0] == L'\0') {
@@ -784,10 +801,27 @@ void LoadTemplates()
         }
         
         // Try to load localized description
+        // First try full locale (e.g., "Description.cs_CZ")
         _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangCode);
         szLocalizedKey[63] = L'\0';
         ReadINIValue(szIniPath, szSection, szLocalizedKey, 
                      g_Templates[i].szLocalizedDescription, MAX_TEMPLATE_DESC, L"");
+        
+        // If not found, try just language code (e.g., "Description.cs")
+        if (g_Templates[i].szLocalizedDescription[0] == L'\0') {
+            // Extract language code (first 2 chars before underscore)
+            WCHAR szLangOnly[8];
+            wcscpy(szLangOnly, szLangCode);
+            WCHAR* pUnderscore = wcschr(szLangOnly, L'_');
+            if (pUnderscore) {
+                *pUnderscore = L'\0';
+            }
+            
+            _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangOnly);
+            szLocalizedKey[63] = L'\0';
+            ReadINIValue(szIniPath, szSection, szLocalizedKey, 
+                         g_Templates[i].szLocalizedDescription, MAX_TEMPLATE_DESC, L"");
+        }
         
         // If no localized description, use default description
         if (g_Templates[i].szLocalizedDescription[0] == L'\0') {
