@@ -371,6 +371,7 @@ void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize);
 void UpdateFileExtension(LPCWSTR pszFilePath);
 LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset);
 void InsertTemplate(int nTemplateIndex);
+BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu);  // Helper: populate any menu with templates
 void ShowTemplatePickerMenu(HWND hwnd);
 void BuildTemplateMenu(HWND hwnd);
 void BuildFileNewMenu(HWND hwnd);
@@ -1135,24 +1136,17 @@ void InsertTemplate(int nTemplateIndex)
 }
 
 //============================================================================
-// ShowTemplatePickerMenu - Show template picker popup menu at cursor (Ctrl+Shift+T)
-// Creates a popup menu with templates filtered by file type and shows it at cursor position
+// PopulateTemplateMenu - Helper to populate any HMENU with categorized templates
+// Filters templates by g_szCurrentFileExtension and organizes them by category
+// bForToolsMenu: TRUE = use for Tools→Insert Template (allows "no templates" messages)
+//                FALSE = use for Ctrl+Shift+T popup (caller handles empty case)
+// Returns: TRUE if any templates were added, FALSE if no matching templates
 //============================================================================
-void ShowTemplatePickerMenu(HWND hwnd)
+BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu)
 {
-    if (g_nTemplateCount == 0) {
-        // No templates configured
-        WCHAR szNoTemplates[64];
-        LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES, szNoTemplates, 64);
-        MessageBox(hwnd, szNoTemplates, L"RichEditor", MB_ICONINFORMATION);
-        return;
-    }
+    if (!hMenu) return FALSE;
     
-    // Create popup menu
-    HMENU hPopupMenu = CreatePopupMenu();
-    if (!hPopupMenu) return;
-    
-    // Build category map (same logic as BuildTemplateMenu)
+    // Build category map
     struct TemplateCategoryInfo {
         WCHAR szName[MAX_TEMPLATE_CATEGORY];
         int templateIndices[MAX_TEMPLATES];
@@ -1197,16 +1191,18 @@ void ShowTemplatePickerMenu(HWND hwnd)
         categories[catIndex].templateIndices[categories[catIndex].count++] = i;
     }
     
-    // If no templates match current file type, show message
+    // If no templates match current file type
     if (categoryCount == 0 && uncategorizedCount == 0) {
-        DestroyMenu(hPopupMenu);
-        WCHAR szNoTemplatesForType[64];
-        LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES_FOR_FILETYPE, szNoTemplatesForType, 64);
-        MessageBox(hwnd, szNoTemplatesForType, L"RichEditor", MB_ICONINFORMATION);
-        return;
+        if (bForToolsMenu) {
+            // For Tools menu, show "No templates for file type" message
+            WCHAR szNoTemplatesForType[64];
+            LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES_FOR_FILETYPE, szNoTemplatesForType, 64);
+            AppendMenu(hMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, szNoTemplatesForType);
+        }
+        return FALSE;
     }
     
-    // Add categorized templates first
+    // Create submenu for each category
     for (int c = 0; c < categoryCount; c++) {
         HMENU hCategoryMenu = CreatePopupMenu();
         
@@ -1226,16 +1222,16 @@ void ShowTemplatePickerMenu(HWND hwnd)
             AppendMenu(hCategoryMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
         }
         
-        // Add category submenu to popup
-        AppendMenu(hPopupMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
+        // Add category submenu
+        AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
     }
     
     // Add separator if we have both categorized and uncategorized templates
     if (categoryCount > 0 && uncategorizedCount > 0) {
-        AppendMenu(hPopupMenu, MF_SEPARATOR, 0, NULL);
+        AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
     }
     
-    // Add uncategorized templates at root level
+    // Add uncategorized templates at root level (below categories)
     for (int i = 0; i < uncategorizedCount; i++) {
         int templateIndex = uncategorizedTemplates[i];
         
@@ -1248,7 +1244,40 @@ void ShowTemplatePickerMenu(HWND hwnd)
             wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
         }
         
-        AppendMenu(hPopupMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
+        AppendMenu(hMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
+    }
+    
+    return TRUE;
+}
+
+//============================================================================
+// ShowTemplatePickerMenu - Show template picker popup menu at cursor (Ctrl+Shift+T)
+// Creates a popup menu with templates filtered by file type and shows it at cursor position
+//============================================================================
+void ShowTemplatePickerMenu(HWND hwnd)
+{
+    if (g_nTemplateCount == 0) {
+        // No templates configured
+        WCHAR szNoTemplates[64];
+        LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES, szNoTemplates, 64);
+        MessageBox(hwnd, szNoTemplates, L"RichEditor", MB_ICONINFORMATION);
+        return;
+    }
+    
+    // Create popup menu
+    HMENU hPopupMenu = CreatePopupMenu();
+    if (!hPopupMenu) return;
+    
+    // Populate menu with templates (FALSE = popup menu, not Tools menu)
+    BOOL bHasTemplates = PopulateTemplateMenu(hPopupMenu, FALSE);
+    
+    // If no templates match current file type, show message
+    if (!bHasTemplates) {
+        DestroyMenu(hPopupMenu);
+        WCHAR szNoTemplatesForType[64];
+        LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES_FOR_FILETYPE, szNoTemplatesForType, 64);
+        MessageBox(hwnd, szNoTemplatesForType, L"RichEditor", MB_ICONINFORMATION);
+        return;
     }
     
     // Get cursor position in RichEdit
@@ -1354,103 +1383,8 @@ void BuildTemplateMenu(HWND hwnd)
         LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES, szNoTemplates, 64);
         AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, szNoTemplates);
     } else {
-        // Build category map
-        struct TemplateCategoryInfo {
-            WCHAR szName[MAX_TEMPLATE_CATEGORY];
-            int templateIndices[MAX_TEMPLATES];
-            int count;
-        };
-        TemplateCategoryInfo categories[32];
-        int categoryCount = 0;
-        int uncategorizedTemplates[MAX_TEMPLATES];  // Templates with no category
-        int uncategorizedCount = 0;
-        
-        // Group templates by category, filtered by current file extension
-        for (int i = 0; i < g_nTemplateCount; i++) {
-            // Skip templates not available for current file type
-            if (g_Templates[i].szFileExtension[0] != L'\0') {
-                if (_wcsicmp(g_Templates[i].szFileExtension, g_szCurrentFileExtension) != 0) {
-                    continue;  // Skip this template
-                }
-            }
-            
-            // Check if template has a category
-            if (g_Templates[i].szCategory[0] == L'\0') {
-                // No category - add to uncategorized list
-                uncategorizedTemplates[uncategorizedCount++] = i;
-                continue;
-            }
-            
-            // Find or create category
-            int catIndex = -1;
-            for (int c = 0; c < categoryCount; c++) {
-                if (wcscmp(categories[c].szName, g_Templates[i].szCategory) == 0) {
-                    catIndex = c;
-                    break;
-                }
-            }
-            
-            if (catIndex == -1) {
-                catIndex = categoryCount++;
-                wcscpy(categories[catIndex].szName, g_Templates[i].szCategory);
-                categories[catIndex].count = 0;
-            }
-            
-            categories[catIndex].templateIndices[categories[catIndex].count++] = i;
-        }
-        
-        // If no templates match current file type, show message
-        if (categoryCount == 0 && uncategorizedCount == 0) {
-            WCHAR szNoTemplatesForType[64];
-            LoadString(GetModuleHandle(NULL), IDS_NO_TEMPLATES_FOR_FILETYPE, szNoTemplatesForType, 64);
-            AppendMenu(hTemplateMenu, MF_STRING | MF_GRAYED, ID_TOOLS_TEMPLATE_BASE, 
-                      szNoTemplatesForType);
-        } else {
-            // Create submenu for each category
-            for (int c = 0; c < categoryCount; c++) {
-                HMENU hCategoryMenu = CreatePopupMenu();
-                
-                // Add templates in this category
-                for (int t = 0; t < categories[c].count; t++) {
-                    int templateIndex = categories[c].templateIndices[t];
-                    
-                    // Build menu text with description if enabled
-                    WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
-                    wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
-                    
-                    if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
-                        wcscat(szMenuText, L": ");
-                        wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
-                    }
-                    
-                    AppendMenu(hCategoryMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
-                }
-                
-                // Add category submenu
-                AppendMenu(hTemplateMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
-            }
-            
-            // Add separator if we have both categorized and uncategorized templates
-            if (categoryCount > 0 && uncategorizedCount > 0) {
-                AppendMenu(hTemplateMenu, MF_SEPARATOR, 0, NULL);
-            }
-            
-            // Add uncategorized templates at root level (below categories)
-            for (int i = 0; i < uncategorizedCount; i++) {
-                int templateIndex = uncategorizedTemplates[i];
-                
-                // Build menu text with description if enabled
-                WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
-                wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
-                
-                if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
-                    wcscat(szMenuText, L": ");
-                    wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
-                }
-                
-                AppendMenu(hTemplateMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
-            }
-        }
+        // Populate menu with templates (TRUE = Tools menu, handles "no templates" message)
+        PopulateTemplateMenu(hTemplateMenu, TRUE);
     }
     
     DrawMenuBar(hwnd);
@@ -4107,6 +4041,12 @@ void FileNew()
     g_bModified = FALSE;
     wcscpy(g_szCurrentFileExtension, L"txt");  // Reset to txt for new file
     
+    // Rebuild template and File→New menus to reflect new file type
+    if (g_hWndMain) {
+        BuildTemplateMenu(g_hWndMain);
+        BuildFileNewMenu(g_hWndMain);
+    }
+    
     UpdateTitle();
     UpdateStatusBar();
     SetFocus(g_hWndEdit);
@@ -4154,6 +4094,12 @@ void FileNewFromTemplate(int nTemplateIndex)
         wcscpy(g_szCurrentFileExtension, pTemplate->szFileExtension);
     } else {
         wcscpy(g_szCurrentFileExtension, L"txt");
+    }
+    
+    // Rebuild template and File→New menus to reflect new file type
+    if (g_hWndMain) {
+        BuildTemplateMenu(g_hWndMain);
+        BuildFileNewMenu(g_hWndMain);
     }
     
     // Position cursor if %cursor% was found
