@@ -4445,85 +4445,83 @@ BOOL FileSaveAs()
     WCHAR szDefExt[MAX_TEMPLATE_FILEEXT] = L"txt";
     
     if (g_szFileName[0] == L'\0') {
-        // Untitled file - default to "Text Files" filter
-        if (txtFilterIndex > 0) {
-            nFilterIndex = txtFilterIndex;
-        }
-        // Otherwise default to first filter (nFilterIndex = 1)
-        wcscpy(szDefExt, L"txt");
+        // Untitled file - use current file extension from g_szCurrentFileExtension
+        // (This is set when creating new file from template, e.g., Markdown document)
+        wcscpy(szDefExt, g_szCurrentFileExtension);
     } else {
-        // Existing file - match current extension to filter
+        // Existing file - extract extension from filename
         ExtractFileExtension(g_szFileName, szDefExt, MAX_TEMPLATE_FILEEXT);
-        
-        if (szDefExt[0] != L'\0') {
-            // Try to find matching filter by checking if it's txt first
-            if (_wcsicmp(szDefExt, L"txt") == 0 && txtFilterIndex > 0) {
-                nFilterIndex = txtFilterIndex;
-            } else {
-                // For other extensions, search through templates to find which category they belong to
-                // Count unique categories until we find one matching our extension
-                WCHAR seenCategories[32][MAX_FILTER_NAME];
-                int seenCount = 0;
-                BOOL found = FALSE;
+    }
+    
+    // Now find the filter index for szDefExt
+    if (szDefExt[0] != L'\0') {
+        // Try to find matching filter by checking if it's txt first
+        if (_wcsicmp(szDefExt, L"txt") == 0 && txtFilterIndex > 0) {
+            nFilterIndex = txtFilterIndex;
+        } else {
+            // For other extensions, search through templates to find which category they belong to
+            // Count unique categories until we find one matching our extension
+            WCHAR seenCategories[32][MAX_FILTER_NAME];
+            int seenCount = 0;
+            BOOL found = FALSE;
+            
+            for (int i = 0; i < g_nTemplateCount && !found; i++) {
+                if (g_Templates[i].szFileExtension[0] == L'\0') continue;
                 
-                for (int i = 0; i < g_nTemplateCount && !found; i++) {
-                    if (g_Templates[i].szFileExtension[0] == L'\0') continue;
-                    
-                    // Get this template's category
-                    WCHAR szCategory[MAX_FILTER_NAME];
-                    if (g_Templates[i].szCategory[0] != L'\0') {
-                        wcscpy(szCategory, g_Templates[i].szCategory);
-                    } else {
-                        wcscpy(szCategory, g_Templates[i].szFileExtension);
-                        _wcsupr(szCategory);
+                // Get this template's category
+                WCHAR szCategory[MAX_FILTER_NAME];
+                if (g_Templates[i].szCategory[0] != L'\0') {
+                    wcscpy(szCategory, g_Templates[i].szCategory);
+                } else {
+                    wcscpy(szCategory, g_Templates[i].szFileExtension);
+                    _wcsupr(szCategory);
+                }
+                
+                // Have we seen this category before?
+                BOOL isSeen = FALSE;
+                for (int j = 0; j < seenCount; j++) {
+                    if (wcscmp(seenCategories[j], szCategory) == 0) {
+                        isSeen = TRUE;
+                        break;
                     }
-                    
-                    // Have we seen this category before?
-                    BOOL isSeen = FALSE;
-                    for (int j = 0; j < seenCount; j++) {
-                        if (wcscmp(seenCategories[j], szCategory) == 0) {
-                            isSeen = TRUE;
+                }
+                
+                if (!isSeen) {
+                    // New category - does it contain our extension?
+                    BOOL categoryMatches = FALSE;
+                    for (int k = 0; k < g_nTemplateCount; k++) {
+                        if (g_Templates[k].szFileExtension[0] == L'\0') continue;
+                        
+                        WCHAR szCat2[MAX_FILTER_NAME];
+                        if (g_Templates[k].szCategory[0] != L'\0') {
+                            wcscpy(szCat2, g_Templates[k].szCategory);
+                        } else {
+                            wcscpy(szCat2, g_Templates[k].szFileExtension);
+                            _wcsupr(szCat2);
+                        }
+                        
+                        if (wcscmp(szCat2, szCategory) == 0 && 
+                            _wcsicmp(g_Templates[k].szFileExtension, szDefExt) == 0) {
+                            categoryMatches = TRUE;
                             break;
                         }
                     }
                     
-                    if (!isSeen) {
-                        // New category - does it contain our extension?
-                        BOOL categoryMatches = FALSE;
-                        for (int k = 0; k < g_nTemplateCount; k++) {
-                            if (g_Templates[k].szFileExtension[0] == L'\0') continue;
-                            
-                            WCHAR szCat2[MAX_FILTER_NAME];
-                            if (g_Templates[k].szCategory[0] != L'\0') {
-                                wcscpy(szCat2, g_Templates[k].szCategory);
-                            } else {
-                                wcscpy(szCat2, g_Templates[k].szFileExtension);
-                                _wcsupr(szCat2);
-                            }
-                            
-                            if (wcscmp(szCat2, szCategory) == 0 && 
-                                _wcsicmp(g_Templates[k].szFileExtension, szDefExt) == 0) {
-                                categoryMatches = TRUE;
-                                break;
-                            }
-                        }
-                        
-                        if (categoryMatches) {
-                            nFilterIndex = seenCount + 1;  // 1-based
-                            found = TRUE;
-                        } else {
-                            // Record this category and continue
-                            wcscpy(seenCategories[seenCount], szCategory);
-                            seenCount++;
-                        }
+                    if (categoryMatches) {
+                        nFilterIndex = seenCount + 1;  // 1-based
+                        found = TRUE;
+                    } else {
+                        // Record this category and continue
+                        wcscpy(seenCategories[seenCount], szCategory);
+                        seenCount++;
                     }
                 }
             }
-        } else {
-            // No extension - default to txt
-            wcscpy(szDefExt, L"txt");
-            nFilterIndex = (txtFilterIndex > 0) ? txtFilterIndex : 1;
         }
+    } else {
+        // No extension - default to txt
+        wcscpy(szDefExt, L"txt");
+        nFilterIndex = (txtFilterIndex > 0) ? txtFilterIndex : 1;
     }
     
     ofn.lStructSize = sizeof(OPENFILENAME);
