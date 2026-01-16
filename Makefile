@@ -37,7 +37,7 @@ CFLAGS = -std=c++11 -DUNICODE -D_UNICODE -Os -g -Wall -Wextra \
          -static -static-libgcc -static-libstdc++ \
          -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
 LDFLAGS = -mwindows -municode -static -static-libgcc -static-libstdc++
-LIBS = -lcomctl32 -lcomdlg32 -lole32 -loleaut32 -lshell32
+LIBS = -lcomctl32 -lcomdlg32 -lole32 -loleaut32 -lshell32 -lshlwapi -lversion
 
 # Default target (debug build)
 .DEFAULT_GOAL := debug

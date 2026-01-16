@@ -8,6 +8,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shlobj.h>
+#include <shlwapi.h>    // Path functions (PathIsRelative, PathCombine, etc.)
 #include <stdio.h>
 #include <string>
 #include "resource.h"
@@ -30,7 +31,13 @@ WCHAR g_szFileTitle[MAX_PATH];    // Current file name only
 BOOL g_bModified = FALSE;         // Document modified flag
 BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
 BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
-HMODULE g_hRichEditLib = NULL;    // RichEdit DLL handle
+
+// RichEdit library management (Phase 2.8)
+HMODULE g_hRichEditLib = NULL;                      // RichEdit DLL handle
+float g_fRichEditVersion = 0.0f;                    // Detected version (e.g., 7.5, 8.0)
+WCHAR g_szRichEditLibPath[MAX_PATH] = L"";          // Full path to loaded DLL
+WCHAR g_szRichEditLibPathINI[MAX_PATH] = L"";       // User preference from INI
+WCHAR g_szRichEditClassName[64] = L"RICHEDIT50W";  // Window class to use
 
 // Autosave settings
 BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
@@ -361,6 +368,11 @@ void AddToMRU(LPCWSTR pszFilePath);
 void UpdateMRUMenu(HWND hwnd);
 void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
 void GetINIFilePath(LPWSTR pszPath, DWORD dwSize);
+
+// RichEdit library management functions (Phase 2.8)
+float GetRichEditVersion(HMODULE hModule, LPWSTR pszPath, DWORD cchPath);
+LPCWSTR GetRichEditClassName(float fVersion);
+BOOL LoadRichEditLibrary();
 
 // Template system functions
 BOOL ParseShortcut(LPCWSTR pszShortcut, WORD* pVirtualKey, BYTE* pModifiers);
@@ -3718,6 +3730,137 @@ void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax)
     if (LoadString(GetModuleHandle(NULL), uID, lpBuffer, cchBufferMax) == 0) {
         // Fallback to empty string if resource not found
         lpBuffer[0] = L'\0';
+    }
+}
+
+//============================================================================
+// GetRichEditVersion - Detect RichEdit version from DLL file version
+// Based on KeyNote NF logic - maps file version to logical RichEdit version
+// Returns: 1.0, 2.0, 3.0, 4.0, 4.1, 5.0, 6.0, 7.5, 8.0, or 0.0 on failure
+// pszPath: Receives full path to DLL (buffer must be at least cchPath WCHARs)
+//============================================================================
+float GetRichEditVersion(HMODULE hModule, LPWSTR pszPath, DWORD cchPath)
+{
+    if (!hModule || !pszPath || cchPath == 0) return 0.0f;
+    
+    // Get DLL path
+    if (GetModuleFileName(hModule, pszPath, cchPath) == 0) {
+        return 0.0f;  // Failed to get path
+    }
+    
+    // Get version info size
+    DWORD dwDummy;
+    DWORD dwSize = GetFileVersionInfoSize(pszPath, &dwDummy);
+    if (dwSize == 0) {
+        return 0.0f;  // No version info available
+    }
+    
+    // Allocate buffer and get version info
+    BYTE* pBuffer = (BYTE*)malloc(dwSize);
+    if (!pBuffer) return 0.0f;
+    
+    float fResult = 0.0f;
+    
+    if (GetFileVersionInfo(pszPath, 0, dwSize, pBuffer)) {
+        VS_FIXEDFILEINFO* pFileInfo = NULL;
+        UINT uLen = 0;
+        
+        if (VerQueryValue(pBuffer, L"\\", (LPVOID*)&pFileInfo, &uLen) && pFileInfo) {
+            // Extract version numbers
+            WORD wFileVersionMajor = HIWORD(pFileInfo->dwFileVersionMS);
+            WORD wFileVersionMinor = LOWORD(pFileInfo->dwFileVersionMS);
+            
+            // Extract DLL name (uppercase for comparison)
+            WCHAR szDllName[MAX_PATH];
+            wcscpy(szDllName, pszPath);
+            WCHAR* pFileName = wcsrchr(szDllName, L'\\');
+            if (pFileName) {
+                wcscpy(szDllName, pFileName + 1);
+            }
+            _wcsupr(szDllName);
+            
+            // Map DLL name + version to logical RichEdit version
+            // Based on KeyNote NF mapping logic
+            
+            if (wcscmp(szDllName, L"RICHED32.DLL") == 0) {
+                fResult = 1.0f;  // RichEdit 1.0
+            }
+            else if (wcscmp(szDllName, L"RICHED20.DLL") == 0) {
+                // RichEdit 2.0-8.0 (depending on file version)
+                switch (wFileVersionMinor) {
+                    case 30: fResult = 3.0f; break;  // Windows 98/ME/2000
+                    case 31: fResult = 3.1f; break;
+                    case 40: fResult = 4.0f; break;  // Windows XP
+                    case 50: fResult = 5.0f; break;  // Office 2003
+                    case 0:
+                        // Minor version 0 - check major version
+                        switch (wFileVersionMajor) {
+                            case 5:  fResult = 2.0f; break;  // Windows 95/NT 4.0
+                            case 12: fResult = 6.0f; break;  // Office 2007
+                            case 14: fResult = 6.0f; break;  // Office 2010
+                            case 15: fResult = 8.0f; break;  // Office 2013
+                            default:
+                                if (wFileVersionMajor > 15) {
+                                    fResult = 8.0f;  // Office 2016+ (treat as 8.0)
+                                } else {
+                                    fResult = 3.0f;  // Conservative fallback
+                                }
+                                break;
+                        }
+                        break;
+                    default:
+                        fResult = 3.0f;  // Conservative fallback
+                        break;
+                }
+            }
+            else if (wcscmp(szDllName, L"MSFTEDIT.DLL") == 0) {
+                // RichEdit 4.1 or 7.5 (depending on version)
+                if (wFileVersionMajor == 5 && wFileVersionMinor == 41) {
+                    fResult = 4.1f;  // Windows Vista/7
+                }
+                else if (wFileVersionMajor == 6 && wFileVersionMinor == 2) {
+                    fResult = 7.5f;  // Windows 8
+                }
+                else if (wFileVersionMajor == 10 && wFileVersionMinor == 0) {
+                    fResult = 7.5f;  // Windows 10
+                }
+                else if (wFileVersionMajor > 10) {
+                    fResult = 7.5f;  // Windows 11+ (treat as 7.5)
+                }
+                else {
+                    fResult = 4.1f;  // Conservative fallback
+                }
+            }
+        }
+    }
+    
+    free(pBuffer);
+    return fResult;
+}
+
+//============================================================================
+// GetRichEditClassName - Determine window class based on version
+// Returns appropriate class name for CreateWindow
+//============================================================================
+LPCWSTR GetRichEditClassName(float fVersion)
+{
+    if (fVersion == 1.0f) {
+        return L"RICHEDIT";  // Version 1.0 (ANSI)
+    }
+    else if (fVersion == 5.0f) {
+        return L"RichEdit20W";  // Office 2003
+    }
+    else if (fVersion >= 6.0f && fVersion < 7.0f) {
+        return L"RichEdit60W";  // Office 2007/2010 (version 6.0)
+    }
+    else if (fVersion >= 8.0f) {
+        return L"RichEdit60W";  // Office 2013+ (version 8.0+)
+    }
+    else if (fVersion >= 4.0f) {
+        return L"RICHEDIT50W";  // RichEdit 4.x and 7.5 (MSFTEDIT.DLL)
+    }
+    else {
+        return L"RichEdit20W";  // RichEdit 2.x/3.x (fallback)
     }
 }
 
