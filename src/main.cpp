@@ -4995,12 +4995,9 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
     switch (msg) {
         case WM_INITDIALOG:
             {
-                // Display RichEdit version information (Phase 2.8)
+                // Display RichEdit version information (Phase 2.8.5)
+                // Use manual string concatenation instead of swprintf to avoid MinGW Unicode bugs
                 WCHAR szVersionText[256];
-                WCHAR szTemplate[128];
-                
-                // Get localized template string
-                LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_VERSION, szTemplate, 128);
                 
                 // Extract just the filename from full path (e.g., "C:\...\RICHED20.DLL" → "RICHED20.DLL")
                 const WCHAR* pszFileName = wcsrchr(g_szRichEditLibPath, L'\\');
@@ -5010,8 +5007,18 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
                     pszFileName = g_szRichEditLibPath;  // No path separator, use as-is
                 }
                 
-                // Format: "RichEdit DLL version: 7.5 (RICHED20.DLL)"
-                swprintf(szVersionText, 256, szTemplate, g_fRichEditVersion, pszFileName);
+                // Build string manually: "RichEdit X.X (FILENAME.DLL)"
+                // Using wcscpy/wcscat instead of swprintf (safer with MinGW, per AGENTS.md)
+                wcscpy(szVersionText, L"RichEdit ");
+                
+                // Append version number
+                WCHAR szVersion[16];
+                _snwprintf(szVersion, 16, L"%.1f", g_fRichEditVersion);
+                wcscat(szVersionText, szVersion);
+                
+                wcscat(szVersionText, L" (");
+                wcscat(szVersionText, pszFileName);
+                wcscat(szVersionText, L")");
                 
                 // Set the text in the IDC_RICHEDIT_VERSION control
                 SetDlgItemText(hwnd, IDC_RICHEDIT_VERSION, szVersionText);
