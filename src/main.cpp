@@ -318,7 +318,6 @@ BOOL g_bNoMRU = FALSE;              // TRUE when /nomru command-line option is s
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
-BOOL InitRichEditLibrary();
 HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
 void UpdateStatusBar();
@@ -432,11 +431,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     icc.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&icc);
     
-    // Load RichEdit library
-    if (!InitRichEditLibrary()) {
+    // Create default INI and load settings (must be before LoadRichEditLibrary)
+    CreateDefaultINI();
+    LoadSettings();
+    
+    // Load RichEdit library (uses custom path from INI if specified)
+    if (!LoadRichEditLibrary()) {
         WCHAR szError[256], szTitle[64];
-        LoadStringResource(IDS_RICHEDIT_LOAD_FAILED, szError, 256);
-        LoadStringResource(IDS_ERROR, szTitle, 64);
+        LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_LOAD_FAILED, szError, 256);
+        LoadString(GetModuleHandle(NULL), IDS_ERROR, szTitle, 64);
         MessageBox(NULL, szError, szTitle, MB_ICONERROR);
         return 1;
     }
@@ -1606,9 +1609,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Update status bar
             UpdateStatusBar();
             
-            // Load settings and filters (Phase 2)
-            CreateDefaultINI();  // Create default INI if it doesn't exist
-            LoadSettings();
+            // Load filters and templates (settings already loaded in wWinMain)
             LoadFilters();
             LoadTemplates();  // Load templates with keyboard shortcuts
             BuildFilterMenu(hwnd);
@@ -2894,15 +2895,6 @@ void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL)
 }
 
 //============================================================================
-// InitRichEditLibrary - Load RichEdit 4.1 DLL
-//============================================================================
-BOOL InitRichEditLibrary()
-{
-    g_hRichEditLib = LoadLibrary(L"Msftedit.dll");
-    return (g_hRichEditLib != NULL);
-}
-
-//============================================================================
 // CreateRichEditControl - Create and configure RichEdit control
 //============================================================================
 HWND CreateRichEditControl(HWND hwndParent)
@@ -2918,7 +2910,7 @@ HWND CreateRichEditControl(HWND hwndParent)
     
     HWND hwndEdit = CreateWindowEx(
         WS_EX_CLIENTEDGE,
-        MSFTEDIT_CLASS,
+        g_szRichEditClassName,  // Use detected class name from LoadRichEditLibrary()
         L"",
         style,
         0, 0, 0, 0,
@@ -3862,6 +3854,77 @@ LPCWSTR GetRichEditClassName(float fVersion)
     else {
         return L"RichEdit20W";  // RichEdit 2.x/3.x (fallback)
     }
+}
+
+//============================================================================
+// LoadRichEditLibrary - Load RichEdit DLL with custom path support
+// Returns TRUE on success, FALSE on total failure
+// Tries custom path first (if set), then falls back to system cascade
+//============================================================================
+BOOL LoadRichEditLibrary()
+{
+    WCHAR szFullPath[MAX_PATH];
+    
+    // Try user-specified custom path first
+    if (g_szRichEditLibPathINI[0] != L'\0') {
+        
+        // Resolve path (handle both relative and absolute)
+        if (PathIsRelative(g_szRichEditLibPathINI)) {
+            // Get EXE directory
+            WCHAR szExePath[MAX_PATH];
+            GetModuleFileName(NULL, szExePath, MAX_PATH);
+            PathRemoveFileSpec(szExePath);
+            PathCombine(szFullPath, szExePath, g_szRichEditLibPathINI);
+        } else {
+            wcscpy(szFullPath, g_szRichEditLibPathINI);
+        }
+        
+        // Try to load custom library
+        g_hRichEditLib = LoadLibrary(szFullPath);
+        
+        if (g_hRichEditLib) {
+            // Success - detect version and window class
+            g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
+            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+            return TRUE;
+        } else {
+            // Custom load failed - show warning
+            WCHAR szMsg[512], szTemplate[256], szTitle[64];
+            LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_LOAD_FAILED, szTemplate, 256);
+            swprintf(szMsg, 512, szTemplate, szFullPath);
+            LoadString(GetModuleHandle(NULL), IDS_ERROR, szTitle, 64);
+            MessageBox(NULL, szMsg, szTitle, MB_OK | MB_ICONWARNING);
+        }
+    }
+    
+    // Fallback cascade: MSFTEDIT.DLL → RICHED20.DLL → RICHED32.DLL
+    
+    // Try MSFTEDIT.DLL (RichEdit 4.1+, Windows Vista+)
+    g_hRichEditLib = LoadLibrary(L"MSFTEDIT.DLL");
+    if (g_hRichEditLib) {
+        g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
+        wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        return TRUE;
+    }
+    
+    // Try RICHED20.DLL (RichEdit 2.0-6.0, Windows 2000+)
+    g_hRichEditLib = LoadLibrary(L"RICHED20.DLL");
+    if (g_hRichEditLib) {
+        g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
+        wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        return TRUE;
+    }
+    
+    // Try RICHED32.DLL (RichEdit 1.0, legacy fallback)
+    g_hRichEditLib = LoadLibrary(L"RICHED32.DLL");
+    if (g_hRichEditLib) {
+        g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
+        wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        return TRUE;
+    }
+    
+    // Total failure - no RichEdit library available
+    return FALSE;
 }
 
 //============================================================================
@@ -4931,6 +4994,28 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
 {
     switch (msg) {
         case WM_INITDIALOG:
+            {
+                // Display RichEdit version information (Phase 2.8)
+                WCHAR szVersionText[256];
+                WCHAR szTemplate[128];
+                
+                // Get localized template string
+                LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_VERSION, szTemplate, 128);
+                
+                // Extract just the filename from full path (e.g., "C:\...\RICHED20.DLL" → "RICHED20.DLL")
+                const WCHAR* pszFileName = wcsrchr(g_szRichEditLibPath, L'\\');
+                if (pszFileName) {
+                    pszFileName++;  // Skip backslash
+                } else {
+                    pszFileName = g_szRichEditLibPath;  // No path separator, use as-is
+                }
+                
+                // Format: "RichEdit DLL version: 7.5 (RICHED20.DLL)"
+                swprintf(szVersionText, 256, szTemplate, g_fRichEditVersion, pszFileName);
+                
+                // Set the text in the IDC_RICHEDIT_VERSION control
+                SetDlgItemText(hwnd, IDC_RICHEDIT_VERSION, szVersionText);
+            }
             return TRUE;
             
         case WM_COMMAND:
@@ -5385,6 +5470,17 @@ void CreateDefaultINI()
         "; Editor settings\r\n"
         "WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)\r\n"
         "\r\n"
+        "; RichEdit library configuration (Phase 2.8)\r\n"
+        "; RichEditLibraryPath=         ; Path to custom RichEdit DLL (optional, leave empty for default)\r\n"
+        ";                              ; Examples:\r\n"
+        ";                              ;   Relative: RICHED20.DLL  or  libs\\RICHED20.DLL\r\n"
+        ";                              ;   Absolute: C:\\Program Files\\Microsoft Office\\root\\Office16\\RICHED20.DLL\r\n"
+        ";                              ; Default cascade: MSFTEDIT.DLL (v4.1+) → RICHED20.DLL (v2.0+) → RICHED32.DLL (v1.0)\r\n"
+        ";                              ; Office 365/2019+: C:\\Program Files\\Microsoft Office\\root\\Office16\\RICHED20.DLL (v6.0+)\r\n"
+        ";                              ; Office 2016:      C:\\Program Files (x86)\\Microsoft Office\\Office16\\RICHED20.DLL (v6.0)\r\n"
+        ";                              ; Office 2013:      C:\\Program Files (x86)\\Microsoft Office\\Office15\\RICHED20.DLL (v8.0)\r\n"
+        ";                              ; Why? Office versions use UI Automation (faster with NVDA) instead of legacy MSAA\r\n"
+        "\r\n"
         "; Autosave settings\r\n"
         "AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)\r\n"
         "AutosaveIntervalMinutes=1     ; Autosave interval in minutes, 0=disabled (default: 1)\r\n"
@@ -5739,6 +5835,13 @@ void LoadSettings()
     } else {
         g_bWordWrap = ReadINIInt(szIniPath, L"Settings", L"WordWrap", 1);
     }
+    
+    // RichEditLibraryPath (Phase 2.8) - optional custom RichEdit DLL path
+    WCHAR szRichEditPath[MAX_PATH];
+    ReadINIValue(szIniPath, L"Settings", L"RichEditLibraryPath", szRichEditPath, MAX_PATH, L"");
+    // Store in global (even if empty) - LoadRichEditLibrary() checks if empty
+    wcscpy(g_szRichEditLibPathINI, szRichEditPath);
+    // Don't auto-write this setting - it's optional and well-documented in CreateDefaultINI comments
     
     // AutosaveEnabled
     ReadINIValue(szIniPath, L"Settings", L"AutosaveEnabled", szValue, 256, L"");

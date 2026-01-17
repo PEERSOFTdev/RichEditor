@@ -54,7 +54,6 @@
 
 // String resource IDs (2000-2099)
 #define IDS_ERROR                       2000
-#define IDS_RICHEDIT_LOAD_FAILED        2001
 #define IDS_WINDOW_REG_FAILED           2002
 #define IDS_WINDOW_CREATE_FAILED        2003
 #define IDS_RICHEDIT_CREATE_FAILED      2004
@@ -166,5 +165,12 @@
 #define IDS_MENU_NEW                    2120
 #define IDS_FILES                       2122
 #define IDS_TEXT_FILES                  2124
+
+// RichEdit library management strings (Phase 2.8: 2126-2128)
+#define IDS_RICHEDIT_LOAD_FAILED        2126
+#define IDS_RICHEDIT_VERSION            2128
+
+// Control IDs
+#define IDC_RICHEDIT_VERSION            102
 
 #endif // RESOURCE_H
