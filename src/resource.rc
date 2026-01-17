@@ -243,7 +243,7 @@ BEGIN
     IDS_TEXT_FILES                  "Text Files"
     
     // RichEdit library management (Phase 2.8)
-    IDS_RICHEDIT_LOAD_FAILED        "Failed to load custom RichEdit library:\n%s\n\nFalling back to default library."
+    IDS_RICHEDIT_LOAD_FAILED        "Failed to load custom RichEdit library:\n{PATH}\n\nFalling back to default library."
     IDS_RICHEDIT_VERSION            "RichEdit DLL version: %.1f (%s)"
     IDS_RICHEDIT_CREATE_FAILED_DETAIL "Failed to create RichEdit control using window class: %s\n\nTo override the window class, add this line to the [Settings] section in RichEditor.ini:\nRichEditClassName=RichEdit60W\n\nAvailable classes:\n• RichEditD2DPT (v8.0+, Windows 11 / Office 365)\n• RichEditD2D (v8.0+, Direct2D without Paint Through)\n• RichEdit60W (v6.0+, Office 2007+)\n• RichEdit20W (v5.0+, Office 2003+)\n• RICHEDIT50W (v4.0+, MSFTEDIT.DLL)\n• RICHEDIT (v1.0, legacy ANSI)"
 END
@@ -440,7 +440,7 @@ BEGIN
     IDS_TEXT_FILES                  "Textové soubory"
     
     // RichEdit library management (Phase 2.8)
-    IDS_RICHEDIT_LOAD_FAILED        "Nepodařilo se načíst vlastní knihovnu RichEdit:\n%s\n\nPřepínám na výchozí knihovnu."
+    IDS_RICHEDIT_LOAD_FAILED        "Nepodařilo se načíst vlastní knihovnu RichEdit:\n{PATH}\n\nPřepínám na výchozí knihovnu."
     IDS_RICHEDIT_VERSION            "Verze RichEdit DLL: %.1f (%s)"
     IDS_RICHEDIT_CREATE_FAILED_DETAIL "Nepodařilo se vytvořit ovládací prvek RichEdit pomocí třídy okna: %s\n\nChcete-li přepsat třídu okna, přidejte tento řádek do sekce [Settings] v RichEditor.ini:\nRichEditClassName=RichEdit60W\n\nDostupné třídy:\n• RichEditD2DPT (v8.0+, Windows 11 / Office 365)\n• RichEditD2D (v8.0+, Direct2D bez Paint Through)\n• RichEdit60W (v6.0+, Office 2007+)\n• RichEdit20W (v5.0+, Office 2003+)\n• RICHEDIT50W (v4.0+, MSFTEDIT.DLL)\n• RICHEDIT (v1.0, starší ANSI)"
 END

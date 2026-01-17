@@ -3961,24 +3961,27 @@ BOOL LoadRichEditLibrary()
             return TRUE;
         } else {
             // Custom load failed - show warning
-            // Build message manually to avoid MinGW swprintf Unicode bug
-            WCHAR szMsg[768], szTitle[64];
+            // Load localized template from resources and replace {PATH} placeholder
+            WCHAR szTemplate[512], szMsg[768], szTitle[64];
+            LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_LOAD_FAILED, szTemplate, 512);
             
-            // Load localized message parts
-            WCHAR szLine1[128], szLine3[128];
-            if (GetUserDefaultLCID() == MAKELCID(MAKELANGID(LANG_CZECH, SUBLANG_DEFAULT), SORT_DEFAULT)) {
-                wcscpy(szLine1, L"Nepodařilo se načíst vlastní knihovnu RichEdit:");
-                wcscpy(szLine3, L"\n\nPřepínám na výchozí knihovnu.");
+            // Find {PATH} placeholder and replace with actual path
+            WCHAR* pPlaceholder = wcsstr(szTemplate, L"{PATH}");
+            if (pPlaceholder) {
+                // Copy part before placeholder
+                size_t prefixLen = pPlaceholder - szTemplate;
+                wcsncpy(szMsg, szTemplate, prefixLen);
+                szMsg[prefixLen] = L'\0';
+                
+                // Append the actual path
+                wcscat(szMsg, szFullPath);
+                
+                // Append part after placeholder
+                wcscat(szMsg, pPlaceholder + 6);  // Skip "{PATH}"
             } else {
-                wcscpy(szLine1, L"Failed to load custom RichEdit library:");
-                wcscpy(szLine3, L"\n\nFalling back to default library.");
+                // Fallback if placeholder not found (shouldn't happen)
+                wcscpy(szMsg, szTemplate);
             }
-            
-            // Build full message: line1 + \n + path + line3
-            wcscpy(szMsg, szLine1);
-            wcscat(szMsg, L"\n");
-            wcscat(szMsg, szFullPath);
-            wcscat(szMsg, szLine3);
             
             LoadString(GetModuleHandle(NULL), IDS_ERROR, szTitle, 64);
             MessageBox(NULL, szMsg, szTitle, MB_OK | MB_ICONWARNING);
