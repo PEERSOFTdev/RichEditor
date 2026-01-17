@@ -2908,6 +2908,7 @@ HWND CreateRichEditControl(HWND hwndParent)
         style |= WS_HSCROLL | ES_AUTOHSCROLL;
     }
     
+    // Try to create RichEdit control with primary class
     HWND hwndEdit = CreateWindowEx(
         WS_EX_CLIENTEDGE,
         g_szRichEditClassName,  // Use detected class name from LoadRichEditLibrary()
@@ -2919,6 +2920,68 @@ HWND CreateRichEditControl(HWND hwndParent)
         GetModuleHandle(NULL),
         NULL
     );
+    
+    // Fallback chain for v8.0+ if primary class (RichEditD2DPT) failed
+    // This gracefully handles cases where D2DPT isn't available
+    if (!hwndEdit && g_fRichEditVersion >= 8.0f) {
+        // Try RichEditD2D (Direct2D without Paint Through)
+        hwndEdit = CreateWindowEx(
+            WS_EX_CLIENTEDGE, L"RichEditD2D", L"", style,
+            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
+            GetModuleHandle(NULL), NULL
+        );
+        if (hwndEdit) {
+            wcscpy(g_szRichEditClassName, L"RichEditD2D");
+        }
+    }
+    
+    if (!hwndEdit && g_fRichEditVersion >= 6.0f) {
+        // Try RichEdit60W (older Office versions)
+        hwndEdit = CreateWindowEx(
+            WS_EX_CLIENTEDGE, L"RichEdit60W", L"", style,
+            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
+            GetModuleHandle(NULL), NULL
+        );
+        if (hwndEdit) {
+            wcscpy(g_szRichEditClassName, L"RichEdit60W");
+        }
+    }
+    
+    if (!hwndEdit && g_fRichEditVersion >= 5.0f) {
+        // Try RichEdit20W (universal fallback for modern DLLs)
+        hwndEdit = CreateWindowEx(
+            WS_EX_CLIENTEDGE, L"RichEdit20W", L"", style,
+            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
+            GetModuleHandle(NULL), NULL
+        );
+        if (hwndEdit) {
+            wcscpy(g_szRichEditClassName, L"RichEdit20W");
+        }
+    }
+    
+    if (!hwndEdit && g_fRichEditVersion >= 4.0f) {
+        // Try RICHEDIT50W (MSFTEDIT.DLL)
+        hwndEdit = CreateWindowEx(
+            WS_EX_CLIENTEDGE, L"RICHEDIT50W", L"", style,
+            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
+            GetModuleHandle(NULL), NULL
+        );
+        if (hwndEdit) {
+            wcscpy(g_szRichEditClassName, L"RICHEDIT50W");
+        }
+    }
+    
+    if (!hwndEdit) {
+        // Final fallback: Try ancient RICHEDIT (v1.0)
+        hwndEdit = CreateWindowEx(
+            WS_EX_CLIENTEDGE, L"RICHEDIT", L"", style,
+            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
+            GetModuleHandle(NULL), NULL
+        );
+        if (hwndEdit) {
+            wcscpy(g_szRichEditClassName, L"RICHEDIT");
+        }
+    }
     
     if (hwndEdit) {
         // Set undo limit
@@ -3846,7 +3909,7 @@ LPCWSTR GetRichEditClassName(float fVersion)
         return L"RichEdit60W";  // Office 2007/2010 (version 6.0)
     }
     else if (fVersion >= 8.0f) {
-        return L"RichEdit60W";  // Office 2013+ (version 8.0+)
+        return L"RichEditD2DPT";  // Office 2013+ / Windows 11 (version 8.0+) - Direct2D + UI Automation
     }
     else if (fVersion >= 4.0f) {
         return L"RICHEDIT50W";  // RichEdit 4.x and 7.5 (MSFTEDIT.DLL)
