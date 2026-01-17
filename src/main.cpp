@@ -3961,9 +3961,25 @@ BOOL LoadRichEditLibrary()
             return TRUE;
         } else {
             // Custom load failed - show warning
-            WCHAR szMsg[512], szTemplate[256], szTitle[64];
-            LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_LOAD_FAILED, szTemplate, 256);
-            swprintf(szMsg, 512, szTemplate, szFullPath);
+            // Build message manually to avoid MinGW swprintf Unicode bug
+            WCHAR szMsg[768], szTitle[64];
+            
+            // Load localized message parts
+            WCHAR szLine1[128], szLine3[128];
+            if (GetUserDefaultLCID() == MAKELCID(MAKELANGID(LANG_CZECH, SUBLANG_DEFAULT), SORT_DEFAULT)) {
+                wcscpy(szLine1, L"Nepodařilo se načíst vlastní knihovnu RichEdit:");
+                wcscpy(szLine3, L"\n\nPřepínám na výchozí knihovnu.");
+            } else {
+                wcscpy(szLine1, L"Failed to load custom RichEdit library:");
+                wcscpy(szLine3, L"\n\nFalling back to default library.");
+            }
+            
+            // Build full message: line1 + \n + path + line3
+            wcscpy(szMsg, szLine1);
+            wcscat(szMsg, L"\n");
+            wcscat(szMsg, szFullPath);
+            wcscat(szMsg, szLine3);
+            
             LoadString(GetModuleHandle(NULL), IDS_ERROR, szTitle, 64);
             MessageBox(NULL, szMsg, szTitle, MB_OK | MB_ICONWARNING);
         }
