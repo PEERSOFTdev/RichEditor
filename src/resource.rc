@@ -75,7 +75,7 @@ BEGIN
 END
 
 // About Dialog
-IDD_ABOUT DIALOGEX 0, 0, 240, 120
+IDD_ABOUT DIALOGEX 0, 0, 240, 140
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "About RichEditor"
 FONT 8, "MS Shell Dlg", 400, 0
@@ -84,12 +84,13 @@ BEGIN
     LTEXT "RichEditor v2.8.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
     LTEXT "A lightweight, accessible text editor", IDC_STATIC, 40, 25, 190, 10
     LTEXT "Built with MinGW-w64", IDC_STATIC, 40, 38, 190, 10
-    LTEXT "", IDC_RICHEDIT_VERSION, 40, 50, 190, 10  // RichEdit version (filled at runtime)
-    LTEXT "", IDC_STATIC, 10, 65, 220, 1, SS_ETCHEDHORZ
-    LTEXT "Features:", IDC_STATIC, 10, 72, 220, 10
-    LTEXT "• UTF-8 text editing with autosave", IDC_STATIC, 20, 85, 210, 10
-    LTEXT "• Word wrap with position tracking", IDC_STATIC, 20, 97, 210, 10
-    DEFPUSHBUTTON "OK", IDOK, 95, 100, 50, 14
+    LTEXT "", IDC_RICHEDIT_VERSION, 40, 50, 190, 10  // RichEdit version+class (filled at runtime)
+    LTEXT "", IDC_RICHEDIT_VERSION_PATH, 40, 62, 190, 10  // RichEdit DLL path (filled at runtime)
+    LTEXT "", IDC_STATIC, 10, 77, 220, 1, SS_ETCHEDHORZ
+    LTEXT "Features:", IDC_STATIC, 10, 84, 220, 10
+    LTEXT "• UTF-8 text editing with autosave", IDC_STATIC, 20, 97, 210, 10
+    LTEXT "• Word wrap with position tracking", IDC_STATIC, 20, 109, 210, 10
+    DEFPUSHBUTTON "OK", IDOK, 95, 120, 50, 14
 END
 
 // Version Information
@@ -244,6 +245,7 @@ BEGIN
     // RichEdit library management (Phase 2.8)
     IDS_RICHEDIT_LOAD_FAILED        "Failed to load custom RichEdit library:\n%s\n\nFalling back to default library."
     IDS_RICHEDIT_VERSION            "RichEdit DLL version: %.1f (%s)"
+    IDS_RICHEDIT_CREATE_FAILED_DETAIL "Failed to create RichEdit control using window class: %s\n\nTo override the window class, add this line to the [Settings] section in RichEditor.ini:\nRichEditClassName=RichEdit60W\n\nAvailable classes:\n• RichEditD2DPT (v8.0+, Windows 11 / Office 365)\n• RichEditD2D (v8.0+, Direct2D without Paint Through)\n• RichEdit60W (v6.0+, Office 2007+)\n• RichEdit20W (v5.0+, Office 2003+)\n• RICHEDIT50W (v4.0+, MSFTEDIT.DLL)\n• RICHEDIT (v1.0, legacy ANSI)"
 END
 
 // ============================================================================
@@ -317,7 +319,7 @@ BEGIN
 END
 
 // About Dialog
-IDD_ABOUT DIALOGEX 0, 0, 240, 120
+IDD_ABOUT DIALOGEX 0, 0, 240, 140
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "O programu RichEditor"
 FONT 8, "MS Shell Dlg", 400, 0
@@ -326,12 +328,13 @@ BEGIN
     LTEXT "RichEditor v2.8.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
     LTEXT "Lehký a přístupný textový editor", IDC_STATIC, 40, 25, 190, 10
     LTEXT "Vytvořeno s MinGW-w64", IDC_STATIC, 40, 38, 190, 10
-    LTEXT "", IDC_RICHEDIT_VERSION, 40, 50, 190, 10  // Verze RichEdit (vyplněno při běhu)
-    LTEXT "", IDC_STATIC, 10, 65, 220, 1, SS_ETCHEDHORZ
-    LTEXT "Vlastnosti:", IDC_STATIC, 10, 72, 220, 10
-    LTEXT "• Editace textu v UTF-8 s automatickým ukládáním", IDC_STATIC, 20, 85, 210, 10
-    LTEXT "• Zalamování řádků se sledováním pozice", IDC_STATIC, 20, 97, 210, 10
-    DEFPUSHBUTTON "OK", IDOK, 95, 100, 50, 14
+    LTEXT "", IDC_RICHEDIT_VERSION, 40, 50, 190, 10  // Verze+třída RichEdit (vyplněno při běhu)
+    LTEXT "", IDC_RICHEDIT_VERSION_PATH, 40, 62, 190, 10  // Cesta k DLL RichEdit (vyplněno při běhu)
+    LTEXT "", IDC_STATIC, 10, 77, 220, 1, SS_ETCHEDHORZ
+    LTEXT "Vlastnosti:", IDC_STATIC, 10, 84, 220, 10
+    LTEXT "• Editace textu v UTF-8 s automatickým ukládáním", IDC_STATIC, 20, 97, 210, 10
+    LTEXT "• Zalamování řádků se sledováním pozice", IDC_STATIC, 20, 109, 210, 10
+    DEFPUSHBUTTON "OK", IDOK, 95, 120, 50, 14
 END
 
 // String Resources (Czech)
@@ -439,4 +442,5 @@ BEGIN
     // RichEdit library management (Phase 2.8)
     IDS_RICHEDIT_LOAD_FAILED        "Nepodařilo se načíst vlastní knihovnu RichEdit:\n%s\n\nPřepínám na výchozí knihovnu."
     IDS_RICHEDIT_VERSION            "Verze RichEdit DLL: %.1f (%s)"
+    IDS_RICHEDIT_CREATE_FAILED_DETAIL "Nepodařilo se vytvořit ovládací prvek RichEdit pomocí třídy okna: %s\n\nChcete-li přepsat třídu okna, přidejte tento řádek do sekce [Settings] v RichEditor.ini:\nRichEditClassName=RichEdit60W\n\nDostupné třídy:\n• RichEditD2DPT (v8.0+, Windows 11 / Office 365)\n• RichEditD2D (v8.0+, Direct2D bez Paint Through)\n• RichEdit60W (v6.0+, Office 2007+)\n• RichEdit20W (v5.0+, Office 2003+)\n• RICHEDIT50W (v4.0+, MSFTEDIT.DLL)\n• RICHEDIT (v1.0, starší ANSI)"
 END

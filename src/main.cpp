@@ -38,6 +38,7 @@ float g_fRichEditVersion = 0.0f;                    // Detected version (e.g., 7
 WCHAR g_szRichEditLibPath[MAX_PATH] = L"";          // Full path to loaded DLL
 WCHAR g_szRichEditLibPathINI[MAX_PATH] = L"";       // User preference from INI
 WCHAR g_szRichEditClassName[64] = L"RICHEDIT50W";  // Window class to use
+WCHAR g_szRichEditClassNameINI[64] = L"";           // User override from INI (Phase 2.8.5)
 
 // Autosave settings
 BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
@@ -1596,8 +1597,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Create RichEdit control
             g_hWndEdit = CreateRichEditControl(hwnd);
             if (!g_hWndEdit) {
-                WCHAR szError[256], szTitle[64];
-                LoadStringResource(IDS_RICHEDIT_CREATE_FAILED, szError, 256);
+                // Show detailed error with INI guidance (Phase 2.8.5)
+                WCHAR szError[1024], szTemplate[900], szTitle[64];
+                LoadStringResource(IDS_RICHEDIT_CREATE_FAILED_DETAIL, szTemplate, 900);
+                _snwprintf(szError, 1024, szTemplate, g_szRichEditClassName);
                 LoadStringResource(IDS_ERROR, szTitle, 64);
                 MessageBox(hwnd, szError, szTitle, MB_ICONERROR);
                 return -1;
@@ -3946,9 +3949,15 @@ BOOL LoadRichEditLibrary()
         g_hRichEditLib = LoadLibrary(szFullPath);
         
         if (g_hRichEditLib) {
-            // Success - detect version and window class
+            // Success - detect version
             g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
-            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+            
+            // Check for INI class name override (Phase 2.8.5)
+            if (g_szRichEditClassNameINI[0] != L'\0') {
+                wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
+            } else {
+                wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+            }
             return TRUE;
         } else {
             // Custom load failed - show warning
@@ -3966,7 +3975,13 @@ BOOL LoadRichEditLibrary()
     g_hRichEditLib = LoadLibrary(L"MSFTEDIT.DLL");
     if (g_hRichEditLib) {
         g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
-        wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        
+        // Check for INI class name override (Phase 2.8.5)
+        if (g_szRichEditClassNameINI[0] != L'\0') {
+            wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
+        } else {
+            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        }
         return TRUE;
     }
     
@@ -3974,7 +3989,13 @@ BOOL LoadRichEditLibrary()
     g_hRichEditLib = LoadLibrary(L"RICHED20.DLL");
     if (g_hRichEditLib) {
         g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
-        wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        
+        // Check for INI class name override (Phase 2.8.5)
+        if (g_szRichEditClassNameINI[0] != L'\0') {
+            wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
+        } else {
+            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        }
         return TRUE;
     }
     
@@ -3982,7 +4003,13 @@ BOOL LoadRichEditLibrary()
     g_hRichEditLib = LoadLibrary(L"RICHED32.DLL");
     if (g_hRichEditLib) {
         g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
-        wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        
+        // Check for INI class name override (Phase 2.8.5)
+        if (g_szRichEditClassNameINI[0] != L'\0') {
+            wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
+        } else {
+            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+        }
         return TRUE;
     }
     
@@ -5059,8 +5086,8 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
         case WM_INITDIALOG:
             {
                 // Display RichEdit version information (Phase 2.8.5)
-                // Use manual string concatenation instead of swprintf to avoid MinGW Unicode bugs
-                WCHAR szVersionText[256];
+                // Line 1: Version + Class name
+                // Line 2: Full DLL path
                 
                 // Extract just the filename from full path (e.g., "C:\...\RICHED20.DLL" → "RICHED20.DLL")
                 const WCHAR* pszFileName = wcsrchr(g_szRichEditLibPath, L'\\');
@@ -5070,8 +5097,9 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
                     pszFileName = g_szRichEditLibPath;  // No path separator, use as-is
                 }
                 
-                // Build string manually: "RichEdit X.X (FILENAME.DLL)"
+                // Build Line 1: "RichEdit X.X (FILENAME.DLL, ClassName)"
                 // Using wcscpy/wcscat instead of swprintf (safer with MinGW, per AGENTS.md)
+                WCHAR szVersionText[256];
                 wcscpy(szVersionText, L"RichEdit ");
                 
                 // Append version number
@@ -5081,10 +5109,15 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
                 
                 wcscat(szVersionText, L" (");
                 wcscat(szVersionText, pszFileName);
+                wcscat(szVersionText, L", ");
+                wcscat(szVersionText, g_szRichEditClassName);
                 wcscat(szVersionText, L")");
                 
-                // Set the text in the IDC_RICHEDIT_VERSION control
+                // Set Line 1 in the IDC_RICHEDIT_VERSION control
                 SetDlgItemText(hwnd, IDC_RICHEDIT_VERSION, szVersionText);
+                
+                // Set Line 2: Full DLL path in IDC_RICHEDIT_VERSION_PATH control
+                SetDlgItemText(hwnd, IDC_RICHEDIT_VERSION_PATH, g_szRichEditLibPath);
             }
             return TRUE;
             
@@ -5550,6 +5583,17 @@ void CreateDefaultINI()
         ";                              ; Office 2016:      C:\\Program Files (x86)\\Microsoft Office\\Office16\\RICHED20.DLL (v6.0)\r\n"
         ";                              ; Office 2013:      C:\\Program Files (x86)\\Microsoft Office\\Office15\\RICHED20.DLL (v8.0)\r\n"
         ";                              ; Why? Office versions use UI Automation (faster with NVDA) instead of legacy MSAA\r\n"
+        "; RichEditClassName=           ; Window class override (optional, leave empty for auto-detection)\r\n"
+        ";                              ; Available classes:\r\n"
+        ";                              ;   RichEditD2DPT - Direct2D + UI Automation (v8.0+, Windows 11/Office 365)\r\n"
+        ";                              ;   RichEditD2D   - Direct2D without Paint Through (v8.0+)\r\n"
+        ";                              ;   RichEdit60W   - Office 2007+ (v6.0+)\r\n"
+        ";                              ;   RichEdit20W   - Office 2003+ (v5.0+)\r\n"
+        ";                              ;   RICHEDIT50W   - MSFTEDIT.DLL (v4.0+)\r\n"
+        ";                              ;   RICHEDIT      - Legacy ANSI (v1.0)\r\n"
+        ";                              ; Default: Auto-detects best class (prefers RichEditD2DPT for v8.0+)\r\n"
+        ";                              ; Why override? Some DLLs report v8.0 but don't support RichEditD2DPT\r\n"
+        ";                              ; Example: RichEditClassName=RichEdit60W\r\n"
         "\r\n"
         "; Autosave settings\r\n"
         "AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)\r\n"
@@ -5911,6 +5955,13 @@ void LoadSettings()
     ReadINIValue(szIniPath, L"Settings", L"RichEditLibraryPath", szRichEditPath, MAX_PATH, L"");
     // Store in global (even if empty) - LoadRichEditLibrary() checks if empty
     wcscpy(g_szRichEditLibPathINI, szRichEditPath);
+    // Don't auto-write this setting - it's optional and well-documented in CreateDefaultINI comments
+    
+    // RichEditClassName (Phase 2.8.5) - optional window class override
+    WCHAR szClassName[64];
+    ReadINIValue(szIniPath, L"Settings", L"RichEditClassName", szClassName, 64, L"");
+    // Store in global (even if empty) - LoadRichEditLibrary() checks if empty
+    wcscpy(g_szRichEditClassNameINI, szClassName);
     // Don't auto-write this setting - it's optional and well-documented in CreateDefaultINI comments
     
     // AutosaveEnabled

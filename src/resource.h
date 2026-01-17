@@ -166,11 +166,13 @@
 #define IDS_FILES                       2122
 #define IDS_TEXT_FILES                  2124
 
-// RichEdit library management strings (Phase 2.8: 2126-2128)
+// RichEdit library management strings (Phase 2.8: 2126-2130)
 #define IDS_RICHEDIT_LOAD_FAILED        2126
 #define IDS_RICHEDIT_VERSION            2128
+#define IDS_RICHEDIT_CREATE_FAILED_DETAIL 2130
 
 // Control IDs
 #define IDC_RICHEDIT_VERSION            102
+#define IDC_RICHEDIT_VERSION_PATH       103
 
 #endif // RESOURCE_H
