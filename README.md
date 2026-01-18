@@ -609,7 +609,27 @@ Shortcut=Ctrl+Shift+F
 
 ## Building
 
-### Requirements
+RichEditor can be built using either **MinGW-w64** or **MSVC** (Microsoft Visual C++).
+
+### Option 1: MSVC Build (Recommended for Windows) ✅
+
+**Why MSVC?** Produces 18% smaller executables (252 KB vs 308 KB)!
+
+**Requirements:**
+- Visual Studio 2019+ or Build Tools 2022
+- Windows 10/11 SDK
+- See `BUILD_MSVC.md` for detailed instructions
+
+**Quick Build:**
+```cmd
+build_msvc.bat
+```
+
+**Output:** `msvc\RichEditor.exe` (252 KB, size-optimized)
+
+### Option 2: MinGW-w64 Build (Cross-platform)
+
+**Requirements:**
 - **Build Environment:** MinGW-w64 cross-compiler (e.g., MXE, MSYS2)
 - **Compiler:** x86_64-w64-mingw32-g++ or i686-w64-mingw32-g++
 - **Target OS:** Windows 7 or later
@@ -638,7 +658,16 @@ make clean
 make CROSS=x86_64-w64-mingw32.static-
 ```
 
-**Output:** `RichEditor.exe` (universal executable with English and Czech, ~1.1MB)
+**Output:** `RichEditor.exe` (308 KB, universal executable with English and Czech)
+
+### Build Comparison
+
+| Build System | Size | Pros |
+|--------------|------|------|
+| **MSVC** | 252 KB | Smallest binary, native Windows toolchain |
+| **MinGW** | 308 KB | Cross-platform builds, open-source |
+
+Both produce functionally identical executables with the same features.
 
 ### Localization
 

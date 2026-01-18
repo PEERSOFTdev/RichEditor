@@ -27,6 +27,13 @@ RichEditor.ini
 *.pdb
 *.ilk
 
+# MSVC build artifacts
+msvc/*.obj
+msvc/*.res
+msvc/*.pdb
+msvc/*.ilk
+msvc/*.exe
+
 # Visual Studio Code
 .vscode/
 
