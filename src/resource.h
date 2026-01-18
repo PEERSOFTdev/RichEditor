@@ -143,6 +143,7 @@
 
 // Resume file strings (Phase 2.6)
 #define IDS_RESUMED                     2089
+#define IDS_RESUME_SAVE_PROMPT          2132  // Session recovery save prompt
 
 // REPL error and localization strings (Phase 2.7)
 #define IDS_REPL_FAILED_START           2090

@@ -4698,12 +4698,27 @@ BOOL FileSave()
     
     // If this is a resumed saved file, ask user where to save
     if (g_bIsResumedFile && g_szOriginalFilePath[0] != L'\0') {
-        WCHAR szPrompt[512];
-        _snwprintf(szPrompt, 512,
-            L"This file was recovered from a previous session.\n\n"
-            L"Original location: %s\n\n"
-            L"Save to original location?",
-            g_szOriginalFilePath);
+        // Load localized template and replace {PATH} placeholder
+        WCHAR szTemplate[512], szPrompt[768];
+        LoadString(GetModuleHandle(NULL), IDS_RESUME_SAVE_PROMPT, szTemplate, 512);
+        
+        // Find {PATH} placeholder and replace with actual path
+        WCHAR* pPlaceholder = wcsstr(szTemplate, L"{PATH}");
+        if (pPlaceholder) {
+            // Copy part before placeholder
+            size_t prefixLen = pPlaceholder - szTemplate;
+            wcsncpy(szPrompt, szTemplate, prefixLen);
+            szPrompt[prefixLen] = L'\0';
+            
+            // Append the actual path
+            wcscat(szPrompt, g_szOriginalFilePath);
+            
+            // Append part after placeholder
+            wcscat(szPrompt, pPlaceholder + 6);  // Skip "{PATH}"
+        } else {
+            // Fallback if placeholder not found
+            wcscpy(szPrompt, szTemplate);
+        }
         
         int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",
                                MB_YESNOCANCEL | MB_ICONQUESTION);

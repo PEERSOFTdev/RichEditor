@@ -219,6 +219,7 @@ BEGIN
     IDS_STATUS_FILTER_NONE       "None"
     IDS_INFORMATION              "Information"
     IDS_RESUMED                  "Resumed"
+    IDS_RESUME_SAVE_PROMPT       "This file was recovered from a previous session.\n\nOriginal location: {PATH}\n\nSave to original location?"
     
     // REPL error messages and UI strings (Phase 2.7)
     IDS_REPL_FAILED_START           "Failed to start interactive filter"
@@ -416,6 +417,7 @@ BEGIN
     IDS_STATUS_FILTER_NONE       "Žádný"
     IDS_INFORMATION              "Informace"
     IDS_RESUMED                  "Obnoveno"
+    IDS_RESUME_SAVE_PROMPT       "Tento soubor byl obnoven z předchozí relace.\n\nPůvodní umístění: {PATH}\n\nUložit na původní místo?"
     
     // REPL error messages and UI strings (Phase 2.7)
     IDS_REPL_FAILED_START           "Nepodařilo se spustit interaktivní filtr"
