@@ -1326,7 +1326,7 @@ void ShowTemplatePickerMenu(HWND hwnd)
     // Get cursor position in RichEdit
     CHARRANGE cr;
     SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
-    POINTL ptlEdit = {0};
+    POINTL ptlEdit = {0, 0};
     SendMessage(g_hWndEdit, EM_POSFROMCHAR, (WPARAM)&ptlEdit, cr.cpMin);
     
     // Convert to screen coordinates
