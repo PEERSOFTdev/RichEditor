@@ -935,6 +935,7 @@ HACCEL BuildAcceleratorTable()
 
 //============================================================================
 // ExtractFileExtension - Extract file extension from path (without dot)
+// Wrapper around PathFindExtensionW() from shlwapi.dll
 // Example: "file.txt" -> "txt", "file.md" -> "md", "file" -> ""
 //============================================================================
 void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize)
@@ -943,22 +944,13 @@ void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize)
     
     pszExt[0] = L'\0';  // Default: no extension
     
-    // Find last dot in filename (ignore path separators)
-    const WCHAR* pszLastDot = NULL;
-    const WCHAR* pszLastSlash = NULL;
+    // Use shlwapi.dll function to find extension
+    LPCWSTR pszExtWithDot = PathFindExtensionW(pszFilePath);
     
-    for (const WCHAR* p = pszFilePath; *p; p++) {
-        if (*p == L'\\' || *p == L'/') {
-            pszLastSlash = p;
-        } else if (*p == L'.') {
-            pszLastDot = p;
-        }
-    }
-    
-    // Extension must be after last slash (if any)
-    if (pszLastDot && (!pszLastSlash || pszLastDot > pszLastSlash)) {
-        // Copy extension (without dot)
-        wcsncpy(pszExt, pszLastDot + 1, dwExtSize - 1);
+    // PathFindExtensionW returns pointer to dot (or empty string if no extension)
+    if (pszExtWithDot && pszExtWithDot[0] == L'.') {
+        // Copy extension without the dot
+        wcsncpy(pszExt, pszExtWithDot + 1, dwExtSize - 1);
         pszExt[dwExtSize - 1] = L'\0';
         
         // Convert to lowercase for case-insensitive comparison
