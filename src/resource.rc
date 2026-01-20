@@ -32,6 +32,12 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "Time/&Date\tF5", ID_EDIT_TIMEDATE
     END
+    POPUP "&Search"
+    BEGIN
+        MENUITEM "&Find...\tCtrl+F", ID_SEARCH_FIND
+        MENUITEM "Find &Next\tF3", ID_SEARCH_FIND_NEXT
+        MENUITEM "Find &Previous\tShift+F3", ID_SEARCH_FIND_PREVIOUS
+    END
     POPUP "&View"
     BEGIN
         MENUITEM "&Word Wrap\tCtrl+W", ID_VIEW_WORDWRAP
@@ -91,6 +97,22 @@ BEGIN
     LTEXT "• UTF-8 text editing with autosave", IDC_STATIC, 20, 97, 210, 10
     LTEXT "• Word wrap with position tracking", IDC_STATIC, 20, 109, 210, 10
     DEFPUSHBUTTON "OK", IDOK, 95, 120, 50, 14
+END
+
+// Find dialog (Phase 2.9)
+IDD_FIND DIALOGEX 0, 0, 260, 90
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Find"
+FONT 8, "MS Shell Dlg", 400, 0
+BEGIN
+    LTEXT           "Find &what:", IDC_STATIC, 7, 10, 50, 8
+    COMBOBOX        IDC_FIND_WHAT, 60, 8, 130, 100, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "Find &Next →", IDC_FIND_NEXT_BTN, 197, 7, 56, 14
+    PUSHBUTTON      "Find &Previous ←", IDC_FIND_PREV_BTN, 197, 24, 56, 14
+    PUSHBUTTON      "Close", IDC_CLOSE_BTN, 197, 69, 56, 14
+    AUTOCHECKBOX    "Match &case", IDC_MATCH_CASE, 7, 30, 80, 10
+    AUTOCHECKBOX    "&Whole word", IDC_WHOLE_WORD, 7, 45, 80, 10
+    AUTOCHECKBOX    "Use &escape sequences (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 60, 180, 10
 END
 
 // Version Information
@@ -247,6 +269,17 @@ BEGIN
     IDS_RICHEDIT_LOAD_FAILED        "Failed to load custom RichEdit library:\n{PATH}\n\nFalling back to default library."
     IDS_RICHEDIT_VERSION            "RichEdit DLL version: %.1f (%s)"
     IDS_RICHEDIT_CREATE_FAILED_DETAIL "Failed to create RichEdit control using window class: %s\n\nTo override the window class, add this line to the [Settings] section in RichEditor.ini:\nRichEditClassName=RichEdit60W\n\nAvailable classes:\n• RichEditD2DPT (v8.0+, Windows 11 / Office 365)\n• RichEditD2D (v8.0+, Direct2D without Paint Through)\n• RichEdit60W (v6.0+, Office 2007+)\n• RichEdit20W (v5.0+, Office 2003+)\n• RICHEDIT50W (v4.0+, MSFTEDIT.DLL)\n• RICHEDIT (v1.0, legacy ANSI)"
+    
+    // Search feature strings (Phase 2.9.1)
+    IDS_FIND_TITLE                  "Find"
+    IDS_FIND_WHAT                   "Find &what:"
+    IDS_MATCH_CASE                  "Match &case"
+    IDS_WHOLE_WORD                  "&Whole word"
+    IDS_USE_ESCAPES                 "Use &escape sequences (\\n, \\t, \\xNN, \\uNNNN)"
+    IDS_FIND_NEXT_BTN               "Find &Next →"
+    IDS_FIND_PREV_BTN               "Find &Previous ←"
+    IDS_FIND_NOTFOUND_PREFIX        "Cannot find """
+    IDS_FIND_NOTFOUND_TITLE         "Find"
 END
 
 // ============================================================================
@@ -278,6 +311,12 @@ BEGIN
         MENUITEM "Vybrat vš&e\tCtrl+A", ID_EDIT_SELECTALL
         MENUITEM SEPARATOR
         MENUITEM "Čas a &datum\tF5", ID_EDIT_TIMEDATE
+    END
+    POPUP "&Hledat"
+    BEGIN
+        MENUITEM "&Najít...\tCtrl+F", ID_SEARCH_FIND
+        MENUITEM "Najít &další\tF3", ID_SEARCH_FIND_NEXT
+        MENUITEM "Najít &předchozí\tShift+F3", ID_SEARCH_FIND_PREVIOUS
     END
     POPUP "&Zobrazit"
     BEGIN
@@ -336,6 +375,22 @@ BEGIN
     LTEXT "• Editace textu v UTF-8 s automatickým ukládáním", IDC_STATIC, 20, 97, 210, 10
     LTEXT "• Zalamování řádků se sledováním pozice", IDC_STATIC, 20, 109, 210, 10
     DEFPUSHBUTTON "OK", IDOK, 95, 120, 50, 14
+END
+
+// Find dialog (Phase 2.9)
+IDD_FIND DIALOGEX 0, 0, 260, 90
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Najít"
+FONT 8, "MS Shell Dlg", 400, 0
+BEGIN
+    LTEXT           "&Co hledat:", IDC_STATIC, 7, 10, 50, 8
+    COMBOBOX        IDC_FIND_WHAT, 60, 8, 130, 100, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "&Další →", IDC_FIND_NEXT_BTN, 197, 7, 56, 14
+    PUSHBUTTON      "&Předchozí ←", IDC_FIND_PREV_BTN, 197, 24, 56, 14
+    PUSHBUTTON      "Zavřít", IDC_CLOSE_BTN, 197, 69, 56, 14
+    AUTOCHECKBOX    "Rozlišovat &velikost písmen", IDC_MATCH_CASE, 7, 30, 120, 10
+    AUTOCHECKBOX    "&Celá slova", IDC_WHOLE_WORD, 7, 45, 80, 10
+    AUTOCHECKBOX    "Použít &escape sekvence (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 60, 180, 10
 END
 
 // String Resources (Czech)
@@ -445,4 +500,15 @@ BEGIN
     IDS_RICHEDIT_LOAD_FAILED        "Nepodařilo se načíst vlastní knihovnu RichEdit:\n{PATH}\n\nPřepínám na výchozí knihovnu."
     IDS_RICHEDIT_VERSION            "Verze RichEdit DLL: %.1f (%s)"
     IDS_RICHEDIT_CREATE_FAILED_DETAIL "Nepodařilo se vytvořit ovládací prvek RichEdit pomocí třídy okna: %s\n\nChcete-li přepsat třídu okna, přidejte tento řádek do sekce [Settings] v RichEditor.ini:\nRichEditClassName=RichEdit60W\n\nDostupné třídy:\n• RichEditD2DPT (v8.0+, Windows 11 / Office 365)\n• RichEditD2D (v8.0+, Direct2D bez Paint Through)\n• RichEdit60W (v6.0+, Office 2007+)\n• RichEdit20W (v5.0+, Office 2003+)\n• RICHEDIT50W (v4.0+, MSFTEDIT.DLL)\n• RICHEDIT (v1.0, starší ANSI)"
+    
+    // Search feature strings (Phase 2.9.1)
+    IDS_FIND_TITLE                  "Najít"
+    IDS_FIND_WHAT                   "&Co hledat:"
+    IDS_MATCH_CASE                  "Rozlišovat &velikost písmen"
+    IDS_WHOLE_WORD                  "&Celá slova"
+    IDS_USE_ESCAPES                 "Použít &escape sekvence (\\n, \\t, \\xNN, \\uNNNN)"
+    IDS_FIND_NEXT_BTN               "&Další →"
+    IDS_FIND_PREV_BTN               "&Předchozí ←"
+    IDS_FIND_NOTFOUND_PREFIX        "Nelze najít """
+    IDS_FIND_NOTFOUND_TITLE         "Najít"
 END

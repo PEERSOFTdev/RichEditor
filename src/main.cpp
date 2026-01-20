@@ -188,6 +188,9 @@ const ReservedShortcut g_ReservedShortcuts[] = {
     { 'I', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+I (Start Interactive)" },
     { 'Q', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+Q (Exit Interactive)" },
     { 'T', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+T (Insert Template)" },
+    { 'F', FCONTROL | FVIRTKEY, L"Ctrl+F (Find)" },
+    { VK_F3, FVIRTKEY, L"F3 (Find Next)" },
+    { VK_F3, FSHIFT | FVIRTKEY, L"Shift+F3 (Find Previous)" },
     { 0, 0, NULL }  // Sentinel
 };
 
@@ -308,6 +311,25 @@ BOOL g_bREPLIntentionalExit = FALSE;   // TRUE when user intentionally exits REP
 WCHAR g_szFilterStatusBarText[512] = L"";
 BOOL g_bFilterStatusBarActive = FALSE;
 
+//============================================================================
+// Search System (Phase 2.9)
+//============================================================================
+#define MAX_FIND_HISTORY 20
+#define MAX_SEARCH_TEXT 256
+
+// Find dialog state
+HWND g_hDlgFind = NULL;                          // Find dialog handle (modeless)
+WCHAR g_szFindWhat[MAX_SEARCH_TEXT] = L"";       // Current search term
+BOOL g_bFindMatchCase = FALSE;                   // Case-sensitive search
+BOOL g_bFindWholeWord = FALSE;                   // Whole word search
+BOOL g_bFindUseEscapes = FALSE;                  // Parse escape sequences
+BOOL g_bSearchDown = TRUE;                       // Search direction (TRUE=down/forward)
+BOOL g_bSelectAfterFind = TRUE;                  // Select found text (configurable)
+
+// Find history
+WCHAR g_szFindHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];
+int g_nFindHistoryCount = 0;
+
 // MRU list
 WCHAR g_MRU[MAX_MRU][EXTENDED_PATH_MAX];
 int g_nMRUCount = 0;
@@ -377,7 +399,6 @@ BOOL LoadRichEditLibrary();
 // Template system functions
 BOOL ParseShortcut(LPCWSTR pszShortcut, WORD* pVirtualKey, BYTE* pModifiers);
 BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers);
-void UnescapeTemplateString(LPCWSTR pszInput, LPWSTR pszOutput, DWORD dwOutputSize);
 void LoadTemplates();
 HACCEL BuildAcceleratorTable();
 void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize);
@@ -388,6 +409,15 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu);  // Helper: populate
 void ShowTemplatePickerMenu(HWND hwnd);
 void BuildTemplateMenu(HWND hwnd);
 void BuildFileNewMenu(HWND hwnd);
+
+// Search functions (Phase 2.9)
+LPWSTR ParseEscapeSequences(LPCWSTR pszInput);
+LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord, BOOL bSearchDown, LONG nStartPos);
+BOOL DoFind(BOOL bSearchDown);
+INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+void LoadFindHistory();
+void SaveFindHistory();
+void AddToFindHistory(LPCWSTR pszText);
 
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
@@ -605,6 +635,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     // Message loop
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
+        // Handle modeless Find dialog (Phase 2.9)
+        if (g_hDlgFind && IsDialogMessage(g_hDlgFind, &msg)) {
+            continue;
+        }
+        
         if (!TranslateAccelerator(g_hWndMain, g_hAccel, &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
@@ -705,45 +740,110 @@ BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers)
 //============================================================================
 // UnescapeTemplateString - Convert escape sequences like \n, \t, \\ to actual characters
 //============================================================================
-void UnescapeTemplateString(LPCWSTR pszInput, LPWSTR pszOutput, DWORD dwOutputSize)
+//============================================================================
+// ParseEscapeSequences - Convert C-style escape sequences to actual characters
+// Input: pszInput - String with escape sequences (\n, \t, \xNN, \uNNNN)
+// Returns: Allocated WCHAR* with parsed string (caller must free!)
+// 
+// Supported escapes:
+//   \n  -> LF (0x0A)
+//   \r  -> CR (0x0D)
+//   \t  -> TAB (0x09)
+//   \\  -> Backslash
+//   \xNN -> Hex byte (e.g., \x41 = 'A')
+//   \uNNNN -> Unicode codepoint (e.g., \u00E9 = 'é')
+//
+// Unknown escapes are preserved as literals (e.g., \q stays as \q)
+//============================================================================
+LPWSTR ParseEscapeSequences(LPCWSTR pszInput)
 {
-    if (!pszInput || !pszOutput || dwOutputSize == 0) return;
+    if (!pszInput) return NULL;
     
-    DWORD idx = 0;
-    const WCHAR* p = pszInput;
+    // Allocate output buffer (same size as input is always enough)
+    size_t len = wcslen(pszInput);
+    LPWSTR pszResult = (LPWSTR)malloc((len + 1) * sizeof(WCHAR));
+    if (!pszResult) return NULL;
     
-    while (*p && idx < dwOutputSize - 1) {
-        if (*p == L'\\' && *(p + 1)) {
-            // Escape sequence
-            p++;
-            switch (*p) {
+    const WCHAR* pSrc = pszInput;
+    WCHAR* pDest = pszResult;
+    
+    while (*pSrc) {
+        if (*pSrc == L'\\' && *(pSrc + 1)) {
+            pSrc++;  // Skip backslash
+            
+            switch (*pSrc) {
                 case L'n':
-                    pszOutput[idx++] = L'\n';
+                    *pDest++ = L'\n';
+                    pSrc++;
                     break;
-                case L't':
-                    pszOutput[idx++] = L'\t';
-                    break;
+                    
                 case L'r':
-                    pszOutput[idx++] = L'\r';
+                    *pDest++ = L'\r';
+                    pSrc++;
                     break;
+                    
+                case L't':
+                    *pDest++ = L'\t';
+                    pSrc++;
+                    break;
+                    
                 case L'\\':
-                    pszOutput[idx++] = L'\\';
+                    *pDest++ = L'\\';
+                    pSrc++;
                     break;
-                default:
-                    // Unknown escape - keep backslash and character
-                    pszOutput[idx++] = L'\\';
-                    if (idx < dwOutputSize - 1) {
-                        pszOutput[idx++] = *p;
+                    
+                case L'x':  // \xNN - hex byte
+                {
+                    pSrc++;  // Skip 'x'
+                    
+                    // Check if we have 2 hex digits
+                    if (iswxdigit(pSrc[0]) && iswxdigit(pSrc[1])) {
+                        WCHAR szHex[3] = {pSrc[0], pSrc[1], L'\0'};
+                        WCHAR* pEnd;
+                        long val = wcstol(szHex, &pEnd, 16);
+                        *pDest++ = (WCHAR)val;
+                        pSrc += 2;
+                    } else {
+                        // Invalid hex sequence - keep literal \x
+                        *pDest++ = L'\\';
+                        *pDest++ = L'x';
                     }
                     break;
+                }
+                
+                case L'u':  // \uNNNN - Unicode codepoint
+                {
+                    pSrc++;  // Skip 'u'
+                    
+                    // Check if we have 4 hex digits
+                    if (iswxdigit(pSrc[0]) && iswxdigit(pSrc[1]) &&
+                        iswxdigit(pSrc[2]) && iswxdigit(pSrc[3])) {
+                        WCHAR szHex[5] = {pSrc[0], pSrc[1], pSrc[2], pSrc[3], L'\0'};
+                        WCHAR* pEnd;
+                        long val = wcstol(szHex, &pEnd, 16);
+                        *pDest++ = (WCHAR)val;
+                        pSrc += 4;
+                    } else {
+                        // Invalid Unicode sequence - keep literal \u
+                        *pDest++ = L'\\';
+                        *pDest++ = L'u';
+                    }
+                    break;
+                }
+                
+                default:
+                    // Unknown escape - preserve backslash and character
+                    *pDest++ = L'\\';
+                    *pDest++ = *pSrc++;
+                    break;
             }
-            p++;
         } else {
-            pszOutput[idx++] = *p++;
+            *pDest++ = *pSrc++;
         }
     }
     
-    pszOutput[idx] = L'\0';
+    *pDest = L'\0';
+    return pszResult;
 }
 
 //============================================================================
@@ -781,8 +881,17 @@ void LoadTemplates()
         ReadINIValue(szIniPath, szSection, L"Template", 
                      szTemplateRaw, MAX_TEMPLATE_VALUE, L"");
         
-        // Unescape the template string (\n → newline, \t → tab, etc.)
-        UnescapeTemplateString(szTemplateRaw, g_Templates[i].szTemplate, MAX_TEMPLATE_VALUE);
+        // Parse escape sequences (\n → newline, \t → tab, \xNN, \uNNNN, etc.)
+        LPWSTR pszParsed = ParseEscapeSequences(szTemplateRaw);
+        if (pszParsed) {
+            wcsncpy(g_Templates[i].szTemplate, pszParsed, MAX_TEMPLATE_VALUE - 1);
+            g_Templates[i].szTemplate[MAX_TEMPLATE_VALUE - 1] = L'\0';
+            free(pszParsed);
+        } else {
+            // Fallback: use raw string if parsing failed
+            wcsncpy(g_Templates[i].szTemplate, szTemplateRaw, MAX_TEMPLATE_VALUE - 1);
+            g_Templates[i].szTemplate[MAX_TEMPLATE_VALUE - 1] = L'\0';
+        }
         
         // Get system language code for localized strings
         WCHAR szLangCode[16];
@@ -882,7 +991,7 @@ void LoadTemplates()
 HACCEL BuildAcceleratorTable()
 {
     // Count total accelerators needed
-    const int BUILTIN_COUNT = 15;  // Built-in shortcuts (including Ctrl+Shift+T for template picker)
+    const int BUILTIN_COUNT = 18;  // Built-in shortcuts (including search shortcuts - Phase 2.9)
     int nTemplateShortcuts = 0;
     
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -915,6 +1024,11 @@ HACCEL BuildAcceleratorTable()
     pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'I'; pAccel[idx++].cmd = ID_TOOLS_START_INTERACTIVE;
     pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'Q'; pAccel[idx++].cmd = ID_TOOLS_EXIT_INTERACTIVE;
     pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'T'; pAccel[idx++].cmd = ID_TOOLS_INSERT_TEMPLATE;
+    
+    // Search shortcuts (Phase 2.9)
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'F'; pAccel[idx++].cmd = ID_SEARCH_FIND;
+    pAccel[idx].fVirt = FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_NEXT;
+    pAccel[idx].fVirt = FSHIFT | FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_PREVIOUS;
     
     // Add template shortcuts
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1573,6 +1687,316 @@ void BuildFileNewMenu(HWND hwnd)
 }
 
 //============================================================================
+// Search Functions (Phase 2.9)
+//============================================================================
+
+//============================================================================
+// FindTextInDocument - Search for text in RichEdit control
+// Returns: Character position of match, or -1 if not found
+//============================================================================
+LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord, 
+                       BOOL bSearchDown, LONG nStartPos)
+{
+    if (!pszSearchText || !pszSearchText[0]) {
+        return -1;
+    }
+    
+    // Get document length
+    GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};  // UTF-16LE
+    int nDocLen = (int)SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    
+    // Setup search range and flags
+    FINDTEXTEXW ft;
+    DWORD dwFlags = 0;
+    
+    if (bMatchCase) dwFlags |= FR_MATCHCASE;
+    if (bWholeWord) dwFlags |= FR_WHOLEWORD;
+    if (bSearchDown) dwFlags |= FR_DOWN;
+    
+    // Set search range
+    if (bSearchDown) {
+        ft.chrg.cpMin = nStartPos;
+        ft.chrg.cpMax = nDocLen;
+    } else {
+        ft.chrg.cpMin = nStartPos;
+        ft.chrg.cpMax = 0;
+    }
+    
+    ft.lpstrText = pszSearchText;
+    
+    // Execute search (use W version for Unicode support)
+    LONG nPos = (LONG)SendMessage(g_hWndEdit, EM_FINDTEXTEXW, dwFlags, (LPARAM)&ft);
+    if (nPos != -1) {
+        // Found - ft.chrgText contains the match range
+        CHARRANGE cr;
+        cr.cpMin = ft.chrgText.cpMin;
+        cr.cpMax = ft.chrgText.cpMax;
+        
+        if (g_bSelectAfterFind) {
+            // Select the found text
+            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        } else {
+            // Move cursor to end of match (after the matched string)
+            // This allows F3 to find the next occurrence correctly
+            cr.cpMin = cr.cpMax;
+            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        }
+        
+        // Scroll into view
+        SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+    }
+    
+    return nPos;
+}
+
+//============================================================================
+// DoFind - Perform find operation with current settings
+// Called by Find Next/Previous buttons and F3/Shift+F3 shortcuts
+// Returns: TRUE if found, FALSE if not found
+//============================================================================
+BOOL DoFind(BOOL bSearchDown)
+{
+    // Update search direction
+    g_bSearchDown = bSearchDown;
+    
+    if (g_szFindWhat[0] == L'\0') {
+        // No search term - show Find dialog
+        if (g_hDlgFind) {
+            SetFocus(g_hDlgFind);
+        } else {
+            SendMessage(g_hWndMain, WM_COMMAND, ID_SEARCH_FIND, 0);
+        }
+        return FALSE;
+    }
+    
+    // Parse escape sequences if enabled
+    LPWSTR pszSearchText = NULL;
+    if (g_bFindUseEscapes) {
+        pszSearchText = ParseEscapeSequences(g_szFindWhat);
+        if (!pszSearchText) {
+            pszSearchText = _wcsdup(g_szFindWhat);  // Fallback
+        }
+    } else {
+        pszSearchText = _wcsdup(g_szFindWhat);
+    }
+    
+    // Get current selection to start search after/before it
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    
+    LONG nStartPos = bSearchDown ? cr.cpMax : cr.cpMin;
+    
+    // Search
+    LONG nPos = FindTextInDocument(pszSearchText, g_bFindMatchCase, g_bFindWholeWord, 
+                                   bSearchDown, nStartPos);
+    
+    free(pszSearchText);
+    
+    if (nPos == -1) {
+        // Not found - show message
+        // Note: Don't use swprintf() with user-provided Unicode text
+        // Use wcscpy/wcscat pattern to avoid UTF-16 issues
+        WCHAR szMsg[512], szTitle[64];
+        WCHAR szPrefix[256];
+        LoadStringResource(IDS_FIND_NOTFOUND_PREFIX, szPrefix, 256);  // "Cannot find \""
+        LoadStringResource(IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
+        
+        wcscpy(szMsg, szPrefix);
+        wcscat(szMsg, g_szFindWhat);
+        wcscat(szMsg, L"\"");
+        
+        MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, 
+                  MB_ICONINFORMATION);
+        return FALSE;
+    }
+    
+    return TRUE;
+}
+
+//============================================================================
+// DlgFindProc - Find dialog procedure (modeless)
+//============================================================================
+INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    (void)lParam;  // Unused parameter
+    switch (message) {
+        case WM_INITDIALOG:
+        {
+            // Load history into combo box
+            HWND hCombo = GetDlgItem(hDlg, IDC_FIND_WHAT);
+            for (int i = 0; i < g_nFindHistoryCount; i++) {
+                SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)g_szFindHistory[i]);
+            }
+            
+            // If no current search term, use most recent from history
+            if (g_szFindWhat[0] == L'\0' && g_nFindHistoryCount > 0) {
+                wcscpy(g_szFindWhat, g_szFindHistory[0]);
+            }
+            
+            // Set current search term (or most recent from history)
+            SetDlgItemText(hDlg, IDC_FIND_WHAT, g_szFindWhat);
+            
+            // Set checkbox states (restored from saved preferences)
+            CheckDlgButton(hDlg, IDC_MATCH_CASE, g_bFindMatchCase ? BST_CHECKED : BST_UNCHECKED);
+            CheckDlgButton(hDlg, IDC_WHOLE_WORD, g_bFindWholeWord ? BST_CHECKED : BST_UNCHECKED);
+            CheckDlgButton(hDlg, IDC_USE_ESCAPES, g_bFindUseEscapes ? BST_CHECKED : BST_UNCHECKED);
+            
+            // Focus on search box and select all text (for easy overtyping)
+            SetFocus(hCombo);
+            SendMessage(hCombo, CB_SETEDITSEL, 0, MAKELPARAM(0, -1));  // Select all
+            
+            return FALSE;  // We set focus manually
+        }
+        
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case IDC_FIND_NEXT_BTN:
+                {
+                    // Get search term from combo box
+                    GetDlgItemText(hDlg, IDC_FIND_WHAT, g_szFindWhat, MAX_SEARCH_TEXT);
+                    
+                    // Get checkbox states
+                    g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
+                    g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
+                    g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    
+                    // Perform search
+                    DoFind(TRUE);  // Search down
+                    return TRUE;
+                }
+                
+                case IDC_FIND_PREV_BTN:
+                {
+                    // Get search term
+                    GetDlgItemText(hDlg, IDC_FIND_WHAT, g_szFindWhat, MAX_SEARCH_TEXT);
+                    
+                    // Get checkbox states
+                    g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
+                    g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
+                    g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    
+                    // Perform search
+                    DoFind(FALSE);  // Search up
+                    return TRUE;
+                }
+                
+                case IDC_CLOSE_BTN:
+                case IDCANCEL:
+                    // Save history before closing
+                    SaveFindHistory();
+                    DestroyWindow(hDlg);
+                    g_hDlgFind = NULL;
+                    return TRUE;
+            }
+            break;
+        
+        case WM_CLOSE:
+            SaveFindHistory();
+            DestroyWindow(hDlg);
+            g_hDlgFind = NULL;
+            return TRUE;
+    }
+    
+    return FALSE;
+}
+
+//============================================================================
+// LoadFindHistory - Load find history from INI file
+//============================================================================
+void LoadFindHistory()
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+    
+    // Read count
+    g_nFindHistoryCount = ReadINIInt(szIniPath, L"FindHistory", L"Count", 0);
+    if (g_nFindHistoryCount > MAX_FIND_HISTORY) {
+        g_nFindHistoryCount = MAX_FIND_HISTORY;
+    }
+    
+    // Read each item
+    for (int i = 0; i < g_nFindHistoryCount; i++) {
+        WCHAR szKey[32];
+        swprintf(szKey, 32, L"Item%d", i + 1);  // OK: numeric formatting only
+        ReadINIValue(szIniPath, L"FindHistory", szKey, 
+                    g_szFindHistory[i], MAX_SEARCH_TEXT, L"");
+    }
+}
+
+//============================================================================
+// SaveFindHistory - Save find history to INI file
+//============================================================================
+void SaveFindHistory()
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+    
+    // Add current search term to history if not empty
+    if (g_szFindWhat[0] != L'\0') {
+        AddToFindHistory(g_szFindWhat);
+    }
+    
+    // Write count
+    WCHAR szCount[16];
+    swprintf(szCount, 16, L"%d", g_nFindHistoryCount);
+    WriteINIValue(szIniPath, L"FindHistory", L"Count", szCount);
+    
+    // Write each item
+    for (int i = 0; i < g_nFindHistoryCount; i++) {
+        WCHAR szKey[32];
+        swprintf(szKey, 32, L"Item%d", i + 1);
+        WriteINIValue(szIniPath, L"FindHistory", szKey, g_szFindHistory[i]);
+    }
+    
+    // Save checkbox states to Settings section
+    WriteINIValue(szIniPath, L"Settings", L"FindMatchCase", 
+                 g_bFindMatchCase ? L"1" : L"0");
+    WriteINIValue(szIniPath, L"Settings", L"FindWholeWord", 
+                 g_bFindWholeWord ? L"1" : L"0");
+    WriteINIValue(szIniPath, L"Settings", L"FindUseEscapes", 
+                 g_bFindUseEscapes ? L"1" : L"0");
+}
+
+//============================================================================
+// AddToFindHistory - Add item to history (most recent first)
+//============================================================================
+void AddToFindHistory(LPCWSTR pszText)
+{
+    if (!pszText || !pszText[0]) return;
+    
+    // Check if already in history
+    for (int i = 0; i < g_nFindHistoryCount; i++) {
+        if (wcscmp(g_szFindHistory[i], pszText) == 0) {
+            // Already exists - move to top
+            WCHAR szTemp[MAX_SEARCH_TEXT];
+            wcscpy(szTemp, g_szFindHistory[i]);
+            
+            // Shift items down
+            for (int j = i; j > 0; j--) {
+                wcscpy(g_szFindHistory[j], g_szFindHistory[j - 1]);
+            }
+            
+            // Put at top
+            wcscpy(g_szFindHistory[0], szTemp);
+            return;
+        }
+    }
+    
+    // Not in history - add to top
+    if (g_nFindHistoryCount < MAX_FIND_HISTORY) {
+        g_nFindHistoryCount++;
+    }
+    
+    // Shift items down
+    for (int i = g_nFindHistoryCount - 1; i > 0; i--) {
+        wcscpy(g_szFindHistory[i], g_szFindHistory[i - 1]);
+    }
+    
+    // Add new item at top
+    wcscpy(g_szFindHistory[0], pszText);
+}
+
+//============================================================================
 // WndProc - Main Window Procedure
 //============================================================================
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1740,6 +2164,29 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // View menu
                 case ID_VIEW_WORDWRAP:
                     ViewWordWrap();
+                    break;
+                
+                // Search menu (Phase 2.9)
+                case ID_SEARCH_FIND:
+                    if (g_hDlgFind) {
+                        // Dialog already open - just focus it
+                        SetFocus(g_hDlgFind);
+                    } else {
+                        // Create modeless Find dialog
+                        g_hDlgFind = CreateDialog(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_FIND), 
+                                                  hwnd, DlgFindProc);
+                        if (g_hDlgFind) {
+                            ShowWindow(g_hDlgFind, SW_SHOW);
+                        }
+                    }
+                    break;
+                
+                case ID_SEARCH_FIND_NEXT:
+                    DoFind(TRUE);  // Search down
+                    break;
+                
+                case ID_SEARCH_FIND_PREVIOUS:
+                    DoFind(FALSE);  // Search up
                     break;
                 
                 // Tools menu
@@ -2233,6 +2680,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Exit REPL mode if active
             if (g_bREPLMode) {
                 ExitREPLMode();
+            }
+            
+            // Destroy Find dialog if open (Phase 2.9)
+            if (g_hDlgFind) {
+                SaveFindHistory();  // Save before destroying
+                DestroyWindow(g_hDlgFind);
+                g_hDlgFind = NULL;
             }
             
             // Kill timers
@@ -6058,6 +6512,45 @@ void LoadSettings()
         }
         g_nTabSize = tabSize;
     }
+    
+    // SelectAfterFind (Phase 2.9.1)
+    ReadINIValue(szIniPath, L"Settings", L"SelectAfterFind", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"SelectAfterFind", L"1");
+        g_bSelectAfterFind = TRUE;
+    } else {
+        g_bSelectAfterFind = ReadINIInt(szIniPath, L"Settings", L"SelectAfterFind", 1);
+    }
+    
+    // FindMatchCase (Phase 2.9.1) - Persist checkbox state
+    ReadINIValue(szIniPath, L"Settings", L"FindMatchCase", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"FindMatchCase", L"0");
+        g_bFindMatchCase = FALSE;
+    } else {
+        g_bFindMatchCase = ReadINIInt(szIniPath, L"Settings", L"FindMatchCase", 0);
+    }
+    
+    // FindWholeWord (Phase 2.9.1) - Persist checkbox state
+    ReadINIValue(szIniPath, L"Settings", L"FindWholeWord", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"FindWholeWord", L"0");
+        g_bFindWholeWord = FALSE;
+    } else {
+        g_bFindWholeWord = ReadINIInt(szIniPath, L"Settings", L"FindWholeWord", 0);
+    }
+    
+    // FindUseEscapes (Phase 2.9.1) - Persist checkbox state
+    ReadINIValue(szIniPath, L"Settings", L"FindUseEscapes", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"FindUseEscapes", L"0");
+        g_bFindUseEscapes = FALSE;
+    } else {
+        g_bFindUseEscapes = ReadINIInt(szIniPath, L"Settings", L"FindUseEscapes", 0);
+    }
+    
+    // Load find history
+    LoadFindHistory();
 }
 
 //============================================================================

@@ -32,6 +32,11 @@
 // View menu
 #define ID_VIEW_WORDWRAP                1110
 
+// Search menu (Phase 2.9)
+#define ID_SEARCH_FIND                  1300
+#define ID_SEARCH_FIND_NEXT             1301
+#define ID_SEARCH_FIND_PREVIOUS         1302
+
 // Tools menu (Phase 2)
 #define ID_TOOLS_EXECUTEFILTER          1201
 #define ID_TOOLS_FILTER_HELP          1202
@@ -50,7 +55,17 @@
 
 // Dialog IDs
 #define IDD_ABOUT                       300
+#define IDD_FIND                        301
 #define IDC_STATIC                      -1
+
+// Find dialog control IDs (Phase 2.9)
+#define IDC_FIND_WHAT                   3001
+#define IDC_MATCH_CASE                  3010
+#define IDC_WHOLE_WORD                  3011
+#define IDC_USE_ESCAPES                 3012
+#define IDC_FIND_NEXT_BTN               3020
+#define IDC_FIND_PREV_BTN               3021
+#define IDC_CLOSE_BTN                   3024
 
 // String resource IDs (2000-2099)
 #define IDS_ERROR                       2000
@@ -175,5 +190,16 @@
 // Control IDs
 #define IDC_RICHEDIT_VERSION            102
 #define IDC_RICHEDIT_VERSION_PATH       103
+
+// Search feature strings (Phase 2.9.1: 2140-2160)
+#define IDS_FIND_TITLE                  2140
+#define IDS_FIND_WHAT                   2141
+#define IDS_MATCH_CASE                  2143
+#define IDS_WHOLE_WORD                  2144
+#define IDS_USE_ESCAPES                 2145
+#define IDS_FIND_NEXT_BTN               2146
+#define IDS_FIND_PREV_BTN               2147
+#define IDS_FIND_NOTFOUND_PREFIX        2150
+#define IDS_FIND_NOTFOUND_TITLE         2151
 
 #endif // RESOURCE_H

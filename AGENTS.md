@@ -1158,6 +1158,397 @@ void InsertTemplate(int nTemplateIndex) {
 6. **Never show error dialogs for wrong file type** - Silently skip (better UX)
 7. **Never forget to call UpdateFileExtension() in file operations** - Affects menu filtering
 
+## Phase 2.9.1: Find Dialog with Escape Sequences (Important Patterns)
+
+### Overview
+
+Phase 2.9.1 implements a modeless Find dialog with history, checkbox persistence, and escape sequence support. Similar to Notepad++, Sublime Text, and VS Code find functionality.
+
+**Key Design Goals:**
+- Modeless dialog (non-blocking, can edit while open)
+- Search history (MRU list, max 20 items)
+- Checkbox state persistence (Match case, Whole word, Use escapes)
+- Escape sequence support (\n, \t, \xNN, \uNNNN)
+- Keyboard shortcuts (Ctrl+F, F3, Shift+F3)
+- No search wrapping (user requirement)
+
+### Search System Architecture
+
+**Dialog Type:** Modeless (created once, shown/hidden with ShowWindow)
+
+**Global State:**
+```cpp
+HWND g_hDlgFind = NULL;                    // Dialog handle (NULL = not created)
+WCHAR g_szFindWhat[MAX_SEARCH_TEXT];       // Current search term
+BOOL g_bFindMatchCase;                     // Checkbox states
+BOOL g_bFindWholeWord;
+BOOL g_bFindUseEscapes;
+BOOL g_bSearchDown = TRUE;                 // Search direction
+BOOL g_bSelectAfterFind = TRUE;            // INI setting
+WCHAR g_szFindHistory[20][256];            // MRU history
+int g_nFindHistoryCount;                   // History count
+```
+
+**String Resources:**
+- English: IDS_FIND_TITLE (2140) through IDS_FIND_NOTFOUND_TITLE (2151)
+- Czech: Fully localized with diacritics
+
+### Critical Pattern: Modeless Dialog Integration
+
+**Problem Solved:** Modeless dialogs require special message loop handling and careful lifetime management.
+
+**Solution:** Message loop filter + WM_DESTROY cleanup
+
+**Message Loop Integration (WinMain ~line 637):**
+```cpp
+while (GetMessage(&msg, NULL, 0, 0)) {
+    // CRITICAL: Check modeless dialog before TranslateAccelerator
+    if (g_hDlgFind && IsDialogMessage(g_hDlgFind, &msg)) {
+        continue;  // Dialog handled the message (Tab, Enter, etc.)
+    }
+    
+    if (!TranslateAccelerator(g_hWndMain, g_hAccel, &msg)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+}
+```
+
+**Dialog Lifecycle:**
+```cpp
+// In WM_COMMAND for ID_SEARCH_FIND:
+if (g_hDlgFind == NULL) {
+    // Create dialog once
+    g_hDlgFind = CreateDialog(hInst, MAKEINTRESOURCE(IDD_FIND), hwnd, DlgFindProc);
+    ShowWindow(g_hDlgFind, SW_SHOW);
+} else {
+    // Already exists - just focus it
+    ShowWindow(g_hDlgFind, SW_SHOW);
+    SetForegroundWindow(g_hDlgFind);
+}
+
+// In WM_DESTROY:
+if (g_hDlgFind) {
+    SaveFindHistory();  // Persist before destroy
+    DestroyWindow(g_hDlgFind);
+    g_hDlgFind = NULL;
+}
+```
+
+**Why This Pattern:**
+- IsDialogMessage() must run BEFORE TranslateAccelerator() to handle Tab/Enter properly
+- Dialog created once, reused across multiple open/close cycles
+- SaveFindHistory() called on main window destroy (not dialog close) to persist state
+
+### Critical Pattern: Enhanced Escape Sequence Parsing
+
+**Problem Solved:** Find needs to support more escape sequences than templates (\xNN hex bytes, \uNNNN Unicode).
+
+**Solution:** Enhanced ParseEscapeSequences() function replaces old UnescapeTemplateString()
+
+**Implementation (~line 735):**
+```cpp
+LPWSTR ParseEscapeSequences(LPCWSTR pszInput) {
+    size_t nLen = wcslen(pszInput);
+    LPWSTR pszOutput = (LPWSTR)malloc((nLen + 1) * sizeof(WCHAR));
+    
+    const WCHAR *pSrc = pszInput;
+    WCHAR *pDst = pszOutput;
+    
+    while (*pSrc) {
+        if (*pSrc == L'\\' && *(pSrc + 1)) {
+            pSrc++;  // Skip backslash
+            switch (*pSrc) {
+                case L'n':  *pDst++ = L'\n'; pSrc++; break;
+                case L'r':  *pDst++ = L'\r'; pSrc++; break;
+                case L't':  *pDst++ = L'\t'; pSrc++; break;
+                case L'\\': *pDst++ = L'\\'; pSrc++; break;
+                
+                case L'x':  // Hex byte: \xNN
+                    if (iswxdigit(pSrc[1]) && iswxdigit(pSrc[2])) {
+                        WCHAR hex[3] = {pSrc[1], pSrc[2], 0};
+                        *pDst++ = (WCHAR)wcstol(hex, NULL, 16);
+                        pSrc += 3;
+                    } else {
+                        *pDst++ = L'\\'; *pDst++ = *pSrc++;  // Invalid
+                    }
+                    break;
+                
+                case L'u':  // Unicode: \uNNNN
+                    if (iswxdigit(pSrc[1]) && iswxdigit(pSrc[2]) &&
+                        iswxdigit(pSrc[3]) && iswxdigit(pSrc[4])) {
+                        WCHAR unicode[5] = {pSrc[1], pSrc[2], pSrc[3], pSrc[4], 0};
+                        *pDst++ = (WCHAR)wcstol(unicode, NULL, 16);
+                        pSrc += 5;
+                    } else {
+                        *pDst++ = L'\\'; *pDst++ = *pSrc++;  // Invalid
+                    }
+                    break;
+                
+                default:  // Unknown escape - preserve literally
+                    *pDst++ = L'\\';
+                    *pDst++ = *pSrc++;
+                    break;
+            }
+        } else {
+            *pDst++ = *pSrc++;  // Copy normal character
+        }
+    }
+    
+    *pDst = L'\0';
+    return pszOutput;  // Caller must free!
+}
+```
+
+**Escape Sequences Supported:**
+- `\n` - Line feed (LF)
+- `\r` - Carriage return (CR)
+- `\t` - Tab
+- `\\` - Backslash
+- `\xNN` - Hex byte (00-FF) e.g., `\x41` = 'A'
+- `\uNNNN` - Unicode codepoint (0000-FFFF) e.g., `\u00E9` = 'é'
+- Unknown escapes preserved literally (e.g., `\q` → `\q`)
+
+**Memory Management:**
+- Returns malloc'd memory - **caller must free!**
+- Used in DoFind() and LoadTemplates() (both free after use)
+
+### Critical Pattern: RichEdit EM_FINDTEXTEXW Search
+
+**Problem Solved:** Need case-sensitive, whole-word, and forward/backward search in RichEdit control.
+
+**Solution:** Use EM_FINDTEXTEXW message with FINDTEXTEXW structure
+
+**FindTextInDocument() Implementation (~line 1675):**
+```cpp
+LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, 
+                        BOOL bWholeWord, BOOL bSearchDown, LONG nStartPos)
+{
+    if (!pszSearchText || !pszSearchText[0]) {
+        return -1;  // Empty search
+    }
+    
+    FINDTEXTEXW ft = {0};
+    
+    // Set search range
+    if (bSearchDown) {
+        ft.chrg.cpMin = nStartPos;
+        ft.chrg.cpMax = -1;  // -1 = end of document
+    } else {
+        ft.chrg.cpMin = nStartPos;
+        ft.chrg.cpMax = 0;   // Search backward to start
+    }
+    
+    ft.lpstrText = pszSearchText;
+    
+    // Build flags
+    DWORD dwFlags = 0;
+    if (bMatchCase) dwFlags |= FR_MATCHCASE;
+    if (bWholeWord) dwFlags |= FR_WHOLEWORD;
+    if (!bSearchDown) dwFlags |= FR_DOWN;  // Backward search
+    
+    // Perform search
+    LRESULT result = SendMessage(g_hWndEdit, EM_FINDTEXTEXW, dwFlags, (LPARAM)&ft);
+    
+    if (result != -1) {
+        return ft.chrgText.cpMin;  // Return match start position
+    }
+    
+    return -1;  // Not found
+}
+```
+
+**Why EM_FINDTEXTEXW:**
+- Built-in RichEdit functionality (fast, reliable)
+- Handles Unicode correctly (wide strings)
+- Supports all needed flags (case, whole word, direction)
+- Returns exact match position in ft.chrgText
+
+### Critical Pattern: MRU History Management
+
+**Problem Solved:** Store up to 20 most recent searches, newest first, no duplicates.
+
+**Solution:** AddToFindHistory() with deduplication and rotation
+
+**AddToFindHistory() Implementation (~line 1951):**
+```cpp
+void AddToFindHistory(LPCWSTR pszText) {
+    if (!pszText || !pszText[0]) return;
+    
+    // Check if already in history (remove duplicates)
+    for (int i = 0; i < g_nFindHistoryCount; i++) {
+        if (wcscmp(g_szFindHistory[i], pszText) == 0) {
+            // Move to front
+            WCHAR szTemp[MAX_SEARCH_TEXT];
+            wcscpy(szTemp, g_szFindHistory[i]);
+            
+            // Shift items down
+            for (int j = i; j > 0; j--) {
+                wcscpy(g_szFindHistory[j], g_szFindHistory[j - 1]);
+            }
+            
+            wcscpy(g_szFindHistory[0], szTemp);
+            return;
+        }
+    }
+    
+    // Not in history - add to front
+    if (g_nFindHistoryCount < MAX_FIND_HISTORY) {
+        g_nFindHistoryCount++;
+    }
+    
+    // Shift all items down
+    for (int i = g_nFindHistoryCount - 1; i > 0; i--) {
+        wcscpy(g_szFindHistory[i], g_szFindHistory[i - 1]);
+    }
+    
+    wcscpy(g_szFindHistory[0], pszText);
+}
+```
+
+**Behavior:**
+- Duplicate entries moved to front (MRU)
+- Max 20 items (oldest dropped)
+- Newest always at index 0
+
+### Global Variables (Phase 2.9.1)
+
+```cpp
+// Search System (Phase 2.9)
+#define MAX_FIND_HISTORY 20
+#define MAX_SEARCH_TEXT 256
+
+HWND g_hDlgFind = NULL;
+WCHAR g_szFindWhat[MAX_SEARCH_TEXT] = L"";
+BOOL g_bFindMatchCase = FALSE;
+BOOL g_bFindWholeWord = FALSE;
+BOOL g_bFindUseEscapes = FALSE;
+BOOL g_bSearchDown = TRUE;
+BOOL g_bSelectAfterFind = TRUE;
+WCHAR g_szFindHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];
+int g_nFindHistoryCount = 0;
+```
+
+**Line Numbers:** Global declarations around line 310 in main.cpp
+
+### Key Functions (Phase 2.9.1)
+
+**Core Search Functions:**
+- `ParseEscapeSequences()` - Enhanced escape parsing with \xNN and \uNNNN (~line 735)
+- `FindTextInDocument()` - RichEdit search with EM_FINDTEXTEXW (~line 1675)
+- `DoFind()` - Main find logic with escape parsing and selection (~line 1716)
+
+**Dialog Management:**
+- `DlgFindProc()` - Modeless dialog procedure (~line 1818)
+- `LoadFindHistory()` - Load history from INI [FindHistory] section (~line 1884)
+- `SaveFindHistory()` - Save history and checkbox states (~line 1915)
+- `AddToFindHistory()` - MRU list management with deduplication (~line 1951)
+
+### INI Configuration (Phase 2.9.1)
+
+```ini
+[Settings]
+SelectAfterFind=1             ; 1=select match, 0=move cursor only
+FindMatchCase=0               ; Checkbox state persistence
+FindWholeWord=0
+FindUseEscapes=0
+
+[FindHistory]
+Count=3
+Item0=function
+Item1=\n\n
+Item2=TODO
+```
+
+**History Format:**
+- Count field specifies number of items
+- Item0 is most recent (MRU)
+- Max 20 items saved
+- Loaded on dialog open, saved on main window destroy
+
+### Important Implementation Notes
+
+**Modeless Dialog Message Handling:**
+```cpp
+// WRONG order (breaks Tab/Enter):
+if (!TranslateAccelerator(...)) {
+    if (g_hDlgFind && IsDialogMessage(...)) ...
+}
+
+// CORRECT order:
+if (g_hDlgFind && IsDialogMessage(...)) {
+    continue;  // Must be BEFORE TranslateAccelerator
+}
+if (!TranslateAccelerator(...)) ...
+```
+
+**SelectAfterFind Behavior:**
+```cpp
+if (g_bSelectAfterFind) {
+    // Select the found text
+    cr.cpMin = foundPos;
+    cr.cpMax = foundPos + matchLength;
+} else {
+    // Move cursor to end of match (after the matched string)
+    // This allows F3 to find the next occurrence correctly
+    cr.cpMin = foundPos + matchLength;
+    cr.cpMax = foundPos + matchLength;
+}
+SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+```
+
+**Why position cursor after match when SelectAfterFind=0:**
+- Pressing F3 searches from current cursor position
+- If cursor is at start of match, it would find the same match again (infinite loop)
+- Positioning after the match allows F3 to correctly find the next occurrence
+
+**No Search Wrapping:**
+```cpp
+// User requirement: Do NOT wrap around document
+if (foundPos < 0) {
+    // Show "not found" message, don't continue from start
+    WCHAR szMsg[512];
+    WCHAR szPrefix[64];
+    LoadString(GetModuleHandle(NULL), IDS_FIND_NOTFOUND_PREFIX, szPrefix, 64);
+    wcscpy(szMsg, szPrefix);
+    wcscat(szMsg, pszSearchText);
+    wcscat(szMsg, L"\"");
+    
+    WCHAR szTitle[64];
+    LoadString(GetModuleHandle(NULL), IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
+    MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
+}
+```
+
+### String Resources (Phase 2.9.1)
+
+```cpp
+#define IDS_FIND_TITLE                  2140
+#define IDS_FIND_WHAT                   2141
+#define IDS_MATCH_CASE                  2142
+#define IDS_WHOLE_WORD                  2143
+#define IDS_USE_ESCAPES                 2144
+#define IDS_FIND_NEXT_BTN               2145
+#define IDS_FIND_PREV_BTN               2146
+#define IDS_FIND_NOTFOUND_PREFIX        2147
+#define IDS_FIND_NOTFOUND_TITLE         2148
+```
+
+**Localization:**
+- English: "Find", "Match &case", "Find &Next →", etc.
+- Czech: "Najít", "Rozlišovat &velikost písmen", "&Další →", etc.
+
+### Important Don'ts (Phase 2.9.1 Specific)
+
+1. **Never call IsDialogMessage after TranslateAccelerator** - Tab/Enter won't work
+2. **Never forget to free ParseEscapeSequences result** - Returns malloc'd memory
+3. **Never wrap search around document** - User requirement, show "not found" instead
+4. **Never use DestroyWindow in dialog close button** - Use ShowWindow(SW_HIDE)
+5. **Never forget SaveFindHistory in WM_DESTROY** - History lost if not saved
+6. **Never create dialog multiple times** - Check g_hDlgFind != NULL first
+7. **Never assume checkbox states are synced** - Always read from dialog controls in DoFind()
+
 ## Common Tasks
 
 ### Adding a New Setting
@@ -1297,7 +1688,9 @@ After making changes:
 
 ### Current Limitations
 
-- No Find/Replace functionality (planned for Phase 3)
+- No Replace functionality (planned for Phase 2.9.2)
+- No Bookmark system (planned for Phase 2.9.3)
+- No Go to Line dialog (planned for Phase 2.9.4)
 - No font selection dialog
 - No print support
 - Plain text only (no RTF formatting used)
@@ -1435,8 +1828,8 @@ For questions about this project, refer to:
 
 ---
 
-**Last Updated:** January 2026
-**Project Version:** Phase 2.7 Complete (Template System)
-**Code Size:** ~5,750 lines (main.cpp)
-**Binary Size:** ~939 KB (static)
+**Last Updated:** January 2026  
+**Project Version:** Phase 2.9.1 Complete (Find Dialog with Escape Sequences)  
+**Code Size:** ~8,050 lines (main.cpp)  
+**Binary Size:** ~314 KB (MinGW stripped), ~962 KB (MinGW with symbols)
 
