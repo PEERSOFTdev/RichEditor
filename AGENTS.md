@@ -1489,19 +1489,26 @@ if (g_bSelectAfterFind) {
     cr.cpMin = foundPos;
     cr.cpMax = foundPos + matchLength;
 } else {
-    // Move cursor to end of match (after the matched string)
-    // This allows F3 to find the next occurrence correctly
-    cr.cpMin = foundPos + matchLength;
-    cr.cpMax = foundPos + matchLength;
+    // Position cursor based on search direction (bidirectional smart positioning)
+    if (bSearchDown) {
+        // Forward search: position cursor after match
+        cr.cpMin = foundPos + matchLength;
+        cr.cpMax = foundPos + matchLength;
+    } else {
+        // Backward search: position cursor before match
+        cr.cpMin = foundPos;
+        cr.cpMax = foundPos;
+    }
 }
 SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
 SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
 ```
 
-**Why position cursor after match when SelectAfterFind=0:**
-- Pressing F3 searches from current cursor position
-- If cursor is at start of match, it would find the same match again (infinite loop)
-- Positioning after the match allows F3 to correctly find the next occurrence
+**Why bidirectional cursor positioning when SelectAfterFind=0:**
+- **Forward search (F3):** Cursor positioned **after** match → next F3 finds next occurrence
+- **Backward search (Shift+F3):** Cursor positioned **before** match → next Shift+F3 finds previous occurrence
+- Without this logic, pressing F3 or Shift+F3 would find the same match repeatedly (infinite loop)
+- This matches PSPad's smart behavior for non-selecting search navigation
 
 **No Search Wrapping:**
 ```cpp

@@ -33,35 +33,45 @@ DEFPUSHBUTTON   "Find &Next →", IDC_FIND_NEXT_BTN, 197, 7, 56, 14
 
 ### UX Enhancement #2: Cursor Positioning with SelectAfterFind=0
 
-**Issue:** When `SelectAfterFind=0`, the cursor was positioned at the **start** of the matched string. Pressing F3 to find next would find the same match again (infinite loop), because the search started from the cursor position which was still at the beginning of the current match.
+**Issue:** When `SelectAfterFind=0`, the cursor was positioned at the **start** of the matched string for both forward and backward searches. This caused:
+- **F3 (forward)**: Would find the same match again (infinite loop)
+- **Shift+F3 (backward)**: Would also find the same match again
 
-**Solution:** Position cursor **after** the matched string (at `cpMax` instead of `cpMin`) when `SelectAfterFind=0`.
+**Solution:** Position cursor **directionally** based on search direction:
+- **Forward search (F3)**: Position cursor **after** match (cpMax)
+- **Backward search (Shift+F3)**: Position cursor **before** match (cpMin)
 
 **Effect:**
-- ✅ F3 now correctly finds the next occurrence (moves past current match)
-- ✅ SelectAfterFind=0 is now usable for navigating through matches
-- ✅ Cursor positioned logically after the match (ready for next search)
+- ✅ F3 correctly finds the next occurrence (moves forward past current match)
+- ✅ Shift+F3 correctly finds the previous occurrence (moves backward past current match)
+- ✅ SelectAfterFind=0 now usable for bidirectional navigation through matches
+- ✅ Matches PSPad's smart behavior (discovered independently)
 
 **Technical Change:**
 ```cpp
-// Before:
+// Before (broken for both directions):
 if (g_bSelectAfterFind) {
     // Select the found text
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
 } else {
-    // Just move cursor to start of match
+    // Just move cursor to start of match (broken!)
     cr.cpMax = cr.cpMin;
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
 }
 
-// After:
+// After (smart bidirectional positioning):
 if (g_bSelectAfterFind) {
     // Select the found text
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
 } else {
-    // Move cursor to end of match (after the matched string)
-    // This allows F3 to find the next occurrence correctly
-    cr.cpMin = cr.cpMax;
+    // Position cursor based on search direction
+    if (bSearchDown) {
+        // Forward search: position cursor after match (allows F3 to continue forward)
+        cr.cpMin = cr.cpMax;
+    } else {
+        // Backward search: position cursor before match (allows Shift+F3 to continue backward)
+        cr.cpMax = cr.cpMin;
+    }
     SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
 }
 ```

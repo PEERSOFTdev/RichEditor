@@ -1736,9 +1736,14 @@ LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord,
             // Select the found text
             SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         } else {
-            // Move cursor to end of match (after the matched string)
-            // This allows F3 to find the next occurrence correctly
-            cr.cpMin = cr.cpMax;
+            // Position cursor based on search direction
+            if (bSearchDown) {
+                // Forward search: position cursor after match (allows F3 to continue forward)
+                cr.cpMin = cr.cpMax;
+            } else {
+                // Backward search: position cursor before match (allows Shift+F3 to continue backward)
+                cr.cpMax = cr.cpMin;
+            }
             SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         }
         
