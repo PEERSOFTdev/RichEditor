@@ -1556,6 +1556,360 @@ if (foundPos < 0) {
 6. **Never create dialog multiple times** - Check g_hDlgFind != NULL first
 7. **Never assume checkbox states are synced** - Always read from dialog controls in DoFind()
 
+## Phase 2.10: Configurable Date/Time Format (Important Patterns)
+
+### Overview
+
+Phase 2.10 implements customizable date/time formatting for the F5 key and template variables. Users can configure formats using either internal variables (locale-aware dwFlags) or custom format strings (Windows GetDateFormatEx/GetTimeFormatEx).
+
+**Key Design Goals:**
+- Locale-aware formatting with internal variables
+- Custom format strings for power users (ISO dates, European formats, etc.)
+- F5 key uses template system (can combine multiple variables)
+- Backward-compatible (defaults match old hardcoded behavior)
+- No `%datetime%` variable (users combine `%date% %time%` manually)
+
+### Date/Time System Architecture
+
+**Two Variable Types:**
+
+**1. Internal Variables (Predefined, dwFlags-based):**
+- `%shortdate%` → `DATE_SHORTDATE` (e.g., "1/20/2026")
+- `%longdate%` → `DATE_LONGDATE` (e.g., "Monday, January 20, 2026")
+- `%yearmonth%` → `DATE_YEARMONTH` (e.g., "January 2026")
+- `%monthday%` → `DATE_MONTHDAY` (e.g., "January 20")
+- `%longtime%` → 0 flag (e.g., "10:30:45 PM")
+- `%shorttime%` → `TIME_NOSECONDS` (e.g., "10:30 PM")
+
+**2. User-Configurable Variables:**
+- `%date%` → Uses `DateFormat=` INI setting
+- `%time%` → Uses `TimeFormat=` INI setting
+
+**Global State:**
+```cpp
+WCHAR g_szDateTimeTemplate[256] = L"%shortdate% %shorttime%";  // F5 key template
+WCHAR g_szDateFormat[128] = L"%shortdate%";                    // %date% variable format
+WCHAR g_szTimeFormat[128] = L"HH:mm";                          // %time% variable format
+```
+
+**Line Numbers:** Global declarations around line 332 in main.cpp
+
+### Critical Pattern: Dual-Mode Variable Expansion
+
+**Problem Solved:** Support both internal variables (dwFlags) and custom format strings for the same variable (`%date%`, `%time%`).
+
+**Solution:** Check if format matches internal variable name first, otherwise use custom format string.
+
+**Implementation in ExpandTemplateVariables() (~line 1376):**
+```cpp
+else if (wcsncmp(pSrc, L"%date%", 6) == 0) {
+    // Check if DateFormat is an internal variable
+    if (wcscmp(g_szDateFormat, L"%shortdate%") == 0) {
+        pszFormatted = FormatDateByFlag(DATE_SHORTDATE);
+    } else if (wcscmp(g_szDateFormat, L"%longdate%") == 0) {
+        pszFormatted = FormatDateByFlag(DATE_LONGDATE);
+    } else if (wcscmp(g_szDateFormat, L"%yearmonth%") == 0) {
+        pszFormatted = FormatDateByFlag(DATE_YEARMONTH);
+    } else if (wcscmp(g_szDateFormat, L"%monthday%") == 0) {
+        pszFormatted = FormatDateByFlag(DATE_MONTHDAY);
+    } else {
+        // Custom format string
+        pszFormatted = FormatDateByString(g_szDateFormat);
+    }
+    wcscpy(pDest, pszFormatted);
+    pDest += wcslen(pszFormatted);
+    free(pszFormatted);
+    pSrc += 6;
+}
+```
+
+**Why This Pattern:**
+- Internal variables are locale-aware (respects user's Windows settings)
+- Custom format strings allow precise control (ISO dates, European formats)
+- Exclusive check (either internal OR custom, not mixed)
+- Falls back gracefully if GetDateFormatEx fails
+
+### Critical Pattern: Helper Function Fallbacks
+
+**Problem Solved:** Windows API calls can fail (invalid format strings, locale issues). Need graceful degradation.
+
+**Solution:** Each helper function has a fallback chain.
+
+**FormatDateByString() Implementation (~line 1124):**
+```cpp
+LPWSTR FormatDateByString(LPCWSTR pszFormat) {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    
+    WCHAR szBuffer[256];
+    
+    // If format is empty, fall back to FormatDateByFlag(DATE_SHORTDATE)
+    if (!pszFormat || pszFormat[0] == L'\0') {
+        return FormatDateByFlag(DATE_SHORTDATE);
+    }
+    
+    // Try GetDateFormatEx with custom format
+    int nLen = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, pszFormat, szBuffer, 256, NULL);
+    
+    if (nLen == 0) {
+        // Failed - fall back to ISO format yyyy-MM-dd
+        swprintf(szBuffer, 256, L"%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
+    }
+    
+    LPWSTR pszResult = (LPWSTR)malloc((wcslen(szBuffer) + 1) * sizeof(WCHAR));
+    wcscpy(pszResult, szBuffer);
+    return pszResult;  // Caller must free!
+}
+```
+
+**Fallback Chain:**
+1. Empty format → FormatDateByFlag(DATE_SHORTDATE)
+2. GetDateFormatEx fails → ISO format `yyyy-MM-dd`
+3. Similar pattern for FormatTimeByString() → `HH:mm`
+
+**Why This Pattern:**
+- Never crashes on invalid format strings
+- Always returns something useful
+- ISO format is universally understood
+- User can debug by seeing fallback output
+
+### Critical Pattern: F5 Key Integration
+
+**Problem Solved:** Old EditInsertTimeDate() hardcoded format. New system should use template expansion.
+
+**Solution:** Replace entire function with template system call.
+
+**Old Code (20 lines):**
+```cpp
+void EditInsertTimeDate() {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    
+    WCHAR szDate[128];
+    GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &st, NULL, szDate, 128);
+    
+    WCHAR szTime[128];
+    GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &st, NULL, szTime, 128);
+    
+    WCHAR szDateTime[256];
+    swprintf(szDateTime, 256, L"%s %s", szDate, szTime);
+    
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szDateTime);
+    g_bModified = TRUE;
+    UpdateTitle();
+}
+```
+
+**New Code (8 lines, ~line 5677):**
+```cpp
+void EditInsertTimeDate() {
+    LONG nCursorOffset = -1;
+    LPWSTR pszExpanded = ExpandTemplateVariables(g_szDateTimeTemplate, &nCursorOffset);
+    if (pszExpanded) {
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+        free(pszExpanded);
+        g_bModified = TRUE;
+        UpdateTitle();
+    }
+}
+```
+
+**Why This Pattern:**
+- Reuses existing template expansion infrastructure
+- F5 can now use ANY variables (date, time, selection, clipboard, cursor, etc.)
+- User can customize via `DateTimeTemplate=` in INI
+- Supports literal text: `DateTimeTemplate='Today is '%longdate%`
+- No code duplication
+
+### Global Variables (Phase 2.10)
+
+```cpp
+// Date/Time Formatting (Phase 2.10, ToDo #3)
+WCHAR g_szDateTimeTemplate[256] = L"%shortdate% %shorttime%";  // F5 key format
+WCHAR g_szDateFormat[128] = L"%shortdate%";                    // %date% variable
+WCHAR g_szTimeFormat[128] = L"HH:mm";                          // %time% variable
+```
+
+**Line Numbers:** Global declarations around line 332 in main.cpp
+
+### Key Functions (Phase 2.10)
+
+**Helper Functions (~line 1090):**
+- `FormatDateByFlag()` - Format date using dwFlags (DATE_SHORTDATE, etc.) (~30 lines)
+- `FormatTimeByFlag()` - Format time using dwFlags (TIME_NOSECONDS, etc.) (~30 lines)
+- `FormatDateByString()` - Format date using custom format string (~30 lines)
+- `FormatTimeByString()` - Format time using custom format string (~30 lines)
+
+**Variable Expansion:**
+- Modified `ExpandTemplateVariables()` - Added 6 internal variables + 2 configurable (~90 lines added around line 1298-1420)
+
+**F5 Key Handler:**
+- Refactored `EditInsertTimeDate()` - Now uses template system (~line 5677, reduced from 20 to 8 lines)
+
+### INI Configuration (Phase 2.10)
+
+```ini
+[Settings]
+; F5 key / Edit→Time/Date menu insertion format
+DateTimeTemplate=%shortdate% %shorttime%
+
+; Custom format strings for %date% and %time% variables
+; Can be either:
+;   - Internal variable (exclusive): %shortdate%, %longdate%, etc.
+;   - Custom format string: yyyy-MM-dd, dd.MM.yyyy, HH:mm, h:mm tt, etc.
+DateFormat=%shortdate%        ; Default: system short date
+TimeFormat=HH:mm              ; Default: 24-hour without seconds
+```
+
+**Format Behavior:**
+
+**Exclusive Internal Variable Mode:**
+- If `DateFormat=%longdate%` (exact match) → uses DATE_LONGDATE flag
+- No mixing allowed (e.g., `%longdate% extra text` treated as custom format, will fail)
+
+**Custom Format String Mode:**
+- If `DateFormat=yyyy-MM-dd` (not internal variable) → custom format
+- Supports literal text: `'Day 'dd' of 'MMMM` → "Day 20 of January"
+- Windows API handles all specifiers + literals
+- See Microsoft documentation for full list
+
+**Available Format Specifiers:**
+
+**Date (GetDateFormatEx):**
+- `d` - Day of month (1-31)
+- `dd` - Day of month with leading zero (01-31)
+- `ddd` - Abbreviated day name (Mon, Tue, etc.)
+- `dddd` - Full day name (Monday, Tuesday, etc.)
+- `M` - Month (1-12)
+- `MM` - Month with leading zero (01-12)
+- `MMM` - Abbreviated month name (Jan, Feb, etc.)
+- `MMMM` - Full month name (January, February, etc.)
+- `y` - Year without century (0-99)
+- `yy` - Year without century, leading zero (00-99)
+- `yyyy` - Year with century (2026)
+- `g`, `gg` - Era string (AD, BC in English)
+
+**Time (GetTimeFormatEx):**
+- `h` - Hour 12-hour format (1-12)
+- `hh` - Hour 12-hour format with leading zero (01-12)
+- `H` - Hour 24-hour format (0-23)
+- `HH` - Hour 24-hour format with leading zero (00-23)
+- `m` - Minute (0-59)
+- `mm` - Minute with leading zero (00-59)
+- `s` - Second (0-59)
+- `ss` - Second with leading zero (00-59)
+- `t` - Single-character AM/PM (A/P)
+- `tt` - Multi-character AM/PM (AM/PM)
+
+**Literal Text:**
+- Enclose in single quotes: `'Day 'dd' of 'MMMM`
+- Escape single quote with double: `''` → `'`
+
+### Important Implementation Notes
+
+**Internal Variable Expansion Order:**
+```cpp
+// Check internal variables FIRST (in ExpandTemplateVariables)
+// Order in function (~line 1298):
+1. %shortdate%   (line ~1298)
+2. %longdate%    (line ~1312)
+3. %yearmonth%   (line ~1326)
+4. %monthday%    (line ~1340)
+5. %longtime%    (line ~1354)
+6. %shorttime%   (line ~1362)
+7. %date%        (line ~1376) - Uses g_szDateFormat
+8. %time%        (line ~1398) - Uses g_szTimeFormat
+```
+
+**Memory Management:**
+```cpp
+// All helper functions return malloc'd memory - CALLER MUST FREE!
+LPWSTR pszDate = FormatDateByFlag(DATE_SHORTDATE);
+wcscpy(pDest, pszDate);
+free(pszDate);  // CRITICAL: Don't leak memory!
+```
+
+**dwFlags Constants:**
+```cpp
+// From winnls.h (Windows API)
+#define DATE_SHORTDATE     0x00000001  // Short date format
+#define DATE_LONGDATE      0x00000002  // Long date format
+#define DATE_YEARMONTH     0x00000008  // Year-month format
+#define DATE_MONTHDAY      0x00000080  // Month-day format
+#define TIME_NOSECONDS     0x00000002  // Time without seconds
+// 0 flag for time = include seconds
+```
+
+**Locale Awareness:**
+- All internal variables respect user's Windows locale settings
+- `LOCALE_NAME_USER_DEFAULT` used in GetDateFormatEx/GetTimeFormatEx
+- Custom format strings also use user locale (month/day names translated)
+- Example: Czech user with %longdate% sees "pondělí 20. ledna 2026"
+
+### Important Don'ts (Phase 2.10 Specific)
+
+1. **Never use swprintf for string concatenation** - Use wcscpy/wcscat (MinGW issues)
+2. **Never forget to free helper function results** - All return malloc'd memory
+3. **Never assume GetDateFormatEx/GetTimeFormatEx succeed** - Always check return value, have fallback
+4. **Never mix internal variables with text in INI format settings** - Either `%shortdate%` OR `yyyy-MM-dd`, not both
+5. **Never use %datetime% variable** - Removed per user request, users combine manually
+6. **Never hardcode date/time in EditInsertTimeDate()** - Use template system
+7. **Never forget buffer size validation** - Helper functions use 256-byte buffers, check lengths
+
+### Testing Checklist (Phase 2.10)
+
+**Basic Functionality:**
+- [ ] F5 inserts date/time with default template `%shortdate% %shorttime%`
+- [ ] Each of 6 internal variables works individually in templates
+- [ ] %date%, %time% work with default settings
+
+**Internal Variable Mode:**
+- [ ] DateFormat=%shortdate% → uses DATE_SHORTDATE flag (e.g., "1/20/2026")
+- [ ] DateFormat=%longdate% → uses DATE_LONGDATE flag (e.g., "Monday, January 20, 2026")
+- [ ] DateFormat=%yearmonth% → uses DATE_YEARMONTH flag (e.g., "January 2026")
+- [ ] DateFormat=%monthday% → uses DATE_MONTHDAY flag (e.g., "January 20")
+- [ ] TimeFormat=%longtime% → includes seconds (e.g., "10:30:45 PM")
+- [ ] TimeFormat=%shorttime% → excludes seconds (e.g., "10:30 PM")
+
+**Custom Format Mode:**
+- [ ] DateFormat=yyyy-MM-dd → ISO format (e.g., "2026-01-20")
+- [ ] DateFormat=dd.MM.yyyy → European format (e.g., "20.01.2026")
+- [ ] DateFormat=MMMM d, yyyy → US format (e.g., "January 20, 2026")
+- [ ] TimeFormat=HH:mm → 24-hour without seconds (e.g., "22:30")
+- [ ] TimeFormat=h:mm tt → 12-hour with AM/PM (e.g., "10:30 PM")
+- [ ] TimeFormat=HH:mm:ss → 24-hour with seconds (e.g., "22:30:45")
+
+**Literal Text:**
+- [ ] DateFormat='Day 'dd → "Day 20"
+- [ ] TimeFormat='at 'HH:mm → "at 22:30"
+- [ ] DateTimeTemplate='Today: '%longdate%' at '%shorttime% → "Today: Monday, January 20, 2026 at 10:30 PM"
+
+**Edge Cases:**
+- [ ] Empty DateFormat= → falls back to %shortdate%
+- [ ] Empty TimeFormat= → falls back to HH:mm
+- [ ] Invalid format string → falls back to ISO (yyyy-MM-dd or HH:mm)
+- [ ] Very long DateTimeTemplate (200+ chars) → doesn't crash
+
+**Locale Testing:**
+- [ ] Test on English (US) locale
+- [ ] Test on Czech locale (month/day names translated)
+- [ ] Test on other locale (German, French, etc.)
+
+**Template Integration:**
+- [ ] F5 key can use %cursor% placeholder
+- [ ] F5 key can use %selection% variable
+- [ ] F5 key can use %clipboard% variable
+- [ ] Template system: Insert Template menu items use new %date%/%time%
+
+### Bugs Fixed During Implementation
+
+1. ✅ **Old EditInsertTimeDate() hardcoded format** - Now uses template system
+2. ✅ **No locale awareness for custom formats** - Uses LOCALE_NAME_USER_DEFAULT
+3. ✅ **No fallback for invalid format strings** - Falls back to ISO format
+4. ✅ **Memory leaks in variable expansion** - All malloc results freed properly
+5. ✅ **No way to combine date+time in F5** - DateTimeTemplate supports any combination
+6. ✅ **%datetime% variable confusion** - Removed, users combine manually
+
 ## Common Tasks
 
 ### Adding a New Setting

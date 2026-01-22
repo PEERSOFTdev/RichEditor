@@ -14,6 +14,13 @@
 #include "resource.h"
 
 //============================================================================
+// Windows API Constants (Phase 2.10 - Define if missing from older SDKs)
+//============================================================================
+#ifndef DATE_MONTHDAY
+#define DATE_MONTHDAY 0x00000080
+#endif
+
+//============================================================================
 // Global Variables
 //============================================================================
 // Extended path length for UNC and long paths (Windows maximum is 32767)
@@ -330,6 +337,13 @@ BOOL g_bSelectAfterFind = TRUE;                  // Select found text (configura
 WCHAR g_szFindHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];
 int g_nFindHistoryCount = 0;
 
+//============================================================================
+// Date/Time Configuration (Phase 2.10, ToDo #3)
+//============================================================================
+WCHAR g_szDateTimeTemplate[256] = L"%shortdate% %shorttime%";  // F5/menu template
+WCHAR g_szDateFormat[128] = L"%shortdate%";                    // %date% format
+WCHAR g_szTimeFormat[128] = L"HH:mm";                          // %time% format
+
 // MRU list
 WCHAR g_MRU[MAX_MRU][EXTENDED_PATH_MAX];
 int g_nMRUCount = 0;
@@ -409,6 +423,12 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu);  // Helper: populate
 void ShowTemplatePickerMenu(HWND hwnd);
 void BuildTemplateMenu(HWND hwnd);
 void BuildFileNewMenu(HWND hwnd);
+
+// Date/Time formatting functions (Phase 2.10, ToDo #3)
+void FormatDateByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax);
+void FormatTimeByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax);
+void FormatDateByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, size_t cchMax);
+void FormatTimeByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, size_t cchMax);
 
 // Search functions (Phase 2.9)
 LPWSTR ParseEscapeSequences(LPCWSTR pszInput);
@@ -1075,6 +1095,120 @@ void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize)
 }
 
 //============================================================================
+// FormatDateByFlag - Format date using Windows API dwFlags (Phase 2.10, ToDo #3)
+// dwFlags: DATE_SHORTDATE, DATE_LONGDATE, DATE_YEARMONTH, DATE_MONTHDAY
+// Used by internal variables: %shortdate%, %longdate%, %yearmonth%, %monthday%
+//============================================================================
+void FormatDateByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax)
+{
+    int result = GetDateFormatEx(
+        LOCALE_NAME_USER_DEFAULT,
+        dwFlags,
+        pst,
+        NULL,  // Use default format for locale
+        pszOutput,
+        (int)cchMax,
+        NULL
+    );
+    
+    if (result == 0) {
+        // Fallback to ISO format on error
+        swprintf(pszOutput, cchMax, L"%04d-%02d-%02d", pst->wYear, pst->wMonth, pst->wDay);
+    }
+}
+
+//============================================================================
+// FormatTimeByFlag - Format time using Windows API dwFlags (Phase 2.10, ToDo #3)
+// dwFlags: 0 (with seconds), TIME_NOSECONDS
+// Used by internal variables: %longtime%, %shorttime%
+//============================================================================
+void FormatTimeByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax)
+{
+    int result = GetTimeFormatEx(
+        LOCALE_NAME_USER_DEFAULT,
+        dwFlags,
+        pst,
+        NULL,  // Use default format for locale
+        pszOutput,
+        (int)cchMax
+    );
+    
+    if (result == 0) {
+        // Fallback to ISO format on error
+        swprintf(pszOutput, cchMax, L"%02d:%02d:%02d", pst->wHour, pst->wMinute, pst->wSecond);
+    }
+}
+
+//============================================================================
+// FormatDateByString - Format date using custom format string (Phase 2.10, ToDo #3)
+// Format syntax: https://learn.microsoft.com/en-us/windows/win32/intl/day--month--year--and-era-format-pictures
+// Supports format specifiers (yyyy, MM, dd, etc.) and literal text (enclosed in 'quotes')
+// Examples: yyyy-MM-dd, dd.MM.yyyy, 'Day 'dd' of 'MMMM', 'yyyy
+//============================================================================
+void FormatDateByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, size_t cchMax)
+{
+    if (pszFormat == NULL || pszFormat[0] == L'\0') {
+        // Empty format - fall back to default %shortdate%
+        FormatDateByFlag(pst, DATE_SHORTDATE, pszOutput, cchMax);
+        return;
+    }
+    
+    int result = GetDateFormatEx(
+        LOCALE_NAME_USER_DEFAULT,
+        0,  // No flags when using custom format
+        pst,
+        pszFormat,
+        pszOutput,
+        (int)cchMax,
+        NULL
+    );
+    
+    if (result == 0) {
+        // Error with custom format - fallback to ISO
+        swprintf(pszOutput, cchMax, L"%04d-%02d-%02d", pst->wYear, pst->wMonth, pst->wDay);
+    }
+}
+
+//============================================================================
+// FormatTimeByString - Format time using custom format string (Phase 2.10, ToDo #3)
+// Format syntax: https://learn.microsoft.com/en-us/windows/win32/intl/time-format-pictures
+// Supports format specifiers (HH, mm, ss, tt, etc.) and literal text (enclosed in 'quotes')
+// Examples: HH:mm:ss, h:mm tt, 'at 'h:mm' 'tt
+//============================================================================
+void FormatTimeByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, size_t cchMax)
+{
+    if (pszFormat == NULL || pszFormat[0] == L'\0') {
+        // Empty format - fall back to default HH:mm
+        int result = GetTimeFormatEx(
+            LOCALE_NAME_USER_DEFAULT,
+            TIME_NOSECONDS,
+            pst,
+            L"HH:mm",  // Explicit fallback format
+            pszOutput,
+            (int)cchMax
+        );
+        if (result == 0) {
+            swprintf(pszOutput, cchMax, L"%02d:%02d", pst->wHour, pst->wMinute);
+        }
+        return;
+    }
+    
+    int result = GetTimeFormatEx(
+        LOCALE_NAME_USER_DEFAULT,
+        0,  // No flags when using custom format
+        pst,
+        pszFormat,
+        pszOutput,
+        (int)cchMax
+    );
+    
+    if (result == 0) {
+        // Error with custom format - fallback to HH:mm
+        swprintf(pszOutput, cchMax, L"%02d:%02d", pst->wHour, pst->wMinute);
+    }
+}
+
+//============================================================================
 // UpdateFileExtension - Update g_szCurrentFileExtension based on current filename
 // Also rebuilds template menu to show only relevant templates
 //============================================================================
@@ -1168,43 +1302,134 @@ LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset)
                         }
                         p = pVarEnd + 1;
                         continue;
-                    } else if (wcscmp(szVarName, L"date") == 0) {
-                        // %date% - Insert current date (YYYY-MM-DD)
+                    } else if (wcscmp(szVarName, L"shortdate") == 0) {
+                        // %shortdate% - System short date format (Phase 2.10, ToDo #3)
                         SYSTEMTIME st;
                         GetLocalTime(&st);
-                        WCHAR szDate[32];
-                        swprintf(szDate, 32, L"%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
+                        WCHAR szDate[128];
+                        FormatDateByFlag(&st, DATE_SHORTDATE, szDate, 128);
                         
                         for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
                             pszOutput[outIdx++] = *pd;
                         }
                         p = pVarEnd + 1;
                         continue;
-                    } else if (wcscmp(szVarName, L"time") == 0) {
-                        // %time% - Insert current time (HH:MM:SS)
+                        
+                    } else if (wcscmp(szVarName, L"longdate") == 0) {
+                        // %longdate% - System long date format (Phase 2.10, ToDo #3)
                         SYSTEMTIME st;
                         GetLocalTime(&st);
-                        WCHAR szTime[32];
-                        swprintf(szTime, 32, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+                        WCHAR szDate[128];
+                        FormatDateByFlag(&st, DATE_LONGDATE, szDate, 128);
+                        
+                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
+                            pszOutput[outIdx++] = *pd;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+
+                    } else if (wcscmp(szVarName, L"yearmonth") == 0) {
+                        // %yearmonth% - Year and month (Phase 2.10, ToDo #3)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szDate[128];
+                        FormatDateByFlag(&st, DATE_YEARMONTH, szDate, 128);
+                        
+                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
+                            pszOutput[outIdx++] = *pd;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+
+                    } else if (wcscmp(szVarName, L"monthday") == 0) {
+                        // %monthday% - Month and day (Phase 2.10, ToDo #3)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szDate[128];
+                        FormatDateByFlag(&st, DATE_MONTHDAY, szDate, 128);
+                        
+                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
+                            pszOutput[outIdx++] = *pd;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+
+                    } else if (wcscmp(szVarName, L"longtime") == 0) {
+                        // %longtime% - Time with seconds (Phase 2.10, ToDo #3)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szTime[128];
+                        FormatTimeByFlag(&st, 0, szTime, 128);  // 0 = include seconds
                         
                         for (const WCHAR* pt = szTime; *pt && outIdx < MAX_EXPANDED - 1; pt++) {
                             pszOutput[outIdx++] = *pt;
                         }
                         p = pVarEnd + 1;
                         continue;
-                    } else if (wcscmp(szVarName, L"datetime") == 0) {
-                        // %datetime% - Insert date and time (YYYY-MM-DD HH:MM:SS)
+
+                    } else if (wcscmp(szVarName, L"shorttime") == 0) {
+                        // %shorttime% - Time without seconds (Phase 2.10, ToDo #3)
                         SYSTEMTIME st;
                         GetLocalTime(&st);
-                        WCHAR szDateTime[64];
-                        swprintf(szDateTime, 64, L"%04d-%02d-%02d %02d:%02d:%02d", 
-                                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+                        WCHAR szTime[128];
+                        FormatTimeByFlag(&st, TIME_NOSECONDS, szTime, 128);
                         
-                        for (const WCHAR* pdt = szDateTime; *pdt && outIdx < MAX_EXPANDED - 1; pdt++) {
-                            pszOutput[outIdx++] = *pdt;
+                        for (const WCHAR* pt = szTime; *pt && outIdx < MAX_EXPANDED - 1; pt++) {
+                            pszOutput[outIdx++] = *pt;
                         }
                         p = pVarEnd + 1;
                         continue;
+                        
+                    } else if (wcscmp(szVarName, L"date") == 0) {
+                        // %date% - Configurable date format (Phase 2.10, ToDo #3)
+                        // Uses DateFormat INI setting (can be internal variable or custom format)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szDate[128];
+                        
+                        // Check if DateFormat is an internal variable (exclusive mode)
+                        if (wcscmp(g_szDateFormat, L"%shortdate%") == 0) {
+                            FormatDateByFlag(&st, DATE_SHORTDATE, szDate, 128);
+                        } else if (wcscmp(g_szDateFormat, L"%longdate%") == 0) {
+                            FormatDateByFlag(&st, DATE_LONGDATE, szDate, 128);
+                        } else if (wcscmp(g_szDateFormat, L"%yearmonth%") == 0) {
+                            FormatDateByFlag(&st, DATE_YEARMONTH, szDate, 128);
+                        } else if (wcscmp(g_szDateFormat, L"%monthday%") == 0) {
+                            FormatDateByFlag(&st, DATE_MONTHDAY, szDate, 128);
+                        } else {
+                            // Not an internal variable - treat as custom format string
+                            FormatDateByString(&st, g_szDateFormat, szDate, 128);
+                        }
+                        
+                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
+                            pszOutput[outIdx++] = *pd;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                        
+                    } else if (wcscmp(szVarName, L"time") == 0) {
+                        // %time% - Configurable time format (Phase 2.10, ToDo #3)
+                        // Uses TimeFormat INI setting (can be internal variable or custom format)
+                        SYSTEMTIME st;
+                        GetLocalTime(&st);
+                        WCHAR szTime[128];
+                        
+                        // Check if TimeFormat is an internal variable (exclusive mode)
+                        if (wcscmp(g_szTimeFormat, L"%longtime%") == 0) {
+                            FormatTimeByFlag(&st, 0, szTime, 128);  // With seconds
+                        } else if (wcscmp(g_szTimeFormat, L"%shorttime%") == 0) {
+                            FormatTimeByFlag(&st, TIME_NOSECONDS, szTime, 128);
+                        } else {
+                            // Not an internal variable - treat as custom format string
+                            FormatTimeByString(&st, g_szTimeFormat, szTime, 128);
+                        }
+                        
+                        for (const WCHAR* pt = szTime; *pt && outIdx < MAX_EXPANDED - 1; pt++) {
+                            pszOutput[outIdx++] = *pt;
+                        }
+                        p = pVarEnd + 1;
+                        continue;
+                        
                     } else if (wcscmp(szVarName, L"clipboard") == 0) {
                         // %clipboard% - Insert clipboard text
                         if (OpenClipboard(g_hWndMain)) {
@@ -5457,27 +5682,19 @@ void EditSelectAll()
 }
 
 //============================================================================
-// EditInsertTimeDate - Insert current date and time at cursor position
+// EditInsertTimeDate - Insert date/time at cursor (F5 key / menu)
+// Now uses configurable DateTimeTemplate setting (Phase 2.10, ToDo #3)
 //============================================================================
 void EditInsertTimeDate()
 {
-    // Get current local time
-    SYSTEMTIME st;
-    GetLocalTime(&st);
+    // Expand configured template (uses internal variables, e.g., "%shortdate% %shorttime%")
+    LONG nCursorOffset = -1;
+    LPWSTR pszExpanded = ExpandTemplateVariables(g_szDateTimeTemplate, &nCursorOffset);
     
-    // Format date and time using locale short format (like Notepad)
-    WCHAR szDateTime[256];
-    int dateLen = GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &st, NULL, szDateTime, 128);
-    
-    if (dateLen > 0) {
-        // Add space separator
-        szDateTime[dateLen - 1] = L' ';
-        
-        // Append time
-        GetTimeFormat(LOCALE_USER_DEFAULT, 0, &st, NULL, szDateTime + dateLen, 128);
-        
+    if (pszExpanded) {
         // Insert at current cursor position (replaces selection if any)
-        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)szDateTime);
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+        free(pszExpanded);
     }
 }
 
@@ -6095,6 +6312,34 @@ void CreateDefaultINI()
         "; Display settings\r\n"
         "TabSize=8                     ; Tab size in spaces for column calculation (default: 8)\r\n"
         "\r\n"
+        "; Date/Time formatting (Phase 2.10, ToDo #3)\r\n"
+        "; DateTimeTemplate: Format for F5 key and Edit→Insert Time/Date menu (default: %shortdate% %shorttime%)\r\n"
+        "; DateFormat: Format for %date% variable in templates (default: %shortdate%)\r\n"
+        "; TimeFormat: Format for %time% variable in templates (default: HH:mm)\r\n"
+        ";\r\n"
+        "; Internal variables (use dwFlags, locale-aware):\r\n"
+        ";   %shortdate%  - Short date (e.g., 1/20/2026)\r\n"
+        ";   %longdate%   - Long date (e.g., Monday, January 20, 2026)\r\n"
+        ";   %yearmonth%  - Year and month (e.g., January 2026)\r\n"
+        ";   %monthday%   - Month and day (e.g., January 20)\r\n"
+        ";   %shorttime%  - Short time without seconds (e.g., 10:30 PM)\r\n"
+        ";   %longtime%   - Long time with seconds (e.g., 10:30:45 PM)\r\n"
+        ";\r\n"
+        "; Custom format strings (see https://learn.microsoft.com/en-us/windows/win32/intl/day-month-year-and-era-format-pictures):\r\n"
+        ";   Date: d dd ddd dddd M MM MMM MMMM y yy yyyy g gg (e.g., yyyy-MM-dd, dd.MM.yyyy, MMMM d, yyyy)\r\n"
+        ";   Time: h hh H HH m mm s ss t tt (e.g., HH:mm, h:mm tt, HH:mm:ss)\r\n"
+        ";   Literals: Use single quotes (e.g., 'Day 'dd' of 'MMMM → Day 20 of January)\r\n"
+        ";\r\n"
+        "; Examples:\r\n"
+        ";   DateTimeTemplate=%longdate% 'at' %shorttime%  → Monday, January 20, 2026 at 10:30 PM\r\n"
+        ";   DateFormat=yyyy-MM-dd                          → 2026-01-20 (ISO format)\r\n"
+        ";   TimeFormat=HH:mm:ss                            → 22:30:45 (24-hour with seconds)\r\n"
+        ";\r\n"
+        "; See README.md for comprehensive documentation and more examples\r\n"
+        "DateTimeTemplate=%shortdate% %shorttime%\r\n"
+        "DateFormat=%shortdate%\r\n"
+        "TimeFormat=HH:mm\r\n"
+        "\r\n"
         "; Filter System\r\n"
         "; Filters transform text using external commands\r\n"
         "; Action types: insert, display, clipboard, none, repl\r\n"
@@ -6552,6 +6797,33 @@ void LoadSettings()
         g_bFindUseEscapes = FALSE;
     } else {
         g_bFindUseEscapes = ReadINIInt(szIniPath, L"Settings", L"FindUseEscapes", 0);
+    }
+    
+    // DateTimeTemplate (Phase 2.10, ToDo #3) - F5 key / Edit→Time/Date insertion format
+    ReadINIValue(szIniPath, L"Settings", L"DateTimeTemplate", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"DateTimeTemplate", L"%shortdate% %shorttime%");
+        wcscpy(g_szDateTimeTemplate, L"%shortdate% %shorttime%");
+    } else {
+        wcscpy(g_szDateTimeTemplate, szValue);
+    }
+    
+    // DateFormat (Phase 2.10, ToDo #3) - Custom format for %date% variable
+    ReadINIValue(szIniPath, L"Settings", L"DateFormat", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"DateFormat", L"%shortdate%");
+        wcscpy(g_szDateFormat, L"%shortdate%");
+    } else {
+        wcscpy(g_szDateFormat, szValue);
+    }
+    
+    // TimeFormat (Phase 2.10, ToDo #3) - Custom format for %time% variable
+    ReadINIValue(szIniPath, L"Settings", L"TimeFormat", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"TimeFormat", L"HH:mm");
+        wcscpy(g_szTimeFormat, L"HH:mm");
+    } else {
+        wcscpy(g_szTimeFormat, szValue);
     }
     
     // Load find history

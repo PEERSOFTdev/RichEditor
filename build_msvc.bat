@@ -84,12 +84,6 @@ echo Download from: https://visualstudio.microsoft.com/downloads/
 exit /b 1
 
 :vs_found
-REM Check that VS_PATH is not empty
-if "%VS_PATH%"=="" (
-    echo ERROR: Could not determine Visual Studio installation path.
-    exit /b 1
-)
-
 echo Found Visual Studio at: !VS_PATH!
 echo.
 

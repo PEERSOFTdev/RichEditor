@@ -1,11 +1,7 @@
-1. Elevate On Save: If the 'Access Denied' error is encountered while saving, offer to launch elevated to be able to save (possibly with intermediate save to %temp% and then elevating just to move that file, not for the whole editing session)
-3. Configurable Date/Time Format: Let the Insert Date/Time feature be configurable via INI file parameters specifying separate strings for date, time, and template for them (like "%date%, %time%").
-   - Documentation:
-     - To control the %DATE%: https://learn.microsoft.com/en-us/windows/win32/api/datetimeapi/nf-datetimeapi-getdateformatex
-       - Variables %LONGDATE%, %SHORTDATE%, %YEARMONTH% and %MONTHDAY% can be used in INI file template and will correspond to individual dwFlags.
-       - Format String Description: https://learn.microsoft.com/en-us/windows/win32/intl/day--month--year--and-era-format-pictures
-     - To control the %TIME%: https://learn.microsoft.com/en-us/windows/win32/api/datetimeapi/nf-datetimeapi-gettimeformatex
-3. Support Tab Completion For Active REPL Filter: Triggered by pressing TAB while on the Prompt Line after the detected prompt; sends TAB to the REPL Filter and captures its stdout, inserting it into the current line at the cursor position
-4. Markdown:
+1. Search & Replace, bookmarks
+* add edit field to the Find dialog box to show found text and context for more accessible reviewing of found text and ability to continue search with the open dialog
+2. Elevate On Save: If the 'Access Denied' error is encountered while saving, offer to launch elevated to be able to save (possibly with intermediate save to %temp% and then elevating just to move that file, not for the whole editing session)
+4. Support Tab Completion For Active REPL Filter: Triggered by pressing TAB while on the Prompt Line after the detected prompt; sends TAB to the REPL Filter and captures its stdout, inserting it into the current line at the cursor position
+5. Markdown:
    - Parser: https://github.com/mity/md4c
-   - Markdown to RTF converter: https://github.com/mity/md4c
+   - Markdown to RTF converter: https://github.com/iquercorb/md4c-rtf

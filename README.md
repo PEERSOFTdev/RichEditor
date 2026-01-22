@@ -80,6 +80,17 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Filter Help dialog (Tools → Filter Help) with comprehensive documentation
 - No need to edit source code for customization
 
+**Date/Time Formatting:**
+- Configurable date/time formats for F5 key and template variables
+- Two modes: Internal variables (locale-aware) or custom format strings
+- Internal variables: `%shortdate%`, `%longdate%`, `%yearmonth%`, `%monthday%`, `%shorttime%`, `%longtime%`
+- User-defined variables: `%date%` (uses DateFormat setting), `%time%` (uses TimeFormat setting)
+- F5 key uses template system (combine multiple variables, add literal text, etc.)
+- Locale-aware formatting respects user's Windows regional settings
+- Custom format strings for precise control (ISO dates, European formats, etc.)
+- Graceful fallbacks for invalid format strings
+- See [Date/Time Formatting](#datetime-formatting) section for full documentation
+
 **Filter System:**
 - External filter/utility execution (Ctrl+Enter)
 - Multiple configurable filters with category organization
@@ -992,6 +1003,326 @@ When word wrap is enabled:
 - Example: `Ln 12, Col 64 / 11,204`
   - Visual: Line 12 (wrapped), Column 64
   - Physical: Line 11 (actual file), Column 204
+
+## Date/Time Formatting
+
+RichEditor provides powerful and flexible date/time formatting for both the F5 key (Insert Time/Date) and template variables. You can choose between predefined locale-aware formats or create custom format strings.
+
+### Quick Start
+
+**Default Behavior (F5 key):**
+```
+Pressing F5 inserts: 1/20/2026 10:30 PM
+```
+
+**Customize in RichEditor.ini:**
+```ini
+[Settings]
+DateTimeTemplate=%longdate% 'at' %shorttime%
+```
+
+**Now F5 inserts:**
+```
+Monday, January 20, 2026 at 10:30 PM
+```
+
+### Internal Variables (Locale-Aware)
+
+These variables use Windows locale settings and automatically adapt to your region:
+
+| Variable | Description | Example (US English) | Example (Czech) |
+|----------|-------------|---------------------|-----------------|
+| `%shortdate%` | Short date format | 1/20/2026 | 20.1.2026 |
+| `%longdate%` | Long date format | Monday, January 20, 2026 | pondělí 20. ledna 2026 |
+| `%yearmonth%` | Year and month | January 2026 | leden 2026 |
+| `%monthday%` | Month and day | January 20 | 20. ledna |
+| `%shorttime%` | Time without seconds | 10:30 PM | 22:30 |
+| `%longtime%` | Time with seconds | 10:30:45 PM | 22:30:45 |
+
+**Key Features:**
+- Automatically translated to your Windows language
+- Respect regional date/time format preferences
+- No custom format string needed
+- Recommended for most users
+
+### User-Defined Variables
+
+Two special variables can be customized via INI settings:
+
+**`%date%` Variable:**
+- Controlled by `DateFormat=` setting
+- Can be either an internal variable OR a custom format string
+- Default: `%shortdate%`
+
+**`%time%` Variable:**
+- Controlled by `TimeFormat=` setting
+- Can be either an internal variable OR a custom format string
+- Default: `HH:mm` (24-hour without seconds)
+
+**Example 1: Use Internal Variable**
+```ini
+[Settings]
+DateFormat=%longdate%
+TimeFormat=%longtime%
+```
+
+**Example 2: Use Custom Format**
+```ini
+[Settings]
+DateFormat=yyyy-MM-dd          ; ISO 8601 date
+TimeFormat=HH:mm:ss            ; 24-hour with seconds
+```
+
+### Custom Format Strings
+
+For precise control, you can use Windows date/time format specifiers:
+
+#### Date Format Specifiers
+
+| Specifier | Description | Example |
+|-----------|-------------|---------|
+| `d` | Day of month (1-31) | 1, 20 |
+| `dd` | Day with leading zero (01-31) | 01, 20 |
+| `ddd` | Abbreviated day name | Mon, Tue, Wed |
+| `dddd` | Full day name | Monday, Tuesday |
+| `M` | Month (1-12) | 1, 12 |
+| `MM` | Month with leading zero (01-12) | 01, 12 |
+| `MMM` | Abbreviated month name | Jan, Feb, Dec |
+| `MMMM` | Full month name | January, February |
+| `y` | Year without century (0-99) | 0, 26 |
+| `yy` | Year without century, padded (00-99) | 00, 26 |
+| `yyyy` | Year with century | 2026 |
+| `g`, `gg` | Era string | AD, BC |
+
+#### Time Format Specifiers
+
+| Specifier | Description | Example |
+|-----------|-------------|---------|
+| `h` | Hour 12-hour (1-12) | 1, 10 |
+| `hh` | Hour 12-hour padded (01-12) | 01, 10 |
+| `H` | Hour 24-hour (0-23) | 0, 22 |
+| `HH` | Hour 24-hour padded (00-23) | 00, 22 |
+| `m` | Minute (0-59) | 0, 30 |
+| `mm` | Minute padded (00-59) | 00, 30 |
+| `s` | Second (0-59) | 0, 45 |
+| `ss` | Second padded (00-59) | 00, 45 |
+| `t` | Single-character AM/PM | A, P |
+| `tt` | Multi-character AM/PM | AM, PM |
+
+### Literal Text in Format Strings
+
+Use single quotes to include literal text in your formats:
+
+**Example:**
+```ini
+DateFormat='Day 'dd' of 'MMMM', 'yyyy
+```
+
+**Output:**
+```
+Day 20 of January, 2026
+```
+
+**Escaping Single Quotes:**
+```ini
+DateFormat='It''s 'dddd'!'
+```
+
+**Output:**
+```
+It's Monday!
+```
+
+### F5 Key Template (DateTimeTemplate)
+
+The `DateTimeTemplate` setting controls what F5 inserts. It uses the full template system, so you can:
+
+**Combine Multiple Variables:**
+```ini
+DateTimeTemplate=%longdate% %shorttime%
+```
+
+**Add Literal Text:**
+```ini
+DateTimeTemplate='Today is '%longdate%' at '%shorttime%
+```
+
+**Use Other Template Variables:**
+```ini
+DateTimeTemplate=%date% %time% - %selection%
+```
+
+**Advanced Example:**
+```ini
+DateTimeTemplate='## Meeting Notes - '%longdate%'\n\nAttendees: %cursor%\n\n'
+```
+
+**Note:** `DateTimeTemplate` can ONLY use template variables (like `%date%`, `%longdate%`, etc.), not raw format specifiers (like `yyyy-MM-dd`). To use custom formats, set them in `DateFormat=` or `TimeFormat=` first, then reference via `%date%` or `%time%`.
+
+### Practical Examples
+
+#### ISO 8601 Format
+```ini
+[Settings]
+DateFormat=yyyy-MM-dd
+TimeFormat=HH:mm:ss
+DateTimeTemplate=%date%T%time%Z
+```
+**F5 Output:** `2026-01-20T22:30:45Z`
+
+#### European Format
+```ini
+[Settings]
+DateFormat=dd.MM.yyyy
+TimeFormat=HH:mm
+DateTimeTemplate=%date% %time%
+```
+**F5 Output:** `20.01.2026 22:30`
+
+#### US Format with Full Month
+```ini
+[Settings]
+DateFormat=MMMM d, yyyy
+TimeFormat=h:mm tt
+DateTimeTemplate=%date% at %time%
+```
+**F5 Output:** `January 20, 2026 at 10:30 PM`
+
+#### Blog Post Header
+```ini
+[Settings]
+DateTimeTemplate='---\ntitle: %cursor%\ndate: '%date%'\nauthor: John Doe\n---\n\n'
+DateFormat=yyyy-MM-dd
+```
+**F5 Output:**
+```yaml
+---
+title: [cursor here]
+date: 2026-01-20
+author: John Doe
+---
+```
+
+#### Meeting Notes Template
+```ini
+[Settings]
+DateTimeTemplate='## '%longdate%'\n\n**Time:** '%shorttime%'\n**Attendees:** %cursor%\n\n### Agenda\n\n'
+```
+**F5 Output:**
+```markdown
+## Monday, January 20, 2026
+
+**Time:** 10:30 PM
+**Attendees:** [cursor here]
+
+### Agenda
+```
+
+#### Japanese Format
+```ini
+[Settings]
+DateFormat=yyyy'年'M'月'd'日'
+TimeFormat=H:mm
+DateTimeTemplate=%date% %time%
+```
+**F5 Output:** `2026年1月20日 22:30`
+
+### Template System Integration
+
+Date/time variables work seamlessly with all template features:
+
+**In Insert Template Menu:**
+```ini
+[Template1]
+Name=Daily Journal Entry
+Template='# '%longdate%'\n\n## %cursor%\n\n'
+Category=Productivity
+```
+
+**Combined with Selection:**
+```ini
+DateTimeTemplate='Modified on '%shortdate%': %selection%'
+```
+
+**Combined with Clipboard:**
+```ini
+DateTimeTemplate='Source: %clipboard%\nRetrieved: '%date%' at '%time%'\n\n'
+```
+
+### Troubleshooting
+
+**Q: My custom format shows up literally (e.g., "yyyy-MM-dd" instead of "2026-01-20")**
+
+A: You're using a custom format string in `DateTimeTemplate`. Instead:
+```ini
+; WRONG:
+DateTimeTemplate=yyyy-MM-dd HH:mm
+
+; CORRECT:
+DateFormat=yyyy-MM-dd
+TimeFormat=HH:mm
+DateTimeTemplate=%date% %time%
+```
+
+**Q: How do I get both date and time in one variable?**
+
+A: There's no `%datetime%` variable. Combine `%date%` and `%time%` manually:
+```ini
+DateTimeTemplate=%date% %time%
+```
+
+**Q: Invalid format causes errors**
+
+A: RichEditor automatically falls back to ISO format if your custom format is invalid:
+- Invalid `DateFormat` → Falls back to `yyyy-MM-dd`
+- Invalid `TimeFormat` → Falls back to `HH:mm`
+- Check your format specifiers against the tables above
+
+**Q: Month/day names not translated**
+
+A: Internal variables (`%longdate%`, etc.) are automatically translated. Custom format strings use your Windows locale but require correct specifiers:
+```ini
+DateFormat=dddd, MMMM d, yyyy    ; Correct: Will translate day/month names
+DateFormat=Monday, January 20    ; Wrong: Hardcoded English text
+```
+
+**Q: How do I test my format without restarting?**
+
+A: 
+1. Edit `RichEditor.ini` and save
+2. Tools → Insert Template → (any template with `%date%` or `%time%`)
+3. Or press F5 to test `DateTimeTemplate`
+4. Settings are loaded on startup; you may need to restart for changes to take effect
+
+### Configuration Reference
+
+**All Settings:**
+```ini
+[Settings]
+; F5 key / Edit→Insert Time/Date menu
+; Uses template system - can include %date%, %time%, internal variables, literals, etc.
+; Cannot use raw format specifiers (use DateFormat/TimeFormat for that)
+DateTimeTemplate=%shortdate% %shorttime%
+
+; Format for %date% variable in templates
+; Can be:
+;   - Internal variable: %shortdate%, %longdate%, %yearmonth%, %monthday%
+;   - Custom format: yyyy-MM-dd, dd.MM.yyyy, MMMM d yyyy, etc.
+DateFormat=%shortdate%
+
+; Format for %time% variable in templates
+; Can be:
+;   - Internal variable: %shorttime%, %longtime%
+;   - Custom format: HH:mm, h:mm tt, HH:mm:ss, etc.
+TimeFormat=HH:mm
+```
+
+### See Also
+
+- **Template System:** See [RichEditor.ini](RichEditor.ini) for `[Templates]` section
+- **Template Variables:** `%cursor%`, `%selection%`, `%clipboard%` work with date/time
+- **Microsoft Documentation:** [Day, Month, Year, and Era Format Pictures](https://learn.microsoft.com/en-us/windows/win32/intl/day-month-year-and-era-format-pictures)
+- **Microsoft Documentation:** [Hour, Minute, and Second Format Pictures](https://learn.microsoft.com/en-us/windows/win32/intl/hour-minute-and-second-format-pictures)
 
 ## Architecture
 
