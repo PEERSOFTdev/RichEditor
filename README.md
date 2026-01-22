@@ -1012,19 +1012,36 @@ RichEditor provides powerful and flexible date/time formatting for both the F5 k
 
 **Default Behavior (F5 key):**
 ```
-Pressing F5 inserts: 1/20/2026 10:30 PM
+Pressing F5 inserts: 1/20/2026 22:30
 ```
+This uses `%date%` and `%time%` variables with their default formats (`%shortdate%` and `HH:mm`).
 
-**Customize in RichEditor.ini:**
+**Change date/time format once, affects F5 automatically:**
 ```ini
 [Settings]
-DateTimeTemplate=%longdate% 'at' %shorttime%
+DateFormat=yyyy-MM-dd          ; ISO date
+TimeFormat=HH:mm:ss            ; 24-hour with seconds
+; DateTimeTemplate=%date% %time%  (default - uses formats above)
+```
+
+**Now F5 inserts:**
+```
+2026-01-20 22:30:45
+```
+
+**Override F5 behavior specifically:**
+```ini
+[Settings]
+DateFormat=yyyy-MM-dd          ; Used by %date% variable
+TimeFormat=HH:mm:ss            ; Used by %time% variable
+DateTimeTemplate=%longdate% 'at' %shorttime%  ; F5 uses different format
 ```
 
 **Now F5 inserts:**
 ```
 Monday, January 20, 2026 at 10:30 PM
 ```
+(While `%date%` in templates still expands to `2026-01-20`)
 
 ### Internal Variables (Locale-Aware)
 
@@ -1137,10 +1154,17 @@ It's Monday!
 
 The `DateTimeTemplate` setting controls what F5 inserts. It uses the full template system, so you can:
 
-**Combine Multiple Variables:**
+**Default Behavior (Uses Your Custom Formats):**
+```ini
+DateTimeTemplate=%date% %time%
+```
+The default uses `%date%` and `%time%` variables, which automatically respect your `DateFormat=` and `TimeFormat=` settings. Change those settings once, and F5 automatically uses your preferred formats.
+
+**Override with Internal Variables:**
 ```ini
 DateTimeTemplate=%longdate% %shorttime%
 ```
+Use internal variables like `%longdate%`, `%shortdate%`, `%shorttime%`, `%longtime%` to get specific formats regardless of your DateFormat/TimeFormat settings.
 
 **Add Literal Text:**
 ```ini

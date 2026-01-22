@@ -340,7 +340,7 @@ int g_nFindHistoryCount = 0;
 //============================================================================
 // Date/Time Configuration (Phase 2.10, ToDo #3)
 //============================================================================
-WCHAR g_szDateTimeTemplate[256] = L"%shortdate% %shorttime%";  // F5/menu template
+WCHAR g_szDateTimeTemplate[256] = L"%date% %time%";            // F5/menu template
 WCHAR g_szDateFormat[128] = L"%shortdate%";                    // %date% format
 WCHAR g_szTimeFormat[128] = L"HH:mm";                          // %time% format
 
@@ -6299,7 +6299,8 @@ void CreateDefaultINI()
         "TabSize=8                     ; Tab size in spaces for column calculation (default: 8)\r\n"
         "\r\n"
         "; Date/Time formatting (Phase 2.10, ToDo #3)\r\n"
-        "; DateTimeTemplate: Format for F5 key and Edit→Insert Time/Date menu (default: %shortdate% %shorttime%)\r\n"
+        "; DateTimeTemplate: Format for F5 key and Edit→Insert Time/Date menu (default: %date% %time%)\r\n"
+        ";                   Uses %date% and %time% variables, which respect DateFormat/TimeFormat settings below\r\n"
         "; DateFormat: Format for %date% variable in templates (default: %shortdate%)\r\n"
         "; TimeFormat: Format for %time% variable in templates (default: HH:mm)\r\n"
         ";\r\n"
@@ -6317,12 +6318,13 @@ void CreateDefaultINI()
         ";   Literals: Use single quotes (e.g., 'Day 'dd' of 'MMMM → Day 20 of January)\r\n"
         ";\r\n"
         "; Examples:\r\n"
-        ";   DateTimeTemplate=%longdate% 'at' %shorttime%  → Monday, January 20, 2026 at 10:30 PM\r\n"
-        ";   DateFormat=yyyy-MM-dd                          → 2026-01-20 (ISO format)\r\n"
-        ";   TimeFormat=HH:mm:ss                            → 22:30:45 (24-hour with seconds)\r\n"
+        ";   DateTimeTemplate=%date% 'at' %time%              → Uses your custom DateFormat and TimeFormat\r\n"
+        ";   DateTimeTemplate=%longdate% 'at' %shorttime%     → Monday, January 20, 2026 at 10:30 PM\r\n"
+        ";   DateFormat=yyyy-MM-dd                            → 2026-01-20 (ISO format)\r\n"
+        ";   TimeFormat=HH:mm:ss                              → 22:30:45 (24-hour with seconds)\r\n"
         ";\r\n"
         "; See README.md for comprehensive documentation and more examples\r\n"
-        "DateTimeTemplate=%shortdate% %shorttime%\r\n"
+        "DateTimeTemplate=%date% %time%\r\n"
         "DateFormat=%shortdate%\r\n"
         "TimeFormat=HH:mm\r\n"
         "\r\n"

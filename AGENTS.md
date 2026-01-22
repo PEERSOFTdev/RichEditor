@@ -1739,13 +1739,14 @@ void EditInsertTimeDate() {
 - F5 can now use ANY variables (date, time, selection, clipboard, cursor, etc.)
 - User can customize via `DateTimeTemplate=` in INI
 - Supports literal text: `DateTimeTemplate='Today is '%longdate%`
+- **Default uses configurable variables:** F5 respects DateFormat/TimeFormat by default
 - No code duplication
 
 ### Global Variables (Phase 2.10)
 
 ```cpp
 // Date/Time Formatting (Phase 2.10, ToDo #3)
-WCHAR g_szDateTimeTemplate[256] = L"%shortdate% %shorttime%";  // F5 key format
+WCHAR g_szDateTimeTemplate[256] = L"%date% %time%";            // F5 key format (uses configurable variables)
 WCHAR g_szDateFormat[128] = L"%shortdate%";                    // %date% variable
 WCHAR g_szTimeFormat[128] = L"HH:mm";                          // %time% variable
 ```
@@ -1771,7 +1772,7 @@ WCHAR g_szTimeFormat[128] = L"HH:mm";                          // %time% variabl
 ```ini
 [Settings]
 ; F5 key / Edit→Time/Date menu insertion format
-DateTimeTemplate=%shortdate% %shorttime%
+DateTimeTemplate=%date% %time%
 
 ; Custom format strings for %date% and %time% variables
 ; Can be either:
@@ -1780,6 +1781,11 @@ DateTimeTemplate=%shortdate% %shorttime%
 DateFormat=%shortdate%        ; Default: system short date
 TimeFormat=HH:mm              ; Default: 24-hour without seconds
 ```
+
+**Design Principle:**
+- **Single source of truth:** Change `DateFormat=` and `TimeFormat=`, F5 automatically uses them
+- **Intuitive behavior:** User customizes date/time format once, affects F5 and all templates
+- **Override when needed:** Power users can set `DateTimeTemplate=%longdate%` to override default
 
 **Format Behavior:**
 
