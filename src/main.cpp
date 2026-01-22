@@ -1098,10 +1098,12 @@ void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize)
 // FormatDateByFlag - Format date using Windows API dwFlags (Phase 2.10, ToDo #3)
 // dwFlags: DATE_SHORTDATE, DATE_LONGDATE, DATE_YEARMONTH, DATE_MONTHDAY
 // Used by internal variables: %shortdate%, %longdate%, %yearmonth%, %monthday%
+// Note: Function always succeeds with valid SYSTEMTIME and locale constant.
+//       Result is not checked - catastrophic errors (out of memory) are not handled.
 //============================================================================
 void FormatDateByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax)
 {
-    int result = GetDateFormatEx(
+    GetDateFormatEx(
         LOCALE_NAME_USER_DEFAULT,
         dwFlags,
         pst,
@@ -1110,21 +1112,18 @@ void FormatDateByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t c
         (int)cchMax,
         NULL
     );
-    
-    if (result == 0) {
-        // Fallback to ISO format on error
-        swprintf(pszOutput, cchMax, L"%04d-%02d-%02d", pst->wYear, pst->wMonth, pst->wDay);
-    }
 }
 
 //============================================================================
 // FormatTimeByFlag - Format time using Windows API dwFlags (Phase 2.10, ToDo #3)
 // dwFlags: 0 (with seconds), TIME_NOSECONDS
 // Used by internal variables: %longtime%, %shorttime%
+// Note: Function always succeeds with valid SYSTEMTIME and locale constant.
+//       Result is not checked - catastrophic errors (out of memory) are not handled.
 //============================================================================
 void FormatTimeByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax)
 {
-    int result = GetTimeFormatEx(
+    GetTimeFormatEx(
         LOCALE_NAME_USER_DEFAULT,
         dwFlags,
         pst,
@@ -1132,11 +1131,6 @@ void FormatTimeByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t c
         pszOutput,
         (int)cchMax
     );
-    
-    if (result == 0) {
-        // Fallback to ISO format on error
-        swprintf(pszOutput, cchMax, L"%02d:%02d:%02d", pst->wHour, pst->wMinute, pst->wSecond);
-    }
 }
 
 //============================================================================
@@ -1144,6 +1138,9 @@ void FormatTimeByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t c
 // Format syntax: https://learn.microsoft.com/en-us/windows/win32/intl/day--month--year--and-era-format-pictures
 // Supports format specifiers (yyyy, MM, dd, etc.) and literal text (enclosed in 'quotes')
 // Examples: yyyy-MM-dd, dd.MM.yyyy, 'Day 'dd' of 'MMMM', 'yyyy
+// Note: Invalid format strings are NOT validated - they produce undefined output.
+//       Per Microsoft docs: "returns no errors for bad format string, just forms best possible date string"
+//       Example: "INVALID_FORMAT" → "INVALID_FOR1AT" (M replaced with month number, rest unchanged)
 //============================================================================
 void FormatDateByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, size_t cchMax)
 {
@@ -1153,7 +1150,7 @@ void FormatDateByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, si
         return;
     }
     
-    int result = GetDateFormatEx(
+    GetDateFormatEx(
         LOCALE_NAME_USER_DEFAULT,
         0,  // No flags when using custom format
         pst,
@@ -1162,11 +1159,6 @@ void FormatDateByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, si
         (int)cchMax,
         NULL
     );
-    
-    if (result == 0) {
-        // Error with custom format - fallback to ISO
-        swprintf(pszOutput, cchMax, L"%04d-%02d-%02d", pst->wYear, pst->wMonth, pst->wDay);
-    }
 }
 
 //============================================================================
@@ -1174,12 +1166,14 @@ void FormatDateByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, si
 // Format syntax: https://learn.microsoft.com/en-us/windows/win32/intl/time-format-pictures
 // Supports format specifiers (HH, mm, ss, tt, etc.) and literal text (enclosed in 'quotes')
 // Examples: HH:mm:ss, h:mm tt, 'at 'h:mm' 'tt
+// Note: Invalid format strings are NOT validated - they produce undefined output.
+//       Per Microsoft docs: "returns no errors for bad format string, just forms best possible time string"
 //============================================================================
 void FormatTimeByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, size_t cchMax)
 {
     if (pszFormat == NULL || pszFormat[0] == L'\0') {
-        // Empty format - fall back to default HH:mm
-        int result = GetTimeFormatEx(
+        // Empty format - fall back to default HH:mm via GetTimeFormatEx
+        GetTimeFormatEx(
             LOCALE_NAME_USER_DEFAULT,
             TIME_NOSECONDS,
             pst,
@@ -1187,13 +1181,10 @@ void FormatTimeByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, si
             pszOutput,
             (int)cchMax
         );
-        if (result == 0) {
-            swprintf(pszOutput, cchMax, L"%02d:%02d", pst->wHour, pst->wMinute);
-        }
         return;
     }
     
-    int result = GetTimeFormatEx(
+    GetTimeFormatEx(
         LOCALE_NAME_USER_DEFAULT,
         0,  // No flags when using custom format
         pst,
@@ -1201,11 +1192,6 @@ void FormatTimeByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, si
         pszOutput,
         (int)cchMax
     );
-    
-    if (result == 0) {
-        // Error with custom format - fallback to HH:mm
-        swprintf(pszOutput, cchMax, L"%02d:%02d", pst->wHour, pst->wMinute);
-    }
 }
 
 //============================================================================

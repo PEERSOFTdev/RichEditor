@@ -1273,10 +1273,14 @@ DateTimeTemplate=%date% %time%
 
 **Q: Invalid format causes errors**
 
-A: RichEditor automatically falls back to ISO format if your custom format is invalid:
-- Invalid `DateFormat` → Falls back to `yyyy-MM-dd`
-- Invalid `TimeFormat` → Falls back to `HH:mm`
-- Check your format specifiers against the tables above
+A: Windows does NOT validate format strings. Invalid formats produce undefined output:
+- `INVALID_FORMAT` → Output: `INVALID_FOR1AT` (valid specifiers replaced, rest unchanged)
+- `DateFormat=XXXXX` → Output contains `XXXXX` with any valid specifiers (like `M` for month) replaced
+- **No automatic fallback to ISO format** - you see exactly what Windows produces
+- **Solution:** Use only valid format specifiers from the tables above
+- See [Microsoft Documentation](https://learn.microsoft.com/en-us/windows/win32/intl/day-month-year-and-era-format-pictures) for complete list
+
+**Important:** Per Microsoft's documentation, GetDateFormatEx and GetTimeFormatEx "return no errors for bad format strings, but just form the best possible date/time string." This means garbage in = garbage out.
 
 **Q: Month/day names not translated**
 

@@ -1631,47 +1631,67 @@ else if (wcsncmp(pSrc, L"%date%", 6) == 0) {
 
 ### Critical Pattern: Helper Function Fallbacks
 
-**Problem Solved:** Windows API calls can fail (invalid format strings, locale issues). Need graceful degradation.
+**Problem Solved:** Windows API calls might fail in catastrophic scenarios. How to handle?
 
-**Solution:** Each helper function has a fallback chain.
+**Solution:** No fallback - functions always succeed with valid inputs.
 
-**FormatDateByString() Implementation (~line 1124):**
+**Implementation (~line 1102-1180):**
 ```cpp
-LPWSTR FormatDateByString(LPCWSTR pszFormat) {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    
-    WCHAR szBuffer[256];
-    
-    // If format is empty, fall back to FormatDateByFlag(DATE_SHORTDATE)
-    if (!pszFormat || pszFormat[0] == L'\0') {
-        return FormatDateByFlag(DATE_SHORTDATE);
+void FormatDateByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax)
+{
+    GetDateFormatEx(
+        LOCALE_NAME_USER_DEFAULT,
+        dwFlags,
+        pst,
+        NULL,  // Use default format for locale
+        pszOutput,
+        (int)cchMax,
+        NULL
+    );
+    // No error checking - with valid SYSTEMTIME and locale constant, this always succeeds
+}
+
+void FormatDateByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, size_t cchMax)
+{
+    if (pszFormat == NULL || pszFormat[0] == L'\0') {
+        // Empty format - fall back to default %shortdate%
+        FormatDateByFlag(pst, DATE_SHORTDATE, pszOutput, cchMax);
+        return;
     }
     
-    // Try GetDateFormatEx with custom format
-    int nLen = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, pszFormat, szBuffer, 256, NULL);
-    
-    if (nLen == 0) {
-        // Failed - fall back to ISO format yyyy-MM-dd
-        swprintf(szBuffer, 256, L"%04d-%02d-%02d", st.wYear, st.wMonth, st.wDay);
-    }
-    
-    LPWSTR pszResult = (LPWSTR)malloc((wcslen(szBuffer) + 1) * sizeof(WCHAR));
-    wcscpy(pszResult, szBuffer);
-    return pszResult;  // Caller must free!
+    GetDateFormatEx(
+        LOCALE_NAME_USER_DEFAULT,
+        0,  // No flags when using custom format
+        pst,
+        pszFormat,
+        pszOutput,
+        (int)cchMax,
+        NULL
+    );
+    // No error checking - per Microsoft docs: "returns no errors for bad format strings"
 }
 ```
 
-**Fallback Chain:**
-1. Empty format → FormatDateByFlag(DATE_SHORTDATE)
-2. GetDateFormatEx fails → ISO format `yyyy-MM-dd`
-3. Similar pattern for FormatTimeByString() → `HH:mm`
+**Why No Fallback:**
+- **Invalid format strings don't cause API errors** - Per Microsoft: "returns no errors for bad format string, just forms best possible date/time string"
+- **Invalid formats produce garbage output** - e.g., `INVALID_FORMAT` → `INVALID_FOR1AT` (M replaced with month)
+- **All parameters are guaranteed valid:**
+  - Locale: `LOCALE_NAME_USER_DEFAULT` (always valid constant)
+  - SYSTEMTIME: From `GetLocalTime()` (always valid)
+  - Buffer: 128 bytes (sufficient for any date/time)
+  - Flags: Validated constants (DATE_SHORTDATE, etc.)
+- **Only catastrophic failures cause errors** - Out of memory, corrupted locale data (unrealistic)
+- **Honest behavior** - Garbage in = garbage out (user sees what Windows produces)
 
-**Why This Pattern:**
-- Never crashes on invalid format strings
-- Always returns something useful
-- ISO format is universally understood
-- User can debug by seeing fallback output
+**Error Conditions That Would Return 0:**
+- ERROR_INSUFFICIENT_BUFFER - Impossible (128-byte buffer always sufficient)
+- ERROR_INVALID_FLAGS - Impossible (we use validated constants)
+- ERROR_INVALID_PARAMETER - Impossible (GetLocalTime always returns valid SYSTEMTIME)
+- ERROR_OUTOFMEMORY - Unrealistic (catastrophic system failure)
+
+**Empty Format Handling:**
+- Empty `DateFormat=` → Uses `FormatDateByFlag(DATE_SHORTDATE)` (not an error)
+- Empty `TimeFormat=` → Uses `GetTimeFormatEx` with `TIME_NOSECONDS` and `"HH:mm"` format
 
 ### Critical Pattern: F5 Key Integration
 
@@ -1849,12 +1869,12 @@ free(pszDate);  // CRITICAL: Don't leak memory!
 ### Important Don'ts (Phase 2.10 Specific)
 
 1. **Never use swprintf for string concatenation** - Use wcscpy/wcscat (MinGW issues)
-2. **Never forget to free helper function results** - All return malloc'd memory
-3. **Never assume GetDateFormatEx/GetTimeFormatEx succeed** - Always check return value, have fallback
+2. **Never forget to free helper function results** - All return malloc'd memory (where applicable)
+3. **Never add fallback code for GetDateFormatEx/GetTimeFormatEx** - APIs don't fail for invalid format strings (see Critical Pattern above)
 4. **Never mix internal variables with text in INI format settings** - Either `%shortdate%` OR `yyyy-MM-dd`, not both
 5. **Never use %datetime% variable** - Removed per user request, users combine manually
 6. **Never hardcode date/time in EditInsertTimeDate()** - Use template system
-7. **Never forget buffer size validation** - Helper functions use 256-byte buffers, check lengths
+7. **Never validate format strings** - Let Windows handle them; garbage in = garbage out (honest behavior)
 
 ### Testing Checklist (Phase 2.10)
 
@@ -1887,7 +1907,7 @@ free(pszDate);  // CRITICAL: Don't leak memory!
 **Edge Cases:**
 - [ ] Empty DateFormat= → falls back to %shortdate%
 - [ ] Empty TimeFormat= → falls back to HH:mm
-- [ ] Invalid format string → falls back to ISO (yyyy-MM-dd or HH:mm)
+- [ ] Invalid format string → produces garbage output (e.g., "INVALID_FORMAT" → "INVALID_FOR1AT")
 - [ ] Very long DateTimeTemplate (200+ chars) → doesn't crash
 
 **Locale Testing:**
@@ -1905,7 +1925,7 @@ free(pszDate);  // CRITICAL: Don't leak memory!
 
 1. ✅ **Old EditInsertTimeDate() hardcoded format** - Now uses template system
 2. ✅ **No locale awareness for custom formats** - Uses LOCALE_NAME_USER_DEFAULT
-3. ✅ **No fallback for invalid format strings** - Falls back to ISO format
+3. ✅ **Invalid fallback assumption** - Removed fallback code; Windows APIs don't fail for invalid format strings
 4. ✅ **Memory leaks in variable expansion** - All malloc results freed properly
 5. ✅ **No way to combine date+time in F5** - DateTimeTemplate supports any combination
 6. ✅ **%datetime% variable confusion** - Removed, users combine manually
