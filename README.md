@@ -823,6 +823,7 @@ These shortcuts are provided by the Windows RichEdit control and work automatica
 | `End` | Move to end of line |
 | `Page Up` | Scroll up one page |
 | `Page Down` | Scroll down one page |
+| `Insert` | Toggle insert/overtype mode |
 
 **Unicode Conversion (Alt+X):**
 - Type hex code (e.g., `03B1`) then press `Alt+X` → converts to `α`
@@ -994,6 +995,23 @@ The status bar displays (from left to right):
    - Control characters: `Char: (Dec: 10, U+000A)`
    - End of file: `Char: EOF`
 3. **Filter:** Current active filter name (e.g., `[Filter: Calculator]` or `[Filter: None]`)
+
+### Insert/Overtype Mode
+
+RichEditor supports toggling between insert and overtype modes using the **Insert key**:
+
+- **Insert mode (default):** Typed characters are inserted at the cursor position, pushing existing text forward
+- **Overtype mode:** Typed characters replace existing characters at the cursor position
+
+**To toggle modes:** Press the **Insert** key
+
+**Note:** The status bar does not display the current mode. This is standard behavior in Windows text editors (Notepad, WordPad). The Insert key toggle is handled internally by the RichEdit control.
+
+**Tips:**
+- Overtype mode is useful for quick text replacement without selecting
+- To return to insert mode, press **Insert** again
+- At the end of a line or document, characters are always inserted (nothing to overtype)
+- Before a newline, characters are inserted even in overtype mode (preserves line breaks)
 
 ### Word Wrap Position Display
 

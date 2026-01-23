@@ -2099,6 +2099,16 @@ After making changes:
 - Full Unicode support including emoji and surrogate pairs
 - Alt+X conversion works for all Unicode planes
 
+**Insert/Overtype Mode:**
+- RichEdit control has built-in Insert key handling for insert/overtype mode toggle
+- This is automatic - no application code needed
+- Mode is maintained internally by RichEdit control
+- **No Windows API to query current mode state** - therefore no reliable way to display mode in status bar
+- Standard Windows editors (Notepad, WordPad) also don't show mode indicator
+- Decision: Document the feature, don't attempt to display unreliable state
+- Manual tracking via Insert key interception could desync from RichEdit's internal state
+- Showing incorrect mode is worse than showing no mode
+
 ## Git Workflow
 
 ### Files to Never Commit
