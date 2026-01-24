@@ -594,6 +594,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
         // Pass FALSE to not delete resume file (user might have multiple instances)
         LoadTextFile(szCommandLineFile, FALSE);
         
+        // Add to MRU (respects g_bNoMRU flag set by /nomru command-line option)
+        // LoadTextFile with bClearResumeState=FALSE doesn't add to MRU, so we do it here
+        AddToMRU(szCommandLineFile);
+        
         // DON'T clear resume from INI - defer recovery to next launch without args
         // User's unsaved work is preserved for later
     } else {
@@ -614,9 +618,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
                 // This ensures consistent UTF-8 decoding without bugs
                 // Pass FALSE to prevent deleting the resume file we're loading
                 if (LoadTextFile(szResumeFile, FALSE)) {
-                    // Restore g_bNoMRU
-                    g_bNoMRU = bPrevNoMRU;
-                    
                     // LoadTextFile() set g_szFileName to the resume file path
                     // Override with original file path (if available)
                     if (szOriginalPath[0] != L'\0') {
@@ -644,10 +645,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
                     
                     // Resume file temp path is NOT added to MRU (g_bNoMRU was TRUE)
                     // Resume file will be kept as backup until explicit save
-                } else {
-                    // LoadTextFile failed - restore g_bNoMRU
-                    g_bNoMRU = bPrevNoMRU;
                 }
+
+                // Restore g_bNoMRU in any case
+                g_bNoMRU = bPrevNoMRU;
             }
             
             // Clear INI entry (one-time recovery)
