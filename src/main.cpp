@@ -7851,7 +7851,8 @@ void DoAutosave()
     // 1. Autosave is enabled
     // 2. Document has been modified
     // 3. Document has a filename (not "Untitled")
-    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0') {
+    // 4. Not in read-only mode
+    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly) {
         return;
     }
     
