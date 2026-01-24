@@ -11,6 +11,8 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - File operations: New, Open, Save, Save As
 - Command-line argument support (open file on startup)
 - `/nomru` option to prevent MRU list pollution (perfect for file associations)
+- `/readonly` option to open files in read-only mode (prevents accidental modifications)
+- Read-only mode toggle (File → Read-Only) with comprehensive UI protection
 - Edit operations with context-aware menu labels:
   - Undo/Redo with dynamic labels showing operation type:
     - "Undo Typing", "Redo Paste", "Undo Delete", etc.
@@ -56,6 +58,7 @@ A lightweight, accessible Win32 text editor built with the RichEdit 4.1 control 
 - Timer-based autosave (configurable interval, default: 1 minute)
 - Autosave on focus loss (when switching to another application)
 - Only autosaves files with a filename (skips "Untitled")
+- Automatically disabled in read-only mode
 - Configurable via INI file (AutosaveEnabled, AutosaveIntervalMinutes, AutosaveOnFocusLoss)
 
 **File Format:**
@@ -756,6 +759,7 @@ RichEditor.exe [options] [filename]
 
 **Options:**
 - `/nomru` - Open file without adding it to the Most Recently Used (MRU) list
+- `/readonly` - Open file in read-only mode (prevents accidental modifications)
 
 **Examples:**
 ```bash
@@ -769,6 +773,14 @@ RichEditor.exe data.json /nomru
 RichEditor.exe /nomru data.json           # Order doesn't matter
 RichEditor.exe "C:\Logs\debug.log" /nomru
 
+# Open in read-only mode
+RichEditor.exe config.ini /readonly
+RichEditor.exe /readonly config.ini       # Order doesn't matter
+
+# Combine options
+RichEditor.exe /readonly /nomru server.log
+RichEditor.exe reference.txt /nomru /readonly
+
 # File associations (e.g., for JSON viewer)
 # Configure Windows file association:
 RichEditor.exe "%1" /nomru
@@ -780,7 +792,75 @@ RichEditor.exe "%1" /nomru
 - Supports UNC network paths
 - File is opened with UTF-8 encoding (no BOM)
 - `/nomru` prevents the file from appearing in File menu's recent files list
-- `/nomru` can appear before or after the filename
+- `/readonly` opens the file in read-only mode (can be toggled later via File menu)
+- Options can appear before or after the filename and can be combined
+
+### Read-Only Mode
+
+RichEditor supports read-only mode to prevent accidental file modifications while allowing safe viewing and non-destructive operations.
+
+**Activating Read-Only Mode:**
+- **Menu:** File → Read-Only (checkbox toggle)
+- **Command-line:** `RichEditor.exe /readonly filename.txt`
+- **Title bar indicator:** `[Read-Only]` appears before `[Resumed]` and `[Interactive Mode]`
+
+**Disabled in Read-Only Mode:**
+- File → Save (grayed out)
+- All editing operations:
+  - Edit → Undo, Redo, Cut, Paste (grayed out)
+  - Edit → Time/Date insertion (grayed out)
+  - Typing, Backspace, Delete (blocked by RichEdit control)
+- Tools → Execute Filter (only for insert/REPL filters)
+- Tools → Start Interactive Mode (grayed out)
+- Tools → Insert Template (grayed out)
+- Tools → Select Filter menu:
+  - Insert filters appear grayed out
+  - REPL filters appear grayed out
+- Context menu:
+  - Undo, Cut, Paste (grayed out)
+  - Insert filters (hidden)
+  - REPL filters (hidden)
+- Autosave (both timer-based and focus-loss autosave are disabled)
+
+**Still Available in Read-Only Mode:**
+- File operations: Open, Save As, New, Exit
+- File → Read-Only toggle (can turn read-only mode on/off)
+- Copy and Select All operations
+- Search → Find, Find Next, Find Previous
+- View → Word Wrap
+- Filters with non-destructive actions:
+  - Display filters (messagebox/statusbar)
+  - Clipboard filters (copy/append to clipboard)
+  - None filters (side effects only)
+- Navigation and cursor movement
+- Text selection
+- URL opening (Enter key on URLs)
+
+**Use Cases:**
+- Viewing configuration files without risk of accidental changes
+- Reading log files or reference documentation
+- Reviewing code without editing
+- Opening files in multiple instances (one read-only, one editable)
+- File associations for viewing (combine with `/nomru`)
+
+**Example Workflows:**
+```bash
+# View server configuration without editing risk
+RichEditor.exe /readonly C:\Server\config.ini
+
+# Open log file for viewing (no MRU, no editing)
+RichEditor.exe /readonly /nomru C:\Logs\application.log
+
+# Review code with statistics filter (display-only, non-destructive)
+RichEditor.exe /readonly source.cpp
+# Then use Tools → Select Filter → Word Count (works in read-only mode)
+```
+
+**Notes:**
+- Read-only mode can be toggled on/off at any time via File → Read-Only
+- Creating a new file (File → New) automatically disables read-only mode
+- Opening a different file preserves the current read-only state
+- Save As is allowed (creates a new copy, original remains unmodified)
 
 ### Keyboard Shortcuts
 
