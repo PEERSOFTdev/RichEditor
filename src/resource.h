@@ -11,12 +11,13 @@
 
 // File menu
 #define ID_FILE_NEW                     1001
-#define ID_FILE_NEW_BLANK               1006  // New blank document (default)
+#define ID_FILE_NEW_BLANK               1002  // New blank document (default)
 #define ID_FILE_NEW_TEMPLATE_BASE       8000  // Base for File→New template items (8000-8031)
-#define ID_FILE_OPEN                    1002
-#define ID_FILE_SAVE                    1003
-#define ID_FILE_SAVEAS                  1004
-#define ID_FILE_EXIT                    1005
+#define ID_FILE_OPEN                    1003
+#define ID_FILE_SAVE                    1004
+#define ID_FILE_SAVEAS                  1005
+#define ID_FILE_READONLY                1006  // Toggle read-only mode
+#define ID_FILE_EXIT                    1007
 
 // Edit menu
 #define ID_EDIT_UNDO                    1101
@@ -42,7 +43,7 @@
 #define ID_TOOLS_FILTER_HELP          1202
 #define ID_TOOLS_START_INTERACTIVE      1090  // Start Interactive Mode (Phase 2.5b)
 #define ID_TOOLS_EXIT_INTERACTIVE       1091  // Exit Interactive Mode (Phase 2.5b)
-#define ID_TOOLS_FILTER_BASE            1300  // Base for dynamic filter menu items (1300-1399)
+#define ID_TOOLS_FILTER_BASE            5000  // Base for dynamic filter menu items (5000-5099)
 #define ID_TOOLS_INSERT_TEMPLATE        1203  // Insert Template submenu
 #define ID_TOOLS_SHOW_TEMPLATE_DESCRIPTIONS 1204  // Toggle template descriptions in menu
 #define ID_TOOLS_TEMPLATE_BASE          7000  // Base for template menu items (7000-7099)
@@ -201,5 +202,8 @@
 #define IDS_FIND_PREV_BTN               2147
 #define IDS_FIND_NOTFOUND_PREFIX        2150
 #define IDS_FIND_NOTFOUND_TITLE         2151
+
+// Read-only mode
+#define IDS_READONLY                    2152  // "Read-Only" / "Pouze ke čtení"
 
 #endif // RESOURCE_H

@@ -14,6 +14,9 @@ BEGIN
     BEGIN
         MENUITEM "&New\tCtrl+N", ID_FILE_NEW
         MENUITEM "&Open...\tCtrl+O", ID_FILE_OPEN
+        MENUITEM SEPARATOR
+        MENUITEM "&Read-Only", ID_FILE_READONLY
+        MENUITEM SEPARATOR
         MENUITEM "&Save\tCtrl+S", ID_FILE_SAVE
         MENUITEM "Save &As...", ID_FILE_SAVEAS
         MENUITEM SEPARATOR
@@ -280,6 +283,9 @@ BEGIN
     IDS_FIND_PREV_BTN               "Find &Previous ←"
     IDS_FIND_NOTFOUND_PREFIX        "Cannot find """
     IDS_FIND_NOTFOUND_TITLE         "Find"
+    
+    // Read-only mode
+    IDS_READONLY                    "Read-Only"
 END
 
 // ============================================================================
@@ -294,6 +300,9 @@ BEGIN
     BEGIN
         MENUITEM "&Nový\tCtrl+N", ID_FILE_NEW
         MENUITEM "&Otevřít...\tCtrl+O", ID_FILE_OPEN
+        MENUITEM SEPARATOR
+        MENUITEM "&Pouze ke čtení", ID_FILE_READONLY
+        MENUITEM SEPARATOR
         MENUITEM "&Uložit\tCtrl+S", ID_FILE_SAVE
         MENUITEM "Uložit j&ako...", ID_FILE_SAVEAS
         MENUITEM SEPARATOR
@@ -511,4 +520,7 @@ BEGIN
     IDS_FIND_PREV_BTN               "&Předchozí ←"
     IDS_FIND_NOTFOUND_PREFIX        "Nelze najít """
     IDS_FIND_NOTFOUND_TITLE         "Najít"
+    
+    // Read-only mode (Phase 2.11)
+    IDS_READONLY                    "Pouze ke čtení"
 END

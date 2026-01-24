@@ -38,6 +38,7 @@ WCHAR g_szFileTitle[MAX_PATH];    // Current file name only
 BOOL g_bModified = FALSE;         // Document modified flag
 BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
 BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
+BOOL g_bReadOnly = FALSE;         // Read-only mode (can be set via /readonly or File menu)
 
 // RichEdit library management (Phase 2.8)
 HMODULE g_hRichEditLib = NULL;                      // RichEdit DLL handle
@@ -97,7 +98,7 @@ BOOL g_bLastOperationWasFilter = FALSE;  // TRUE if last operation was a filter
 
 #define MAX_MRU 10                 // Maximum number of MRU items
 // ID_FILE_MRU_BASE is now defined in resource.h (6000-6009)
-#define ID_CONTEXT_FILTER_BASE 6000  // Base ID for context menu filter items (6000-6099)
+#define ID_CONTEXT_FILTER_BASE 9000  // Base ID for context menu filter items (9000-9099)
 
 //============================================================================
 // Template System
@@ -507,6 +508,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     for (int i = 1; i < argc; i++) {
         if (_wcsicmp(argv[i], L"/nomru") == 0) {
             g_bNoMRU = TRUE;
+        } else if (_wcsicmp(argv[i], L"/readonly") == 0) {
+            g_bReadOnly = TRUE;
         } else if (argv[i][0] != L'\0' && szCommandLineFile[0] == L'\0') {
             // First non-option argument is the filename
             wcscpy_s(szCommandLineFile, EXTENDED_PATH_MAX, argv[i]);
@@ -1464,6 +1467,9 @@ void InsertTemplate(int nTemplateIndex)
 {
     if (nTemplateIndex < 0 || nTemplateIndex >= g_nTemplateCount) return;
     
+    // Block template insertion in read-only mode
+    if (g_bReadOnly) return;
+    
     TemplateInfo* pTemplate = &g_Templates[nTemplateIndex];
     
     // Check if template is available for current file type
@@ -1624,6 +1630,9 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu)
 //============================================================================
 void ShowTemplatePickerMenu(HWND hwnd)
 {
+    // Block in read-only mode
+    if (g_bReadOnly) return;
+    
     if (g_nTemplateCount == 0) {
         // No templates configured
         WCHAR szNoTemplates[64];
@@ -2344,6 +2353,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case ID_FILE_OPEN:
                     FileOpen();
                     break;
+                case ID_FILE_READONLY:
+                    g_bReadOnly = !g_bReadOnly;
+                    SendMessage(g_hWndEdit, EM_SETREADONLY, g_bReadOnly, 0);
+                    BuildFilterMenu(hwnd);  // Rebuild filter menu to update grayed state
+                    UpdateMenuStates(hwnd);  // Update Execute Filter / Start Interactive
+                    UpdateTitle();
+                    return 0;
                 case ID_FILE_SAVE:
                     FileSave();
                     break;
@@ -2546,6 +2562,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         else if (wmId >= ID_CONTEXT_FILTER_BASE && wmId < ID_CONTEXT_FILTER_BASE + 100) {
                             int filterIdx = wmId - ID_CONTEXT_FILTER_BASE;
                             if (filterIdx >= 0 && filterIdx < g_nFilterCount) {
+                                // Block insert and REPL filters in read-only mode
+                                if (g_bReadOnly && (g_Filters[filterIdx].action == FILTER_ACTION_INSERT || 
+                                                     g_Filters[filterIdx].action == FILTER_ACTION_REPL)) {
+                                    return 0;  // Silently fail (should not happen - menu item hidden)
+                                }
                                 g_nCurrentFilter = filterIdx;
                                 ExecuteFilter();
                             }
@@ -2625,9 +2646,44 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
             
         case WM_INITMENUPOPUP:
+            // Update File menu when opened
+            if (LOWORD(lParam) == 0) {  // File menu is at position 0
+                HMENU hMenu = (HMENU)wParam;
+                CheckMenuItem(hMenu, ID_FILE_READONLY, 
+                             g_bReadOnly ? MF_CHECKED : MF_UNCHECKED);
+                EnableMenuItem(hMenu, ID_FILE_SAVE, 
+                              g_bReadOnly ? MF_GRAYED : MF_ENABLED);
+            }
             // Update Undo/Redo menu items when Edit menu is opened
             if (LOWORD(lParam) == 1) {  // Edit menu is at position 1
-                UpdateMenuUndoRedo((HMENU)wParam);
+                HMENU hMenu = (HMENU)wParam;
+                UpdateMenuUndoRedo(hMenu);
+                if (g_bReadOnly) {
+                    // Disable editing operations in read-only mode
+                    EnableMenuItem(hMenu, ID_EDIT_UNDO, MF_GRAYED);
+                    EnableMenuItem(hMenu, ID_EDIT_REDO, MF_GRAYED);
+                    EnableMenuItem(hMenu, ID_EDIT_CUT, MF_GRAYED);
+                    EnableMenuItem(hMenu, ID_EDIT_PASTE, MF_GRAYED);
+                    EnableMenuItem(hMenu, ID_EDIT_TIMEDATE, MF_GRAYED);
+                } else {
+                    // Re-enable editing operations when not in read-only mode
+                    // (UpdateMenuUndoRedo already handles Undo/Redo based on availability)
+                    BOOL canPaste = SendMessage(g_hWndEdit, EM_CANPASTE, 0, 0);
+                    CHARRANGE cr;
+                    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                    BOOL hasSelection = (cr.cpMin != cr.cpMax);
+                    
+                    EnableMenuItem(hMenu, ID_EDIT_CUT, hasSelection ? MF_ENABLED : MF_GRAYED);
+                    EnableMenuItem(hMenu, ID_EDIT_PASTE, canPaste ? MF_ENABLED : MF_GRAYED);
+                    EnableMenuItem(hMenu, ID_EDIT_TIMEDATE, MF_ENABLED);
+                }
+            }
+            // Update Tools menu when opened
+            if (LOWORD(lParam) == 4) {  // Tools menu is at position 4
+                HMENU hMenu = (HMENU)wParam;
+                // Disable Insert Template in read-only mode
+                EnableMenuItem(hMenu, ID_TOOLS_INSERT_TEMPLATE, 
+                              g_bReadOnly ? MF_GRAYED : MF_ENABLED);
             }
             return 0;
             
@@ -2688,6 +2744,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     
                     for (int i = 0; i < g_nFilterCount; i++) {
                         if (g_Filters[i].bContextMenu) {
+                            // Skip insert and REPL filters in read-only mode
+                            if (g_bReadOnly && (g_Filters[i].action == FILTER_ACTION_INSERT || 
+                                                 g_Filters[i].action == FILTER_ACTION_REPL)) {
+                                continue;
+                            }
                             contextFilters[contextFilterCount].filterIdx = i;
                             contextFilters[contextFilterCount].order = g_Filters[i].nContextMenuOrder;
                             contextFilterCount++;
@@ -2747,14 +2808,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     LoadStringResource(IDS_CONTEXT_PASTE, szPaste, 32);
                     LoadStringResource(IDS_CONTEXT_SELECT_ALL, szSelectAll, 32);
                     
-                    AppendMenu(hMenu, canUndo ? MF_STRING : MF_STRING | MF_GRAYED, 
+                    AppendMenu(hMenu, (canUndo && !g_bReadOnly) ? MF_STRING : MF_STRING | MF_GRAYED, 
                                ID_EDIT_UNDO, szUndo);
                     AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
-                    AppendMenu(hMenu, hasSelection ? MF_STRING : MF_STRING | MF_GRAYED, 
+                    AppendMenu(hMenu, (hasSelection && !g_bReadOnly) ? MF_STRING : MF_STRING | MF_GRAYED, 
                                ID_EDIT_CUT, szCut);
                     AppendMenu(hMenu, hasSelection ? MF_STRING : MF_STRING | MF_GRAYED, 
                                ID_EDIT_COPY, szCopy);
-                    AppendMenu(hMenu, canPaste ? MF_STRING : MF_STRING | MF_GRAYED, 
+                    AppendMenu(hMenu, (canPaste && !g_bReadOnly) ? MF_STRING : MF_STRING | MF_GRAYED, 
                                ID_EDIT_PASTE, szPaste);
                     AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
                     AppendMenu(hMenu, MF_STRING, ID_EDIT_SELECTALL, szSelectAll);
@@ -3665,6 +3726,11 @@ HWND CreateRichEditControl(HWND hwndParent)
         // Set large text limit (2GB)
         SendMessage(hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
         
+        // Set read-only mode if specified
+        if (g_bReadOnly) {
+            SendMessage(hwndEdit, EM_SETREADONLY, TRUE, 0);
+        }
+        
         // Subclass the RichEdit control to intercept WM_KEYDOWN
         g_pfnOriginalEditProc = (WNDPROC)SetWindowLongPtr(hwndEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
         
@@ -4010,6 +4076,7 @@ void UpdateTitle(HWND hwnd)
 {
     WCHAR szTitle[MAX_PATH + 100];  // Increased size for [Interactive Mode] and [Resumed]
     WCHAR szUntitled[64];
+    WCHAR szReadOnly[32];
     WCHAR szResumed[32];
     
     // Use provided hwnd or fall back to g_hWndMain
@@ -4025,6 +4092,14 @@ void UpdateTitle(HWND hwnd)
     } else {
         _snwprintf(szTitle, MAX_PATH + 100, L"%s%s",
                    g_bModified ? L"*" : L"", szUntitled);
+    }
+    
+    // Append [Read-Only] indicator if in read-only mode
+    if (g_bReadOnly) {
+        LoadStringResource(IDS_READONLY, szReadOnly, 32);
+        wcscat(szTitle, L" [");
+        wcscat(szTitle, szReadOnly);
+        wcscat(szTitle, L"]");
     }
     
     // Append [Resumed] indicator if this is a resumed file
@@ -4251,6 +4326,11 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     SetWindowText(g_hWndEdit, pszUTF16);
     g_bSettingText = FALSE;
     free(pszUTF16);
+    
+    // Apply read-only mode if set
+    if (g_bReadOnly) {
+        SendMessage(g_hWndEdit, EM_SETREADONLY, TRUE, 0);
+    }
     
     // Update state
     wcscpy_s(g_szFileName, MAX_PATH, pszFileName);
@@ -5052,6 +5132,10 @@ void FileNew()
     g_szFileTitle[0] = L'\0';
     g_bModified = FALSE;
     wcscpy(g_szCurrentFileExtension, L"txt");  // Reset to txt for new file
+    
+    // Clear read-only mode on new file
+    g_bReadOnly = FALSE;
+    SendMessage(g_hWndEdit, EM_SETREADONLY, FALSE, 0);
     
     // Rebuild template and File→New menus to reflect new file type
     if (g_hWndMain) {
@@ -6123,6 +6207,11 @@ void ExecuteFilter()
         LoadStringResource(IDS_NO_FILTER_SELECTED, szTitle, 64);
         MessageBox(g_hWndMain, szMessage, szTitle, MB_ICONEXCLAMATION);
         return;
+    }
+    
+    // Block insert filters in read-only mode
+    if (g_bReadOnly && g_Filters[g_nCurrentFilter].action == FILTER_ACTION_INSERT) {
+        return;  // Silently fail (menu item should be disabled anyway)
     }
     
     // Get selected text range
@@ -7242,8 +7331,9 @@ void UpdateMenuStates(HWND hwnd)
         // In REPL mode
         enableExitREPL = TRUE;
         
-        // Allow executing classic filters while in REPL
-        if (g_nCurrentFilter >= 0 && 
+        // Allow executing classic filters while in REPL (but not in read-only mode)
+        if (!g_bReadOnly &&
+            g_nCurrentFilter >= 0 && 
             g_nCurrentFilter < g_nFilterCount &&
             g_Filters[g_nCurrentFilter].action != FILTER_ACTION_REPL) {
             enableExecute = TRUE;
@@ -7254,15 +7344,24 @@ void UpdateMenuStates(HWND hwnd)
     } else {
         // Not in REPL mode
         
-        // Enable Execute if a classic filter is selected
+        // Enable Execute if a classic filter is selected and not in read-only mode
+        // (display/clipboard/none filters work in read-only, insert filters don't)
         if (g_nCurrentFilter >= 0 && 
             g_nCurrentFilter < g_nFilterCount &&
             g_Filters[g_nCurrentFilter].action != FILTER_ACTION_REPL) {
-            enableExecute = TRUE;
+            if (g_bReadOnly) {
+                // Only enable non-insert filters in read-only mode
+                if (g_Filters[g_nCurrentFilter].action != FILTER_ACTION_INSERT) {
+                    enableExecute = TRUE;
+                }
+            } else {
+                enableExecute = TRUE;
+            }
         }
         
-        // Enable Start Interactive if a REPL filter is selected
-        if (g_nSelectedREPLFilter >= 0 && 
+        // Enable Start Interactive if a REPL filter is selected and not in read-only mode
+        if (!g_bReadOnly &&
+            g_nSelectedREPLFilter >= 0 && 
             g_nSelectedREPLFilter < g_nFilterCount &&
             g_Filters[g_nSelectedREPLFilter].action == FILTER_ACTION_REPL) {
             enableStartREPL = TRUE;
@@ -7637,6 +7736,12 @@ void BuildFilterMenu(HWND hwnd)
                     flags |= MF_CHECKED;
                 }
                 
+                // Gray out insert filters and REPL filters in read-only mode
+                if (g_bReadOnly && (g_Filters[filterIndex].action == FILTER_ACTION_INSERT || 
+                                     g_Filters[filterIndex].action == FILTER_ACTION_REPL)) {
+                    flags |= MF_GRAYED;
+                }
+                
                 // Build accessible menu text: "Name: Description" (using localized strings)
                 // Add "[Interactive] " prefix for REPL filters
                 WCHAR szMenuText[MAX_FILTER_NAME + MAX_FILTER_DESC + 32];
@@ -7682,6 +7787,12 @@ void BuildFilterMenu(HWND hwnd)
             // Check both classic filter and REPL filter selection
             if (filterIndex == g_nCurrentFilter || filterIndex == g_nSelectedREPLFilter) {
                 flags |= MF_CHECKED;
+            }
+            
+            // Gray out insert filters and REPL filters in read-only mode
+            if (g_bReadOnly && (g_Filters[filterIndex].action == FILTER_ACTION_INSERT || 
+                                 g_Filters[filterIndex].action == FILTER_ACTION_REPL)) {
+                flags |= MF_GRAYED;
             }
             
             // Build accessible menu text: "Name: Description" (using localized strings)
