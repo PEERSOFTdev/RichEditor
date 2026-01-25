@@ -1577,32 +1577,62 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu)
         return FALSE;
     }
     
-    // Create submenu for each category
+    // Create submenu for each category (Tools menu) OR flatten with headers (popup menu)
     for (int c = 0; c < categoryCount; c++) {
-        HMENU hCategoryMenu = CreatePopupMenu();
-        
-        // Add templates in this category
-        for (int t = 0; t < categories[c].count; t++) {
-            int templateIndex = categories[c].templateIndices[t];
+        if (bForToolsMenu) {
+            // Tools→Insert Template: Create cascading submenu (traditional menu bar behavior)
+            HMENU hCategoryMenu = CreatePopupMenu();
             
-            // Build menu text with description if enabled
-            WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
-            wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
-            
-            if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
-                wcscat(szMenuText, L": ");
-                wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
+            // Add templates in this category
+            for (int t = 0; t < categories[c].count; t++) {
+                int templateIndex = categories[c].templateIndices[t];
+                
+                // Build menu text with description if enabled
+                WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
+                wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
+                
+                if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
+                    wcscat(szMenuText, L": ");
+                    wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
+                }
+                
+                AppendMenu(hCategoryMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
             }
             
-            AppendMenu(hCategoryMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
+            // Add category submenu
+            AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
+        } else {
+            // Ctrl+Shift+T popup: Flatten menu with category headers for quick access
+            
+            // Add category name as disabled header (visual grouping)
+            AppendMenu(hMenu, MF_STRING | MF_GRAYED, 0, categories[c].szName);
+            
+            // Add templates in this category directly to root menu
+            for (int t = 0; t < categories[c].count; t++) {
+                int templateIndex = categories[c].templateIndices[t];
+                
+                // Build menu text with description if enabled
+                WCHAR szMenuText[MAX_TEMPLATE_NAME + MAX_TEMPLATE_DESC + 4];
+                wcscpy(szMenuText, g_Templates[templateIndex].szLocalizedName);
+                
+                if (g_bShowMenuDescriptions && g_Templates[templateIndex].szLocalizedDescription[0] != L'\0') {
+                    wcscat(szMenuText, L": ");
+                    wcscat(szMenuText, g_Templates[templateIndex].szLocalizedDescription);
+                }
+                
+                AppendMenu(hMenu, MF_STRING, ID_TOOLS_TEMPLATE_BASE + templateIndex, szMenuText);
+            }
+            
+            // Add separator after category (except after last one if no uncategorized templates)
+            if (c < categoryCount - 1 || uncategorizedCount > 0) {
+                AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+            }
         }
-        
-        // Add category submenu
-        AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
     }
     
-    // Add separator if we have both categorized and uncategorized templates
-    if (categoryCount > 0 && uncategorizedCount > 0) {
+    // For Tools menu only: Add separator if we have both categorized and uncategorized templates
+    // (Popup menu already handled separators in the loop above)
+    if (bForToolsMenu && categoryCount > 0 && uncategorizedCount > 0) {
         AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
     }
     
