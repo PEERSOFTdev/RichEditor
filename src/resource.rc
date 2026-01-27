@@ -38,6 +38,7 @@ BEGIN
     POPUP "&Search"
     BEGIN
         MENUITEM "&Find...\tCtrl+F", ID_SEARCH_FIND
+        MENUITEM "&Replace...\tCtrl+H", ID_SEARCH_REPLACE
         MENUITEM "Find &Next\tF3", ID_SEARCH_FIND_NEXT
         MENUITEM "Find &Previous\tShift+F3", ID_SEARCH_FIND_PREVIOUS
     END
@@ -64,25 +65,6 @@ BEGIN
     END
 END
 
-// Accelerators
-IDR_ACCELERATOR ACCELERATORS
-BEGIN
-    "N", ID_FILE_NEW, VIRTKEY, CONTROL
-    "O", ID_FILE_OPEN, VIRTKEY, CONTROL
-    "S", ID_FILE_SAVE, VIRTKEY, CONTROL
-    "Z", ID_EDIT_UNDO, VIRTKEY, CONTROL
-    "Y", ID_EDIT_REDO, VIRTKEY, CONTROL
-    "X", ID_EDIT_CUT, VIRTKEY, CONTROL
-    "C", ID_EDIT_COPY, VIRTKEY, CONTROL
-    "V", ID_EDIT_PASTE, VIRTKEY, CONTROL
-    "A", ID_EDIT_SELECTALL, VIRTKEY, CONTROL
-    "W", ID_VIEW_WORDWRAP, VIRTKEY, CONTROL
-    VK_F5, ID_EDIT_TIMEDATE, VIRTKEY
-    VK_RETURN, ID_TOOLS_EXECUTEFILTER, VIRTKEY, CONTROL
-    "I", ID_TOOLS_START_INTERACTIVE, VIRTKEY, CONTROL, SHIFT
-    "Q", ID_TOOLS_EXIT_INTERACTIVE, VIRTKEY, CONTROL, SHIFT
-END
-
 // About Dialog
 IDD_ABOUT DIALOGEX 0, 0, 240, 140
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
@@ -103,19 +85,23 @@ BEGIN
 END
 
 // Find dialog (Phase 2.9)
-IDD_FIND DIALOGEX 0, 0, 260, 90
+IDD_FIND DIALOGEX 0, 0, 260, 120
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Find"
 FONT 8, "MS Shell Dlg", 400, 0
 BEGIN
     LTEXT           "Find &what:", IDC_STATIC, 7, 10, 50, 8
     COMBOBOX        IDC_FIND_WHAT, 60, 8, 130, 100, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Replace &with:", IDC_REPLACE_WITH_LABEL, 7, 28, 50, 8
+    COMBOBOX        IDC_REPLACE_WITH, 60, 26, 130, 100, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
     DEFPUSHBUTTON   "Find &Next →", IDC_FIND_NEXT_BTN, 197, 7, 56, 14
     PUSHBUTTON      "Find &Previous ←", IDC_FIND_PREV_BTN, 197, 24, 56, 14
-    PUSHBUTTON      "Close", IDC_CLOSE_BTN, 197, 69, 56, 14
-    AUTOCHECKBOX    "Match &case", IDC_MATCH_CASE, 7, 30, 80, 10
-    AUTOCHECKBOX    "&Whole word", IDC_WHOLE_WORD, 7, 45, 80, 10
-    AUTOCHECKBOX    "Use &escape sequences (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 60, 180, 10
+    PUSHBUTTON      "&Replace", IDC_REPLACE_BTN, 197, 42, 56, 14
+    PUSHBUTTON      "Replace &All", IDC_REPLACE_ALL_BTN, 197, 59, 56, 14
+    PUSHBUTTON      "Close", IDC_CLOSE_BTN, 197, 99, 56, 14
+    AUTOCHECKBOX    "Match &case", IDC_MATCH_CASE, 7, 48, 80, 10
+    AUTOCHECKBOX    "&Whole word", IDC_WHOLE_WORD, 7, 63, 80, 10
+    AUTOCHECKBOX    "Use &escape sequences (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 78, 180, 10
 END
 
 // Version Information
@@ -286,6 +272,14 @@ BEGIN
     
     // Read-only mode
     IDS_READONLY                    "Read-Only"
+    
+    // Replace feature strings (Phase 2.9.2)
+    IDS_FIND_REPLACE_TITLE          "Find and Replace"
+    IDS_REPLACE_WITH                "Replace &with:"
+    IDS_REPLACE_BTN                 "&Replace"
+    IDS_REPLACE_ALL_BTN             "Replace &All"
+    IDS_REPLACE_COMPLETE_TITLE      "Replace Complete"
+    IDS_REPLACE_COMPLETE_MSG        "Replaced %d occurrence(s)"
 END
 
 // ============================================================================
@@ -324,6 +318,7 @@ BEGIN
     POPUP "&Hledat"
     BEGIN
         MENUITEM "&Najít...\tCtrl+F", ID_SEARCH_FIND
+        MENUITEM "N&ahradit...\tCtrl+H", ID_SEARCH_REPLACE
         MENUITEM "Najít &další\tF3", ID_SEARCH_FIND_NEXT
         MENUITEM "Najít &předchozí\tShift+F3", ID_SEARCH_FIND_PREVIOUS
     END
@@ -350,23 +345,6 @@ BEGIN
     END
 END
 
-// Accelerators (same as English - keyboard shortcuts don't need translation)
-IDR_ACCELERATOR ACCELERATORS
-BEGIN
-    "N", ID_FILE_NEW, VIRTKEY, CONTROL
-    "O", ID_FILE_OPEN, VIRTKEY, CONTROL
-    "S", ID_FILE_SAVE, VIRTKEY, CONTROL
-    "Z", ID_EDIT_UNDO, VIRTKEY, CONTROL
-    "Y", ID_EDIT_REDO, VIRTKEY, CONTROL
-    "X", ID_EDIT_CUT, VIRTKEY, CONTROL
-    "C", ID_EDIT_COPY, VIRTKEY, CONTROL
-    "V", ID_EDIT_PASTE, VIRTKEY, CONTROL
-    "A", ID_EDIT_SELECTALL, VIRTKEY, CONTROL
-    "W", ID_VIEW_WORDWRAP, VIRTKEY, CONTROL
-    VK_F5, ID_EDIT_TIMEDATE, VIRTKEY
-    VK_RETURN, ID_TOOLS_EXECUTEFILTER, VIRTKEY, CONTROL
-END
-
 // About Dialog
 IDD_ABOUT DIALOGEX 0, 0, 240, 140
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
@@ -387,19 +365,23 @@ BEGIN
 END
 
 // Find dialog (Phase 2.9)
-IDD_FIND DIALOGEX 0, 0, 260, 90
+IDD_FIND DIALOGEX 0, 0, 260, 120
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Najít"
 FONT 8, "MS Shell Dlg", 400, 0
 BEGIN
     LTEXT           "&Co hledat:", IDC_STATIC, 7, 10, 50, 8
     COMBOBOX        IDC_FIND_WHAT, 60, 8, 130, 100, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Nahradit &čím:", IDC_REPLACE_WITH_LABEL, 7, 28, 50, 8
+    COMBOBOX        IDC_REPLACE_WITH, 60, 26, 130, 100, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
     DEFPUSHBUTTON   "&Další →", IDC_FIND_NEXT_BTN, 197, 7, 56, 14
     PUSHBUTTON      "&Předchozí ←", IDC_FIND_PREV_BTN, 197, 24, 56, 14
-    PUSHBUTTON      "Zavřít", IDC_CLOSE_BTN, 197, 69, 56, 14
-    AUTOCHECKBOX    "Rozlišovat &velikost písmen", IDC_MATCH_CASE, 7, 30, 120, 10
-    AUTOCHECKBOX    "&Celá slova", IDC_WHOLE_WORD, 7, 45, 80, 10
-    AUTOCHECKBOX    "Použít &escape sekvence (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 60, 180, 10
+    PUSHBUTTON      "&Nahradit", IDC_REPLACE_BTN, 197, 42, 56, 14
+    PUSHBUTTON      "Nahradit &vše", IDC_REPLACE_ALL_BTN, 197, 59, 56, 14
+    PUSHBUTTON      "Zavřít", IDC_CLOSE_BTN, 197, 99, 56, 14
+    AUTOCHECKBOX    "Rozlišovat &velikost písmen", IDC_MATCH_CASE, 7, 48, 120, 10
+    AUTOCHECKBOX    "&Celá slova", IDC_WHOLE_WORD, 7, 63, 80, 10
+    AUTOCHECKBOX    "Použít &escape sekvence (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 78, 180, 10
 END
 
 // String Resources (Czech)
@@ -523,4 +505,12 @@ BEGIN
     
     // Read-only mode (Phase 2.11)
     IDS_READONLY                    "Pouze ke čtení"
+    
+    // Replace feature strings (Phase 2.9.2)
+    IDS_FIND_REPLACE_TITLE          "Najít a nahradit"
+    IDS_REPLACE_WITH                "Nahradit &čím:"
+    IDS_REPLACE_BTN                 "&Nahradit"
+    IDS_REPLACE_ALL_BTN             "Nahradit &vše"
+    IDS_REPLACE_COMPLETE_TITLE      "Nahrazení dokončeno"
+    IDS_REPLACE_COMPLETE_MSG        "Nahrazeno: %d"
 END

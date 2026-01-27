@@ -7,7 +7,7 @@
 
 // Menu resource
 #define IDR_MENU_MAIN                   200
-#define IDR_ACCELERATOR                 201
+// Note: IDR_ACCELERATOR removed - now using dynamic accelerator table built in BuildAcceleratorTable()
 
 // File menu
 #define ID_FILE_NEW                     1001
@@ -37,6 +37,7 @@
 #define ID_SEARCH_FIND                  1300
 #define ID_SEARCH_FIND_NEXT             1301
 #define ID_SEARCH_FIND_PREVIOUS         1302
+#define ID_SEARCH_REPLACE               1303
 
 // Tools menu (Phase 2)
 #define ID_TOOLS_EXECUTEFILTER          1201
@@ -61,11 +62,15 @@
 
 // Find dialog control IDs (Phase 2.9)
 #define IDC_FIND_WHAT                   3001
+#define IDC_REPLACE_WITH                3002
+#define IDC_REPLACE_WITH_LABEL          3003
 #define IDC_MATCH_CASE                  3010
 #define IDC_WHOLE_WORD                  3011
 #define IDC_USE_ESCAPES                 3012
 #define IDC_FIND_NEXT_BTN               3020
 #define IDC_FIND_PREV_BTN               3021
+#define IDC_REPLACE_BTN                 3022
+#define IDC_REPLACE_ALL_BTN             3023
 #define IDC_CLOSE_BTN                   3024
 
 // String resource IDs (2000-2099)
@@ -205,5 +210,13 @@
 
 // Read-only mode
 #define IDS_READONLY                    2152  // "Read-Only" / "Pouze ke čtení"
+
+// Replace feature strings (Phase 2.9.2: 2153-2158)
+#define IDS_FIND_REPLACE_TITLE          2153
+#define IDS_REPLACE_WITH                2154
+#define IDS_REPLACE_BTN                 2155
+#define IDS_REPLACE_ALL_BTN             2156
+#define IDS_REPLACE_COMPLETE_TITLE      2157
+#define IDS_REPLACE_COMPLETE_MSG        2158
 
 #endif // RESOURCE_H

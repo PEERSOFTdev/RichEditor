@@ -1,7 +1,124 @@
 1. Search & Replace, bookmarks
 * add edit field to the Find dialog box to show found text and context for more accessible reviewing of found text and ability to continue search with the open dialog
+
 2. Elevate On Save: If the 'Access Denied' error is encountered while saving, offer to launch elevated to be able to save (possibly with intermediate save to %temp% and then elevating just to move that file, not for the whole editing session)
-4. Support Tab Completion For Active REPL Filter: Triggered by pressing TAB while on the Prompt Line after the detected prompt; sends TAB to the REPL Filter and captures its stdout, inserting it into the current line at the cursor position
+
+3. Support Tab Completion For Active REPL Filter: Triggered by pressing TAB while on the Prompt Line after the detected prompt; sends TAB to the REPL Filter and captures its stdout, inserting it into the current line at the cursor position
+
+4. Scripted templates:
+* can contain just code and template variables
+* will be implemented as per this example (without iostream, of course, it is here just for debugging output):
+#include <windows.h>
+#include <activscp.h>
+#include <comdef.h>
+#include <iostream>
+
+// Macro for COM error checking
+#define CHECK_HR(hr, msg) \
+    if (FAILED(hr)) { \
+        std::cerr << msg << " (HRESULT: 0x" << std::hex << hr << ")\n"; \
+        goto cleanup; \
+    }
+
+int main() {
+    HRESULT hr;
+    IActiveScript *pActiveScript = nullptr;
+    IActiveScriptParse *pActiveScriptParse = nullptr;
+
+    // Initialize COM in STA mode
+    hr = CoInitialize(nullptr);
+    CHECK_HR(hr, "CoInitialize failed");
+
+    // Create the Microsoft JScript engine
+    hr = CoCreateInstance(CLSID_JScript, nullptr, CLSCTX_INPROC_SERVER,
+                          IID_IActiveScript, (void**)&pActiveScript);
+    CHECK_HR(hr, "Failed to create JScript engine");
+
+    // Get parser interface
+    hr = pActiveScript->QueryInterface(IID_IActiveScriptParse, (void**)&pActiveScriptParse);
+    CHECK_HR(hr, "QueryInterface for IActiveScriptParse failed");
+
+    // Initialize parser
+    hr = pActiveScriptParse->InitNew();
+    CHECK_HR(hr, "InitNew failed");
+
+    // Set script state to initialized
+    hr = pActiveScript->SetScriptState(SCRIPTSTATE_INITIALIZED);
+    CHECK_HR(hr, "SetScriptState failed");
+
+    // -------------------------------
+    // 1. Statement Mode: Define variables and functions
+    // -------------------------------
+    {
+        LPCOLESTR scriptText =
+            L"var a = 10;\n"
+            L"var b = 20;\n"
+            L"function multiply(x, y) { return x * y; }\n";
+
+        EXCEPINFO ei = {0};
+        VARIANT result;
+        VariantInit(&result);
+
+        hr = pActiveScriptParse->ParseScriptText(
+            scriptText,
+            nullptr,
+            nullptr,
+            nullptr,
+            0,
+            0,
+            0, // Statement mode
+            &result,
+            &ei
+        );
+        CHECK_HR(hr, "Statement ParseScriptText failed");
+
+        std::wcout << L"[Statement Mode] Variables and function defined.\n";
+        VariantClear(&result);
+    }
+
+    // -------------------------------
+    // 2. Expression Mode: Use previously defined variables/functions
+    // -------------------------------
+    {
+        LPCOLESTR scriptText = L"multiply(a, b) + 5"; // Uses a, b, and multiply()
+
+        EXCEPINFO ei = {0};
+        VARIANT result;
+        VariantInit(&result);
+
+        hr = pActiveScriptParse->ParseScriptText(
+            scriptText,
+            nullptr,
+            nullptr,
+            nullptr,
+            0,
+            0,
+            SCRIPTTEXT_ISEXPRESSION, // Expression mode
+            &result,
+            &ei
+        );
+        CHECK_HR(hr, "Expression ParseScriptText failed");
+
+        if (result.vt == VT_I4) {
+            std::wcout << L"[Expression Mode] Result: " << result.lVal << L"\n";
+        } else if (result.vt == VT_BSTR) {
+            std::wcout << L"[Expression Mode] Result: " << result.bstrVal << L"\n";
+        } else {
+            std::wcout << L"[Expression Mode] Result type: " << result.vt << L"\n";
+        }
+        VariantClear(&result);
+    }
+
+    // Close the script engine
+    pActiveScript->SetScriptState(SCRIPTSTATE_CLOSED);
+
+cleanup:
+    if (pActiveScriptParse) pActiveScriptParse->Release();
+    if (pActiveScript) pActiveScript->Release();
+    CoUninitialize();
+    return 0;
+}
+
 5. Markdown:
    - Parser: https://github.com/mity/md4c
    - Markdown to RTF converter: https://github.com/iquercorb/md4c-rtf

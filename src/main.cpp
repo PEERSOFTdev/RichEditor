@@ -338,6 +338,12 @@ BOOL g_bSelectAfterFind = TRUE;                  // Select found text (configura
 WCHAR g_szFindHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];
 int g_nFindHistoryCount = 0;
 
+// Replace System (Phase 2.9.2)
+WCHAR g_szReplaceWith[MAX_SEARCH_TEXT] = L"";    // Current replacement text
+WCHAR g_szReplaceHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT]; // Replace history
+int g_nReplaceHistoryCount = 0;                  // Replace history count
+BOOL g_bReplaceMode = FALSE;                     // Dialog mode (FALSE=Find, TRUE=Replace)
+
 //============================================================================
 // Date/Time Configuration (Phase 2.10, ToDo #3)
 //============================================================================
@@ -439,6 +445,15 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
 void LoadFindHistory();
 void SaveFindHistory();
 void AddToFindHistory(LPCWSTR pszText);
+
+// Replace functions (Phase 2.9.2)
+void UpdateDialogMode(HWND hDlg, BOOL bReplaceMode);
+LPWSTR ExpandReplacePlaceholder(LPCWSTR pszReplace, LPCWSTR pszMatched);
+void DoReplace();
+void DoReplaceAll();
+void LoadReplaceHistory();
+void SaveReplaceHistory();
+void AddToReplaceHistory(LPCWSTR pszText);
 
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
@@ -1015,7 +1030,7 @@ void LoadTemplates()
 HACCEL BuildAcceleratorTable()
 {
     // Count total accelerators needed
-    const int BUILTIN_COUNT = 18;  // Built-in shortcuts (including search shortcuts - Phase 2.9)
+    const int BUILTIN_COUNT = 19;  // Built-in shortcuts (including search shortcuts - Phase 2.9.2)
     int nTemplateShortcuts = 0;
     
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1051,6 +1066,7 @@ HACCEL BuildAcceleratorTable()
     
     // Search shortcuts (Phase 2.9)
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'F'; pAccel[idx++].cmd = ID_SEARCH_FIND;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'H'; pAccel[idx++].cmd = ID_SEARCH_REPLACE;
     pAccel[idx].fVirt = FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_NEXT;
     pAccel[idx].fVirt = FSHIFT | FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_PREVIOUS;
     
@@ -2078,10 +2094,10 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
     switch (message) {
         case WM_INITDIALOG:
         {
-            // Load history into combo box
-            HWND hCombo = GetDlgItem(hDlg, IDC_FIND_WHAT);
+            // Load Find history into combo box
+            HWND hFindCombo = GetDlgItem(hDlg, IDC_FIND_WHAT);
             for (int i = 0; i < g_nFindHistoryCount; i++) {
-                SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)g_szFindHistory[i]);
+                SendMessage(hFindCombo, CB_ADDSTRING, 0, (LPARAM)g_szFindHistory[i]);
             }
             
             // If no current search term, use most recent from history
@@ -2092,14 +2108,28 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
             // Set current search term (or most recent from history)
             SetDlgItemText(hDlg, IDC_FIND_WHAT, g_szFindWhat);
             
+            // Load Replace history into combo box
+            HWND hReplaceCombo = GetDlgItem(hDlg, IDC_REPLACE_WITH);
+            for (int i = 0; i < g_nReplaceHistoryCount; i++) {
+                SendMessage(hReplaceCombo, CB_ADDSTRING, 0, (LPARAM)g_szReplaceHistory[i]);
+            }
+            
+            // Set current replace text
+            if (g_szReplaceWith[0] != L'\0') {
+                SetDlgItemText(hDlg, IDC_REPLACE_WITH, g_szReplaceWith);
+            }
+            
             // Set checkbox states (restored from saved preferences)
             CheckDlgButton(hDlg, IDC_MATCH_CASE, g_bFindMatchCase ? BST_CHECKED : BST_UNCHECKED);
             CheckDlgButton(hDlg, IDC_WHOLE_WORD, g_bFindWholeWord ? BST_CHECKED : BST_UNCHECKED);
             CheckDlgButton(hDlg, IDC_USE_ESCAPES, g_bFindUseEscapes ? BST_CHECKED : BST_UNCHECKED);
             
+            // Set dialog mode (Find or Replace)
+            UpdateDialogMode(hDlg, g_bReplaceMode);
+            
             // Focus on search box and select all text (for easy overtyping)
-            SetFocus(hCombo);
-            SendMessage(hCombo, CB_SETEDITSEL, 0, MAKELPARAM(0, -1));  // Select all
+            SetFocus(hFindCombo);
+            SendMessage(hFindCombo, CB_SETEDITSEL, 0, MAKELPARAM(0, -1));  // Select all
             
             return FALSE;  // We set focus manually
         }
@@ -2136,20 +2166,52 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                     return TRUE;
                 }
                 
+                case IDC_REPLACE_BTN:
+                {
+                    // Get search and replace terms
+                    GetDlgItemText(hDlg, IDC_FIND_WHAT, g_szFindWhat, MAX_SEARCH_TEXT);
+                    GetDlgItemText(hDlg, IDC_REPLACE_WITH, g_szReplaceWith, MAX_SEARCH_TEXT);
+                    
+                    // Get checkbox states
+                    g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
+                    g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
+                    g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    
+                    // Perform replace
+                    DoReplace();
+                    return TRUE;
+                }
+                
+                case IDC_REPLACE_ALL_BTN:
+                {
+                    // Get search and replace terms
+                    GetDlgItemText(hDlg, IDC_FIND_WHAT, g_szFindWhat, MAX_SEARCH_TEXT);
+                    GetDlgItemText(hDlg, IDC_REPLACE_WITH, g_szReplaceWith, MAX_SEARCH_TEXT);
+                    
+                    // Get checkbox states
+                    g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
+                    g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
+                    g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    
+                    // Perform replace all
+                    DoReplaceAll();
+                    return TRUE;
+                }
+                
                 case IDC_CLOSE_BTN:
                 case IDCANCEL:
                     // Save history before closing
                     SaveFindHistory();
-                    DestroyWindow(hDlg);
-                    g_hDlgFind = NULL;
+                    SaveReplaceHistory();
+                    ShowWindow(hDlg, SW_HIDE);  // Hide instead of destroy (modeless)
                     return TRUE;
             }
             break;
         
         case WM_CLOSE:
             SaveFindHistory();
-            DestroyWindow(hDlg);
-            g_hDlgFind = NULL;
+            SaveReplaceHistory();
+            ShowWindow(hDlg, SW_HIDE);  // Hide instead of destroy
             return TRUE;
     }
     
@@ -2250,6 +2312,526 @@ void AddToFindHistory(LPCWSTR pszText)
     
     // Add new item at top
     wcscpy(g_szFindHistory[0], pszText);
+}
+
+//============================================================================
+// Replace Functions (Phase 2.9.2)
+//============================================================================
+
+void UpdateDialogMode(HWND hDlg, BOOL bReplaceMode)
+{
+    // Get control handles
+    HWND hReplaceLabel = GetDlgItem(hDlg, IDC_REPLACE_WITH_LABEL);
+    HWND hReplaceCombo = GetDlgItem(hDlg, IDC_REPLACE_WITH);
+    HWND hReplaceBtn = GetDlgItem(hDlg, IDC_REPLACE_BTN);
+    HWND hReplaceAllBtn = GetDlgItem(hDlg, IDC_REPLACE_ALL_BTN);
+    
+    // Show/hide Replace controls
+    int nShow = bReplaceMode ? SW_SHOW : SW_HIDE;
+    ShowWindow(hReplaceLabel, nShow);
+    ShowWindow(hReplaceCombo, nShow);
+    ShowWindow(hReplaceBtn, nShow);
+    ShowWindow(hReplaceAllBtn, nShow);
+    
+    // Update dialog title
+    WCHAR szTitle[64];
+    if (bReplaceMode) {
+        LoadString(GetModuleHandle(NULL), IDS_FIND_REPLACE_TITLE, szTitle, 64);
+    } else {
+        LoadString(GetModuleHandle(NULL), IDS_FIND_TITLE, szTitle, 64);
+    }
+    SetWindowText(hDlg, szTitle);
+    
+    // Disable Replace buttons in read-only mode
+    if (bReplaceMode && g_bReadOnly) {
+        EnableWindow(hReplaceBtn, FALSE);
+        EnableWindow(hReplaceAllBtn, FALSE);
+    }
+    
+    // Update global state
+    g_bReplaceMode = bReplaceMode;
+}
+
+LPWSTR ExpandReplacePlaceholder(LPCWSTR pszReplace, LPCWSTR pszMatched)
+{
+    if (!pszReplace) return NULL;
+    
+    size_t nReplaceLen = wcslen(pszReplace);
+    size_t nMatchedLen = pszMatched ? wcslen(pszMatched) : 0;
+    
+    // Calculate worst-case buffer size
+    size_t nMaxLen = nReplaceLen * 2 + nMatchedLen * 10 + 1;
+    LPWSTR pszResult = (LPWSTR)malloc(nMaxLen * sizeof(WCHAR));
+    if (!pszResult) return NULL;
+    
+    const WCHAR *pSrc = pszReplace;
+    WCHAR *pDst = pszResult;
+    
+    while (*pSrc) {
+        if (*pSrc == L'%') {
+            if (*(pSrc + 1) == L'0') {
+                // %0 → Insert matched text
+                if (pszMatched) {
+                    wcscpy(pDst, pszMatched);
+                    pDst += nMatchedLen;
+                }
+                pSrc += 2;
+            }
+            else if (*(pSrc + 1) == L'%') {
+                // %% → Insert single %
+                *pDst++ = L'%';
+                pSrc += 2;
+            }
+            else {
+                // Unknown placeholder → Copy literally
+                *pDst++ = *pSrc++;
+            }
+        }
+        else {
+            *pDst++ = *pSrc++;
+        }
+    }
+    
+    *pDst = L'\0';
+    return pszResult;  // Caller must free!
+}
+
+void DoReplace()
+{
+    // Read-only protection
+    if (g_bReadOnly) return;
+    
+    if (!g_hDlgFind) return;
+    
+    // Get Find/Replace text from dialog
+    GetDlgItemText(g_hDlgFind, IDC_FIND_WHAT, g_szFindWhat, MAX_SEARCH_TEXT);
+    GetDlgItemText(g_hDlgFind, IDC_REPLACE_WITH, g_szReplaceWith, MAX_SEARCH_TEXT);
+    
+    if (g_szFindWhat[0] == L'\0') return;  // Empty find text
+    
+    // Get current selection
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    
+    // If no selection, find first occurrence
+    if (cr.cpMax - cr.cpMin <= 0) {
+        DoFind(TRUE);  // Search down
+        return;
+    }
+    
+    // Get selected text
+    int nSelLen = cr.cpMax - cr.cpMin;
+    LPWSTR pszSelection = (LPWSTR)malloc((nSelLen + 1) * sizeof(WCHAR));
+    if (!pszSelection) return;
+    
+    TEXTRANGEW tr;
+    tr.chrg = cr;
+    tr.lpstrText = pszSelection;
+    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    
+    // Parse Find What (apply escape sequences if enabled)
+    LPWSTR pszFindParsed = g_bFindUseEscapes 
+        ? ParseEscapeSequences(g_szFindWhat)
+        : _wcsdup(g_szFindWhat);
+    
+    if (!pszFindParsed) {
+        free(pszSelection);
+        return;
+    }
+    
+    // Check if selection matches search text
+    BOOL bMatches = FALSE;
+    if (g_bFindMatchCase) {
+        bMatches = (wcscmp(pszSelection, pszFindParsed) == 0);
+    } else {
+        bMatches = (_wcsicmp(pszSelection, pszFindParsed) == 0);
+    }
+    
+    if (!bMatches) {
+        // Selection doesn't match - find next occurrence
+        free(pszSelection);
+        free(pszFindParsed);
+        DoFind(TRUE);  // Search down
+        return;
+    }
+    
+    // Selection matches - perform replacement
+    
+    // Parse Replace With (apply escape sequences if enabled)
+    LPWSTR pszReplaceParsed = g_bFindUseEscapes 
+        ? ParseEscapeSequences(g_szReplaceWith)
+        : _wcsdup(g_szReplaceWith);
+    
+    if (!pszReplaceParsed) {
+        free(pszSelection);
+        free(pszFindParsed);
+        return;
+    }
+    
+    // Expand placeholders (%0 = matched text, %% = %)
+    LPWSTR pszReplaceExpanded = ExpandReplacePlaceholder(pszReplaceParsed, pszSelection);
+    
+    if (!pszReplaceExpanded) {
+        free(pszSelection);
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        return;
+    }
+    
+    // Replace selected text
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszReplaceExpanded);
+    
+    // Mark modified
+    g_bModified = TRUE;
+    UpdateTitle();
+    
+    // Cleanup
+    free(pszSelection);
+    free(pszFindParsed);
+    free(pszReplaceParsed);
+    free(pszReplaceExpanded);
+    
+    // Add to history
+    AddToFindHistory(g_szFindWhat);
+    AddToReplaceHistory(g_szReplaceWith);
+    
+    // Find next occurrence
+    DoFind(TRUE);  // Search down
+}
+
+void DoReplaceAll()
+{
+    // Read-only protection
+    if (g_bReadOnly) return;
+    
+    if (!g_hDlgFind) return;
+    
+    // Get Find/Replace text from dialog
+    GetDlgItemText(g_hDlgFind, IDC_FIND_WHAT, g_szFindWhat, MAX_SEARCH_TEXT);
+    GetDlgItemText(g_hDlgFind, IDC_REPLACE_WITH, g_szReplaceWith, MAX_SEARCH_TEXT);
+    
+    if (g_szFindWhat[0] == L'\0') return;  // Empty find text
+    
+    // Get checkbox states
+    g_bFindMatchCase = (IsDlgButtonChecked(g_hDlgFind, IDC_MATCH_CASE) == BST_CHECKED);
+    g_bFindWholeWord = (IsDlgButtonChecked(g_hDlgFind, IDC_WHOLE_WORD) == BST_CHECKED);
+    g_bFindUseEscapes = (IsDlgButtonChecked(g_hDlgFind, IDC_USE_ESCAPES) == BST_CHECKED);
+    
+    // Parse escape sequences (once for efficiency)
+    LPWSTR pszFindParsed = g_bFindUseEscapes 
+        ? ParseEscapeSequences(g_szFindWhat)
+        : _wcsdup(g_szFindWhat);
+    
+    if (!pszFindParsed) return;
+    
+    LPWSTR pszReplaceParsed = g_bFindUseEscapes 
+        ? ParseEscapeSequences(g_szReplaceWith)
+        : _wcsdup(g_szReplaceWith);
+    
+    if (!pszReplaceParsed) {
+        free(pszFindParsed);
+        return;
+    }
+    
+    // Expand placeholder using search text (all matches are identical in literal search)
+    LPWSTR pszReplaceExpanded = ExpandReplacePlaceholder(pszReplaceParsed, pszFindParsed);
+    
+    if (!pszReplaceExpanded) {
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        return;
+    }
+    
+    // Whole-word search not supported with in-memory replacement - fall back to iterative method
+    if (g_bFindWholeWord) {
+        // Optimization: Find all matches first, then replace from END to BEGINNING
+        // This prevents position shifts and eliminates need to recalculate positions
+        
+        // First pass: collect all match positions
+        #define MAX_MATCHES 100000
+        LONG *pMatchPositions = (LONG*)malloc(MAX_MATCHES * sizeof(LONG));
+        if (!pMatchPositions) {
+            free(pszFindParsed);
+            free(pszReplaceParsed);
+            free(pszReplaceExpanded);
+            return;
+        }
+        
+        int nReplacedCount = 0;
+        LONG nSearchPos = 0;
+        size_t nFindLen = wcslen(pszFindParsed);
+        
+        while (nReplacedCount < MAX_MATCHES) {
+            LONG nFoundPos = FindTextInDocument(
+                pszFindParsed,
+                g_bFindMatchCase,
+                g_bFindWholeWord,
+                TRUE,
+                nSearchPos
+            );
+            
+            if (nFoundPos < 0) break;
+            
+            pMatchPositions[nReplacedCount++] = nFoundPos;
+            nSearchPos = nFoundPos + nFindLen;
+        }
+        
+        if (nReplacedCount > 0) {
+            // Second pass: replace from END to BEGINNING (positions don't shift!)
+            SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
+            
+            for (int i = nReplacedCount - 1; i >= 0; i--) {
+                CHARRANGE cr;
+                cr.cpMin = pMatchPositions[i];
+                cr.cpMax = pMatchPositions[i] + nFindLen;
+                SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszReplaceExpanded);
+            }
+            
+            SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);
+            InvalidateRect(g_hWndEdit, NULL, TRUE);
+        }
+        
+        free(pMatchPositions);
+        
+        free(pMatchPositions);
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        free(pszReplaceExpanded);
+        
+        if (nReplacedCount > 0) {
+            g_bModified = TRUE;
+            UpdateTitle();
+            AddToFindHistory(g_szFindWhat);
+            AddToReplaceHistory(g_szReplaceWith);
+            
+            // Show completion message
+            WCHAR szMsgFormat[128];
+            LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_MSG, szMsgFormat, 128);
+            WCHAR szMsg[256];
+            WCHAR szCount[32];
+            _itow(nReplacedCount, szCount, 10);
+            wcscpy(szMsg, L"");
+            WCHAR *pFormat = wcsstr(szMsgFormat, L"%d");
+            if (pFormat) {
+                size_t nBeforeLen = pFormat - szMsgFormat;
+                wcsncpy(szMsg, szMsgFormat, nBeforeLen);
+                szMsg[nBeforeLen] = L'\0';
+                wcscat(szMsg, szCount);
+                wcscat(szMsg, pFormat + 2);
+            } else {
+                wcscpy(szMsg, szMsgFormat);
+                wcscat(szMsg, L" ");
+                wcscat(szMsg, szCount);
+            }
+            WCHAR szTitle[64];
+            LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
+            MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
+        }
+        return;
+    }
+    
+    // Fast in-memory replacement (case-sensitive or case-insensitive, no whole-word)
+    // Get all text from RichEdit
+    GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};  // UTF-16LE
+    int nLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    
+    if (nLen <= 0) {
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        free(pszReplaceExpanded);
+        return;
+    }
+    
+    WCHAR *pszOriginal = (WCHAR*)malloc((nLen + 1) * sizeof(WCHAR));
+    if (!pszOriginal) {
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        free(pszReplaceExpanded);
+        return;
+    }
+    
+    GETTEXTEX gt = {0};
+    gt.cb = (nLen + 1) * sizeof(WCHAR);
+    gt.flags = GT_DEFAULT;
+    gt.codepage = 1200;  // UTF-16LE
+    SendMessage(g_hWndEdit, EM_GETTEXTEX, (WPARAM)&gt, (LPARAM)pszOriginal);
+    
+    // Do in-memory replacement
+    size_t nFindLen = wcslen(pszFindParsed);
+    size_t nReplaceLen = wcslen(pszReplaceExpanded);
+    
+    // Allocate result buffer (worst case: all text becomes replacement)
+    size_t nMaxResult = nLen * nReplaceLen / nFindLen + nLen + 1000;
+    WCHAR *pszResult = (WCHAR*)malloc(nMaxResult * sizeof(WCHAR));
+    if (!pszResult) {
+        free(pszOriginal);
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        free(pszReplaceExpanded);
+        return;
+    }
+    
+    WCHAR *pSrc = pszOriginal;
+    WCHAR *pDst = pszResult;
+    int nReplacedCount = 0;
+    
+    while (*pSrc) {
+        BOOL bMatch = FALSE;
+        
+        if (g_bFindMatchCase) {
+            bMatch = (wcsncmp(pSrc, pszFindParsed, nFindLen) == 0);
+        } else {
+            bMatch = (_wcsnicmp(pSrc, pszFindParsed, nFindLen) == 0);
+        }
+        
+        if (bMatch) {
+            // Copy replacement text
+            wcscpy(pDst, pszReplaceExpanded);
+            pDst += nReplaceLen;
+            pSrc += nFindLen;
+            nReplacedCount++;
+        } else {
+            // Copy original character
+            *pDst++ = *pSrc++;
+        }
+    }
+    *pDst = L'\0';
+    
+    if (nReplacedCount > 0) {
+        // Replace entire text content (single undo operation!)
+        SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
+        
+        // Select all and replace
+        SendMessage(g_hWndEdit, EM_SETSEL, 0, -1);
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszResult);
+        
+        SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(g_hWndEdit, NULL, TRUE);
+        
+        g_bModified = TRUE;
+        UpdateTitle();
+        AddToFindHistory(g_szFindWhat);
+        AddToReplaceHistory(g_szReplaceWith);
+        
+        // Show completion message using localized format string
+        WCHAR szMsgFormat[128];
+        LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_MSG, szMsgFormat, 128);
+        
+        WCHAR szMsg[256];
+        WCHAR szCount[32];
+        _itow(nReplacedCount, szCount, 10);
+        
+        wcscpy(szMsg, L"");
+        WCHAR *pFormat = wcsstr(szMsgFormat, L"%d");
+        if (pFormat) {
+            size_t nBeforeLen = pFormat - szMsgFormat;
+            wcsncpy(szMsg, szMsgFormat, nBeforeLen);
+            szMsg[nBeforeLen] = L'\0';
+            wcscat(szMsg, szCount);
+            wcscat(szMsg, pFormat + 2);
+        } else {
+            wcscpy(szMsg, szMsgFormat);
+            wcscat(szMsg, L" ");
+            wcscat(szMsg, szCount);
+        }
+        
+        WCHAR szTitle[64];
+        LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
+        MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
+    }
+    
+    // Cleanup
+    free(pszOriginal);
+    free(pszResult);
+    free(pszFindParsed);
+    free(pszReplaceParsed);
+    free(pszReplaceExpanded);
+}
+
+void LoadReplaceHistory()
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    WCHAR *pExt = wcsrchr(szIniPath, L'.');
+    if (pExt) wcscpy(pExt, L".ini");
+    
+    WCHAR szCount[16];
+    ReadINIValue(szIniPath, L"ReplaceHistory", L"Count", szCount, 16, L"0");
+    g_nReplaceHistoryCount = _wtoi(szCount);
+    
+    if (g_nReplaceHistoryCount > MAX_FIND_HISTORY) {
+        g_nReplaceHistoryCount = MAX_FIND_HISTORY;
+    }
+    
+    for (int i = 0; i < g_nReplaceHistoryCount; i++) {
+        WCHAR szKey[32];
+        wcscpy(szKey, L"Item");
+        WCHAR szNum[16];
+        _itow(i, szNum, 10);
+        wcscat(szKey, szNum);
+        
+        ReadINIValue(szIniPath, L"ReplaceHistory", szKey, 
+                    g_szReplaceHistory[i], MAX_SEARCH_TEXT, L"");
+    }
+}
+
+void SaveReplaceHistory()
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
+    WCHAR *pExt = wcsrchr(szIniPath, L'.');
+    if (pExt) wcscpy(pExt, L".ini");
+    
+    WCHAR szCount[16];
+    _itow(g_nReplaceHistoryCount, szCount, 10);
+    WriteINIValue(szIniPath, L"ReplaceHistory", L"Count", szCount);
+    
+    for (int i = 0; i < g_nReplaceHistoryCount; i++) {
+        WCHAR szKey[32];
+        wcscpy(szKey, L"Item");
+        WCHAR szNum[16];
+        _itow(i, szNum, 10);
+        wcscat(szKey, szNum);
+        
+        WriteINIValue(szIniPath, L"ReplaceHistory", szKey, g_szReplaceHistory[i]);
+    }
+}
+
+void AddToReplaceHistory(LPCWSTR pszText)
+{
+    if (!pszText || !pszText[0]) return;
+    
+    // Check if already in history
+    for (int i = 0; i < g_nReplaceHistoryCount; i++) {
+        if (wcscmp(g_szReplaceHistory[i], pszText) == 0) {
+            // Already exists - move to top
+            WCHAR szTemp[MAX_SEARCH_TEXT];
+            wcscpy(szTemp, g_szReplaceHistory[i]);
+            
+            // Shift items down
+            for (int j = i; j > 0; j--) {
+                wcscpy(g_szReplaceHistory[j], g_szReplaceHistory[j - 1]);
+            }
+            
+            // Put at top
+            wcscpy(g_szReplaceHistory[0], szTemp);
+            return;
+        }
+    }
+    
+    // Not in history - add to top
+    if (g_nReplaceHistoryCount < MAX_FIND_HISTORY) {
+        g_nReplaceHistoryCount++;
+    }
+    
+    // Shift items down
+    for (int i = g_nReplaceHistoryCount - 1; i > 0; i--) {
+        wcscpy(g_szReplaceHistory[i], g_szReplaceHistory[i - 1]);
+    }
+    
+    // Add new item at top
+    wcscpy(g_szReplaceHistory[0], pszText);
 }
 
 //============================================================================
@@ -2431,16 +3013,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 
                 // Search menu (Phase 2.9)
                 case ID_SEARCH_FIND:
+                    // Close existing dialog if open (allows switching from Replace to Find)
                     if (g_hDlgFind) {
-                        // Dialog already open - just focus it
-                        SetFocus(g_hDlgFind);
-                    } else {
-                        // Create modeless Find dialog
-                        g_hDlgFind = CreateDialog(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_FIND), 
-                                                  hwnd, DlgFindProc);
-                        if (g_hDlgFind) {
-                            ShowWindow(g_hDlgFind, SW_SHOW);
-                        }
+                        SaveFindHistory();
+                        DestroyWindow(g_hDlgFind);
+                        g_hDlgFind = NULL;
+                    }
+                    
+                    // Create modeless Find dialog in Find mode
+                    g_bReplaceMode = FALSE;
+                    g_hDlgFind = CreateDialog(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_FIND), 
+                                              hwnd, DlgFindProc);
+                    if (g_hDlgFind) {
+                        ShowWindow(g_hDlgFind, SW_SHOW);
+                    }
+                    break;
+                
+                case ID_SEARCH_REPLACE:
+                    if (g_bReadOnly) break;  // Block in read-only mode
+                    
+                    // Close existing dialog if open (allows switching from Find to Replace)
+                    if (g_hDlgFind) {
+                        SaveFindHistory();
+                        DestroyWindow(g_hDlgFind);
+                        g_hDlgFind = NULL;
+                    }
+                    
+                    // Create modeless Find dialog in Replace mode
+                    g_bReplaceMode = TRUE;
+                    g_hDlgFind = CreateDialog(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_FIND), 
+                                              hwnd, DlgFindProc);
+                    if (g_hDlgFind) {
+                        ShowWindow(g_hDlgFind, SW_SHOW);
                     }
                     break;
                 
@@ -6936,6 +7540,9 @@ void LoadSettings()
     
     // Load find history
     LoadFindHistory();
+    
+    // Load replace history
+    LoadReplaceHistory();
 }
 
 //============================================================================
