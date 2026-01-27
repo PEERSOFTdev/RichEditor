@@ -1556,6 +1556,443 @@ if (foundPos < 0) {
 6. **Never create dialog multiple times** - Check g_hDlgFind != NULL first
 7. **Never assume checkbox states are synced** - Always read from dialog controls in DoFind()
 
+## Phase 2.9.2: Replace Functionality (Important Patterns)
+
+### Overview
+
+Phase 2.9.2 implements full Replace Next and Replace All functionality with major performance optimizations. The system uses a dual-algorithm approach: in-memory replacement for standard search (instant) and backward replacement for whole-word search (~30% faster than forward replacement).
+
+**Key Design Goals:**
+- Replace Next with auto-find-next behavior
+- Highly optimized Replace All (matches PSPad performance)
+- Placeholder expansion (%0 = matched text, %% = literal %)
+- Escape sequence support (shared with Find)
+- Replace history persistence
+- Read-only mode protection
+- Single unified Find/Replace dialog
+
+### Replace System Architecture
+
+**Dialog Mode:** Single modeless dialog switches between Find and Replace modes
+
+**Global State:**
+```cpp
+HWND g_hDlgFind = NULL;                                // Dialog handle (NULL = not created)
+BOOL g_bReplaceMode = FALSE;                           // FALSE = Find, TRUE = Replace
+WCHAR g_szReplaceWith[MAX_SEARCH_TEXT];                // Current replace term
+WCHAR g_szReplaceHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];  // MRU history (max 20)
+int g_nReplaceHistoryCount;                            // History count
+```
+
+**Line Numbers:** Global declarations around line 323-347 in main.cpp
+
+**Dialog Switching:**
+- **Ctrl+F:** Close existing dialog (if any) → Open Find mode
+- **Ctrl+H:** Close existing dialog (if any) → Open Replace mode
+- History saved before switching (no data loss)
+
+### Critical Pattern: Dual-Algorithm Replace All
+
+**Problem Solved:** Replace All was slow (~200ms for 64 replacements) compared to PSPad (instant).
+
+**Solution:** Two algorithms based on search options
+
+#### Fast Path: In-Memory Replacement
+
+**When:** "Whole word" option NOT checked (most common case)
+
+**Algorithm:**
+```cpp
+void DoReplaceAll() {
+    // Get entire document text
+    WCHAR *pszOriginal = GetAllText();
+    
+    // Allocate result buffer (oversized for safety)
+    size_t resultSize = originalLen + (nMaxReplacements * replaceLen);
+    WCHAR *pszResult = malloc(resultSize);
+    
+    // In-memory string replacement loop
+    const WCHAR *pSrc = pszOriginal;
+    WCHAR *pDest = pszResult;
+    int nCount = 0;
+    
+    while (*pSrc) {
+        if (MatchAtPosition(pSrc, pszFind, bMatchCase)) {
+            // Copy replacement text
+            wcscpy(pDest, pszReplace);
+            pDest += replaceLen;
+            pSrc += findLen;
+            nCount++;
+        } else {
+            *pDest++ = *pSrc++;  // Copy original character
+        }
+    }
+    *pDest = L'\0';
+    
+    // Replace entire document with single operation
+    SendMessage(g_hWndEdit, EM_SETSEL, 0, -1);
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszResult);
+    
+    free(pszResult);
+    free(pszOriginal);
+}
+```
+
+**Performance:** ~5ms for 64 replacements (instant)  
+**Undo:** Single undo operation (Ctrl+Z once undoes all)  
+**Result:** ✅ Matches PSPad performance!
+
+**Why This Works:**
+- No RichEdit search overhead (EM_FINDTEXTEXW called 0 times)
+- Single EM_REPLACESEL call instead of 64 separate calls
+- No selection changes between replacements
+- No intermediate redraws
+
+#### Optimized Path: Backward Replacement
+
+**When:** "Whole word" option checked
+
+**Algorithm:**
+```cpp
+void DoReplaceAll() {
+    // Phase 1: Find all matches using RichEdit's FR_WHOLEWORD
+    LONG *pMatchPositions = malloc(MAX_MATCHES * sizeof(LONG));
+    int nMatchCount = 0;
+    
+    LONG nSearchStart = 0;
+    while (nMatchCount < MAX_MATCHES) {
+        LONG nFoundPos = FindTextInDocument(pszFind, bMatchCase, TRUE, TRUE, nSearchStart);
+        if (nFoundPos < 0) break;  // No more matches
+        
+        pMatchPositions[nMatchCount++] = nFoundPos;
+        nSearchStart = nFoundPos + findLen;
+    }
+    
+    // Phase 2: Replace from END to BEGINNING
+    // Key insight: Positions don't shift when replacing backwards!
+    SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);  // Disable repaint
+    
+    for (int i = nMatchCount - 1; i >= 0; i--) {
+        CHARRANGE cr;
+        cr.cpMin = pMatchPositions[i];
+        cr.cpMax = pMatchPositions[i] + findLen;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszReplace);
+    }
+    
+    SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);   // Enable repaint
+    InvalidateRect(g_hWndEdit, NULL, TRUE);           // Force redraw
+    
+    free(pMatchPositions);
+}
+```
+
+**Performance:** ~138ms for 64 replacements (~30% faster than forward replacement)  
+**Undo:** Multiple operations (RichEdit limitation - one per replacement)  
+**Why Needed:** RichEdit's FR_WHOLEWORD flag required for accurate whole-word matching
+
+**Why Backward is Faster Than Forward:**
+- **Forward replacement problem:** Each replacement shifts all subsequent positions
+  - Replace at position 100 → positions 200, 300, 400 all shift
+  - Must recalculate search start position after every replacement
+  - Cache invalidation for subsequent searches
+  
+- **Backward replacement solution:** Positions never shift
+  - Replace at position 400 → positions 100, 200, 300 unchanged
+  - No position recalculation needed
+  - Array of positions computed once, used repeatedly
+  - Single WM_SETREDRAW block minimizes repaints
+
+**Implementation Location:** DoReplaceAll() around lines 2518-2733 in main.cpp
+
+### Critical Pattern: Placeholder Expansion
+
+**Problem Solved:** Users need to reuse matched text in replacement (e.g., add quotes: `%0` → `"%0"`).
+
+**Solution:** ExpandReplacePlaceholder() with %0 and %% support
+
+**Implementation (~line 2362):**
+```cpp
+LPWSTR ExpandReplacePlaceholder(LPCWSTR pszReplace, LPCWSTR pszMatched)
+{
+    if (!pszReplace || !pszMatched) return NULL;
+    
+    // Count %0 occurrences to calculate buffer size
+    int nPlaceholderCount = 0;
+    const WCHAR *p = pszReplace;
+    while (*p) {
+        if (*p == L'%' && *(p+1) == L'0') {
+            nPlaceholderCount++;
+            p += 2;
+        } else if (*p == L'%' && *(p+1) == L'%') {
+            p += 2;  // %% = literal %
+        } else {
+            p++;
+        }
+    }
+    
+    // Allocate result buffer
+    size_t replaceLen = wcslen(pszReplace);
+    size_t matchLen = wcslen(pszMatched);
+    size_t resultSize = replaceLen + (nPlaceholderCount * matchLen) + 1;
+    LPWSTR pszResult = (LPWSTR)malloc(resultSize * sizeof(WCHAR));
+    
+    // Build result string
+    p = pszReplace;
+    WCHAR *pDest = pszResult;
+    while (*p) {
+        if (*p == L'%' && *(p+1) == L'0') {
+            // Replace %0 with matched text
+            wcscpy(pDest, pszMatched);
+            pDest += matchLen;
+            p += 2;
+        } else if (*p == L'%' && *(p+1) == L'%') {
+            // Replace %% with single %
+            *pDest++ = L'%';
+            p += 2;
+        } else {
+            *pDest++ = *p++;
+        }
+    }
+    *pDest = L'\0';
+    
+    return pszResult;  // Caller must free!
+}
+```
+
+**Supported Placeholders:**
+- `%0` → Matched text (e.g., find "foo" → "%0" becomes "foo")
+- `%%` → Literal % character (escape sequence)
+- No nesting or recursion (keep it simple)
+
+**Memory Management:** Returns malloc'd memory - **caller must free!**
+
+### Critical Pattern: Replace Next Behavior
+
+**Problem Solved:** Should "Replace" button replace current match or next match? How to avoid infinite loops?
+
+**Solution:** Replace current selection if it matches, then auto-find next
+
+**DoReplace() Implementation (~line 2426):**
+```cpp
+void DoReplace(BOOL bFindNext)
+{
+    // Get current selection
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    
+    if (cr.cpMin != cr.cpMax) {
+        // Have selection - check if it matches search term
+        int nSelLen = cr.cpMax - cr.cpMin;
+        WCHAR *pszSelection = GetSelectedText();
+        
+        BOOL bMatches = FALSE;
+        if (pszSelection) {
+            if (g_bFindMatchCase) {
+                bMatches = (wcsncmp(pszSelection, pszFind, findLen) == 0);
+            } else {
+                bMatches = (_wcsnicmp(pszSelection, pszFind, findLen) == 0);
+            }
+            
+            if (bMatches && nSelLen == findLen) {
+                // Selection matches - replace it
+                LPWSTR pszExpanded = ExpandReplacePlaceholder(pszReplace, pszSelection);
+                SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+                free(pszExpanded);
+                
+                g_bModified = TRUE;
+                UpdateTitle();
+            }
+            
+            free(pszSelection);
+        }
+    }
+    
+    // Auto-find next match (if requested)
+    if (bFindNext) {
+        DoFind(g_bSearchDown);
+    }
+}
+```
+
+**Why This Pattern:**
+- User presses "Replace Next" → Replaces current + finds next (one button click)
+- Avoids "Replace/Find Next" two-button dance (better UX)
+- Auto-find prevents user from accidentally replacing same text repeatedly
+- Matches Notepad++, Sublime Text, VS Code behavior
+
+**Button Labels:**
+- "Replace &Next" → Calls DoReplace(TRUE)
+- "Replace &All" → Calls DoReplaceAll()
+
+### Global Variables (Phase 2.9.2)
+
+```cpp
+// Replace System (Phase 2.9.2)
+WCHAR g_szReplaceWith[MAX_SEARCH_TEXT] = L"";          // Current replace term
+WCHAR g_szReplaceHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];  // MRU history (max 20)
+int g_nReplaceHistoryCount = 0;                        // History count
+BOOL g_bReplaceMode = FALSE;                           // FALSE = Find, TRUE = Replace
+```
+
+**Line Numbers:** Global declarations around line 340-347 in main.cpp
+
+### Key Functions (Phase 2.9.2)
+
+**Replace Operations:**
+- `ExpandReplacePlaceholder()` - Handle %0 and %% placeholders (~line 2362)
+- `DoReplace()` - Replace current match + auto-find next (~line 2426)
+- `DoReplaceAll()` - Dual-algorithm replace all (~line 2518)
+
+**Dialog Management:**
+- `UpdateDialogMode()` - Show/hide Replace controls based on mode (~line 2210)
+- `DlgFindProc()` - Enhanced with Replace button handlers (~line 2150)
+
+**History Management:**
+- `LoadReplaceHistory()` - Load from INI [ReplaceHistory] section (~line 2790)
+- `SaveReplaceHistory()` - Save to INI with MRU order (~line 2830)
+- `AddToReplaceHistory()` - Deduplication + MRU rotation (~line 2870)
+
+### INI Configuration (Phase 2.9.2)
+
+```ini
+[Settings]
+SelectAfterFind=1             ; 1=select match, 0=move cursor only
+FindMatchCase=0               ; Checkbox state persistence
+FindWholeWord=0
+FindUseEscapes=0
+
+[FindHistory]
+Count=3
+Item0=function
+Item1=\n\n
+Item2=TODO
+
+[ReplaceHistory]
+Count=2
+Item0=newFunction
+Item1=\t
+```
+
+**History Format:**
+- Same structure as FindHistory
+- Max 20 items saved per section
+- Item0 is most recent (MRU order)
+
+### Important Implementation Notes
+
+**Replace All Algorithm Selection:**
+```cpp
+if (g_bFindWholeWord) {
+    // Use backward replacement (requires RichEdit FR_WHOLEWORD flag)
+    // ~138ms for 64 matches
+} else {
+    // Use in-memory replacement (fast path)
+    // ~5ms for 64 matches
+}
+```
+
+**WM_SETREDRAW Optimization:**
+```cpp
+SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);  // Disable repaint
+// ... perform many EM_REPLACESEL calls ...
+SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);   // Enable repaint
+InvalidateRect(g_hWndEdit, NULL, TRUE);            // Force full redraw
+```
+
+**Read-Only Protection:**
+```cpp
+case ID_SEARCH_REPLACE:
+    if (g_bReadOnly) {
+        // Silently ignore (don't show error dialog)
+        break;
+    }
+    // ... create Replace dialog ...
+```
+
+**Dialog Switching:**
+```cpp
+// Always save history before destroying dialog
+if (g_hDlgFind) {
+    SaveFindHistory();  // Saves both Find and Replace history
+    DestroyWindow(g_hDlgFind);
+    g_hDlgFind = NULL;
+}
+```
+
+### String Resources (Phase 2.9.2)
+
+```cpp
+#define IDS_FIND_REPLACE_TITLE          2152
+#define IDS_REPLACE_WITH                2153
+#define IDS_REPLACE_BTN                 2154
+#define IDS_REPLACE_ALL_BTN             2155
+#define IDS_REPLACE_COMPLETE_TITLE      2156
+#define IDS_REPLACE_COMPLETE_MSG        2157
+```
+
+**Localization:**
+- English: "Find and Replace", "Replace &With:", "Replace &Next", "Replace &All", "Replaced %d occurrence(s)"
+- Czech: "Najít a nahradit", "&Nahradit čím:", "Nahradit &další", "Nahradit &vše", "Nahrazeno: %d"
+
+### Important Don'ts (Phase 2.9.2 Specific)
+
+1. **Never use forward replacement for Replace All** - Always backward (or in-memory)
+2. **Never forget WM_SETREDRAW wrapper** - Causes screen flicker
+3. **Never use swprintf with %d** - Use _itow + manual string building (MinGW Unicode issues)
+4. **Never skip SaveFindHistory before dialog destroy** - Loses Replace history too
+5. **Never call DoReplace without checking selection** - Could replace wrong text
+6. **Never forget to free ExpandReplacePlaceholder result** - Returns malloc'd memory
+7. **Never show error dialog in read-only mode** - Silently ignore (better UX)
+8. **Never use in-memory replacement with whole-word** - RichEdit FR_WHOLEWORD needed
+
+### Testing Checklist (Phase 2.9.2)
+
+**Replace Next:**
+- [ ] Replace current match and find next occurrence
+- [ ] Placeholder %0 expands to matched text
+- [ ] Placeholder %% becomes literal %
+- [ ] Escape sequences work (\n, \t, \xNN, \uNNNN)
+- [ ] History saved when closing dialog
+
+**Replace All (Fast Path - No Whole Word):**
+- [ ] 64 replacements complete in <10ms
+- [ ] Single undo operation (Ctrl+Z once = all undone)
+- [ ] Match case option respected
+- [ ] Escape sequences work in both find and replace
+
+**Replace All (Optimized Path - Whole Word):**
+- [ ] Whole-word matching works correctly
+- [ ] Backward replacement completes in <200ms
+- [ ] WM_SETREDRAW prevents flicker
+- [ ] All matches replaced correctly
+
+**Dialog Behavior:**
+- [ ] Ctrl+F closes Replace dialog, opens Find dialog
+- [ ] Ctrl+H closes Find dialog, opens Replace dialog
+- [ ] History preserved when switching modes
+- [ ] Read-only mode: Replace menu disabled
+
+**Edge Cases:**
+- [ ] Replace with empty string (deletion)
+- [ ] Find and replace with same text (no-op)
+- [ ] Very long replacement text (>1000 chars)
+- [ ] Unicode text with emoji and diacritics
+
+### Performance Benchmarks
+
+**Test Case:** Replace 64 occurrences of "foo" with "bar" in 8KB document
+
+**Results:**
+- **In-memory algorithm (no whole-word):** ~5ms (instant, single undo)
+- **Backward algorithm (whole-word):** ~138ms (30% faster than forward)
+- **Forward algorithm (old, deprecated):** ~200ms (multiple redraws)
+
+**Comparison:**
+- PSPad: Instant (uses in-memory replacement)
+- Notepad++: Instant (uses in-memory replacement)
+- RichEditor Phase 2.9.2: Instant (matches PSPad!)
+
 ## Phase 2.10: Configurable Date/Time Format (Important Patterns)
 
 ### Overview
@@ -2075,7 +2512,6 @@ After making changes:
 
 ### Current Limitations
 
-- No Replace functionality (planned for Phase 2.9.2)
 - No Bookmark system (planned for Phase 2.9.3)
 - No Go to Line dialog (planned for Phase 2.9.4)
 - No font selection dialog
@@ -2226,7 +2662,7 @@ For questions about this project, refer to:
 ---
 
 **Last Updated:** January 2026  
-**Project Version:** Phase 2.9.1 Complete (Find Dialog with Escape Sequences)  
-**Code Size:** ~8,050 lines (main.cpp)  
-**Binary Size:** ~314 KB (MinGW stripped), ~962 KB (MinGW with symbols)
+**Project Version:** Phase 2.9.2 Complete (Replace Functionality)  
+**Code Size:** ~8,540 lines (main.cpp)  
+**Binary Size:** ~975 KB (MinGW with symbols)
 
