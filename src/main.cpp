@@ -2593,8 +2593,6 @@ void DoReplaceAll()
         }
         
         free(pMatchPositions);
-        
-        free(pMatchPositions);
         free(pszFindParsed);
         free(pszReplaceParsed);
         free(pszReplaceExpanded);
@@ -2699,12 +2697,13 @@ void DoReplaceAll()
     *pDst = L'\0';
     
     if (nReplacedCount > 0) {
-        // Replace entire text content (single undo operation!)
+        // Replace entire text content using EM_SETTEXTEX (single undo operation!)
         SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
         
-        // Select all and replace
-        SendMessage(g_hWndEdit, EM_SETSEL, 0, -1);
-        SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszResult);
+        SETTEXTEX st = {0};
+        st.flags = ST_DEFAULT;
+        st.codepage = 1200;  // UTF-16LE
+        SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszResult);
         
         SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);
         InvalidateRect(g_hWndEdit, NULL, TRUE);
