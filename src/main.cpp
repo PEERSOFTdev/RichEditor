@@ -2656,8 +2656,11 @@ void DoReplaceAll()
         // Replace entire text content using EM_SETTEXTEX (single undo operation!)
         SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
         
+        // Select all text first for proper undo support
+        SendMessage(g_hWndEdit, EM_SETSEL, 0, -1);
+        
         SETTEXTEX st = {0};
-        st.flags = ST_DEFAULT;
+        st.flags = ST_SELECTION | ST_KEEPUNDO;  // Replace selection with undo support
         st.codepage = 1200;  // UTF-16LE
         SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszResult);
         
