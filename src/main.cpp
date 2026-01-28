@@ -2547,6 +2547,7 @@ void DoReplaceAll()
     if (g_bFindWholeWord) {
         int nReplacedCount = 0;
         size_t nFindLen = wcslen(pszFindParsed);
+        size_t nReplaceLen = wcslen(pszReplaceExpanded);
         
         SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
         
@@ -2571,35 +2572,15 @@ void DoReplaceAll()
             cr.cpMax = nFoundPos + nFindLen;
             SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
             
-            // Get the matched text for placeholder expansion
-            WCHAR *pszMatched = (WCHAR*)malloc((nFindLen + 1) * sizeof(WCHAR));
-            if (pszMatched) {
-                SendMessage(g_hWndEdit, EM_GETSELTEXT, 0, (LPARAM)pszMatched);
-                
-                // Expand placeholder in replacement (in case %0 is used)
-                LPWSTR pszThisReplacement = ExpandReplacePlaceholder(pszReplaceParsed, pszMatched);
-                free(pszMatched);
-                
-                if (pszThisReplacement) {
-                    // Replace selection using EM_SETTEXTEX
-                    SETTEXTEX st = {0};
-                    st.flags = ST_SELECTION;  // Replace selection only
-                    st.codepage = 1200;  // UTF-16LE
-                    SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszThisReplacement);
-                    
-                    // Update search position: move past the replacement
-                    nSearchPos = nFoundPos + wcslen(pszThisReplacement);
-                    
-                    free(pszThisReplacement);
-                    nReplacedCount++;
-                } else {
-                    // Expansion failed - skip this match
-                    nSearchPos = nFoundPos + nFindLen;
-                }
-            } else {
-                // Malloc failed - skip this match
-                nSearchPos = nFoundPos + nFindLen;
-            }
+            // Replace selection using EM_SETTEXTEX (replacement already expanded at start)
+            SETTEXTEX st = {0};
+            st.flags = ST_SELECTION;  // Replace selection only
+            st.codepage = 1200;  // UTF-16LE
+            SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszReplaceExpanded);
+            
+            // Update search position: move past the replacement
+            nSearchPos = nFoundPos + nReplaceLen;
+            nReplacedCount++;
         }
         
         SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);
