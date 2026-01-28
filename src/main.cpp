@@ -2499,6 +2499,22 @@ void DoReplace()
     DoFind(TRUE);  // Search down
 }
 
+//============================================================================
+// Word Boundary Detection
+//============================================================================
+
+// Check if character is a word character (alphanumeric or underscore)
+// Used for whole-word matching - matches standard regex \b behavior
+// Locale-aware via iswalnum() (handles Czech, etc.)
+inline BOOL IsWordCharacter(WCHAR ch)
+{
+    return iswalnum(ch) || ch == L'_';
+}
+
+//============================================================================
+// Replace All Implementation
+//============================================================================
+
 void DoReplaceAll()
 {
     // Read-only protection
@@ -2542,87 +2558,7 @@ void DoReplaceAll()
         return;
     }
     
-    // Whole-word search: Simple iterative approach using FindTextInDocument + EM_SETTEXTEX
-    // This tests raw EM_SETTEXTEX performance without optimization
-    if (g_bFindWholeWord) {
-        int nReplacedCount = 0;
-        size_t nFindLen = wcslen(pszFindParsed);
-        size_t nReplaceLen = wcslen(pszReplaceExpanded);
-        
-        SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
-        
-        // Start from beginning of document
-        LONG nSearchPos = 0;
-        
-        while (TRUE) {
-            // Find next match using RichEdit's FR_WHOLEWORD
-            LONG nFoundPos = FindTextInDocument(
-                pszFindParsed,
-                g_bFindMatchCase,
-                g_bFindWholeWord,
-                TRUE,  // Search down
-                nSearchPos
-            );
-            
-            if (nFoundPos < 0) break;  // No more matches
-            
-            // Select the found text
-            CHARRANGE cr;
-            cr.cpMin = nFoundPos;
-            cr.cpMax = nFoundPos + nFindLen;
-            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-            
-            // Replace selection using EM_SETTEXTEX (replacement already expanded at start)
-            SETTEXTEX st = {0};
-            st.flags = ST_SELECTION;  // Replace selection only
-            st.codepage = 1200;  // UTF-16LE
-            SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszReplaceExpanded);
-            
-            // Update search position: move past the replacement
-            nSearchPos = nFoundPos + nReplaceLen;
-            nReplacedCount++;
-        }
-        
-        SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);
-        InvalidateRect(g_hWndEdit, NULL, TRUE);
-        
-        free(pszFindParsed);
-        free(pszReplaceParsed);
-        free(pszReplaceExpanded);
-        
-        if (nReplacedCount > 0) {
-            g_bModified = TRUE;
-            UpdateTitle();
-            AddToFindHistory(g_szFindWhat);
-            AddToReplaceHistory(g_szReplaceWith);
-            
-            // Show completion message
-            WCHAR szMsgFormat[128];
-            LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_MSG, szMsgFormat, 128);
-            WCHAR szMsg[256];
-            WCHAR szCount[32];
-            _itow(nReplacedCount, szCount, 10);
-            wcscpy(szMsg, L"");
-            WCHAR *pFormat = wcsstr(szMsgFormat, L"%d");
-            if (pFormat) {
-                size_t nBeforeLen = pFormat - szMsgFormat;
-                wcsncpy(szMsg, szMsgFormat, nBeforeLen);
-                szMsg[nBeforeLen] = L'\0';
-                wcscat(szMsg, szCount);
-                wcscat(szMsg, pFormat + 2);
-            } else {
-                wcscpy(szMsg, szMsgFormat);
-                wcscat(szMsg, L" ");
-                wcscat(szMsg, szCount);
-            }
-            WCHAR szTitle[64];
-            LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
-            MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
-        }
-        return;
-    }
-    
-    // Fast in-memory replacement (case-sensitive or case-insensitive, no whole-word)
+    // Unified fast in-memory replacement with optional whole-word checking
     // Get all text from RichEdit
     GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};  // UTF-16LE
     int nLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
@@ -2652,6 +2588,15 @@ void DoReplaceAll()
     size_t nFindLen = wcslen(pszFindParsed);
     size_t nReplaceLen = wcslen(pszReplaceExpanded);
     
+    // Safety check: prevent division by zero
+    if (nFindLen == 0) {
+        free(pszOriginal);
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        free(pszReplaceExpanded);
+        return;
+    }
+    
     // Allocate result buffer (worst case: all text becomes replacement)
     size_t nMaxResult = nLen * nReplaceLen / nFindLen + nLen + 1000;
     WCHAR *pszResult = (WCHAR*)malloc(nMaxResult * sizeof(WCHAR));
@@ -2670,20 +2615,38 @@ void DoReplaceAll()
     while (*pSrc) {
         BOOL bMatch = FALSE;
         
+        // Check for string match
         if (g_bFindMatchCase) {
             bMatch = (wcsncmp(pSrc, pszFindParsed, nFindLen) == 0);
         } else {
             bMatch = (_wcsnicmp(pSrc, pszFindParsed, nFindLen) == 0);
         }
         
+        // If matched and whole-word mode is enabled, check word boundaries
+        if (bMatch && g_bFindWholeWord) {
+            // Check character BEFORE match
+            if (pSrc > pszOriginal) {  // Not at document start
+                if (IsWordCharacter(*(pSrc - 1))) {
+                    bMatch = FALSE;  // Preceded by word character - not a whole word
+                }
+            }
+            
+            // Check character AFTER match (only if still matched)
+            if (bMatch && *(pSrc + nFindLen) != L'\0') {  // Not at document end
+                if (IsWordCharacter(*(pSrc + nFindLen))) {
+                    bMatch = FALSE;  // Followed by word character - not a whole word
+                }
+            }
+        }
+        
         if (bMatch) {
-            // Copy replacement text
+            // Match found and passed whole-word check (if enabled)
             wcscpy(pDst, pszReplaceExpanded);
             pDst += nReplaceLen;
             pSrc += nFindLen;
             nReplacedCount++;
         } else {
-            // Copy original character
+            // No match or failed whole-word check - copy original character
             *pDst++ = *pSrc++;
         }
     }
