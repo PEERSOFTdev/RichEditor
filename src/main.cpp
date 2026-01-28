@@ -2542,110 +2542,74 @@ void DoReplaceAll()
         return;
     }
     
-    // Whole-word search: Use EM_SETTEXTEX with in-memory replacement after finding positions
+    // Whole-word search: Simple iterative approach using FindTextInDocument + EM_SETTEXTEX
+    // This tests raw EM_SETTEXTEX performance without optimization
     if (g_bFindWholeWord) {
-        // First pass: collect all match positions using RichEdit's FR_WHOLEWORD
-        #define MAX_MATCHES 100000
-        LONG *pMatchPositions = (LONG*)malloc(MAX_MATCHES * sizeof(LONG));
-        if (!pMatchPositions) {
-            free(pszFindParsed);
-            free(pszReplaceParsed);
-            free(pszReplaceExpanded);
-            return;
-        }
-        
-        int nMatchCount = 0;
-        LONG nSearchPos = 0;
+        int nReplacedCount = 0;
         size_t nFindLen = wcslen(pszFindParsed);
         
-        while (nMatchCount < MAX_MATCHES) {
+        SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
+        
+        // Start from beginning of document
+        LONG nSearchPos = 0;
+        
+        while (TRUE) {
+            // Find next match using RichEdit's FR_WHOLEWORD
             LONG nFoundPos = FindTextInDocument(
                 pszFindParsed,
                 g_bFindMatchCase,
                 g_bFindWholeWord,
-                TRUE,
+                TRUE,  // Search down
                 nSearchPos
             );
             
-            if (nFoundPos < 0) break;
+            if (nFoundPos < 0) break;  // No more matches
             
-            pMatchPositions[nMatchCount++] = nFoundPos;
-            nSearchPos = nFoundPos + nFindLen;
+            // Select the found text
+            CHARRANGE cr;
+            cr.cpMin = nFoundPos;
+            cr.cpMax = nFoundPos + nFindLen;
+            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            
+            // Get the matched text for placeholder expansion
+            WCHAR *pszMatched = (WCHAR*)malloc((nFindLen + 1) * sizeof(WCHAR));
+            if (pszMatched) {
+                SendMessage(g_hWndEdit, EM_GETSELTEXT, 0, (LPARAM)pszMatched);
+                
+                // Expand placeholder in replacement (in case %0 is used)
+                LPWSTR pszThisReplacement = ExpandReplacePlaceholder(pszReplaceParsed, pszMatched);
+                free(pszMatched);
+                
+                if (pszThisReplacement) {
+                    // Replace selection using EM_SETTEXTEX
+                    SETTEXTEX st = {0};
+                    st.flags = ST_SELECTION;  // Replace selection only
+                    st.codepage = 1200;  // UTF-16LE
+                    SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszThisReplacement);
+                    
+                    // Update search position: move past the replacement
+                    nSearchPos = nFoundPos + wcslen(pszThisReplacement);
+                    
+                    free(pszThisReplacement);
+                    nReplacedCount++;
+                } else {
+                    // Expansion failed - skip this match
+                    nSearchPos = nFoundPos + nFindLen;
+                }
+            } else {
+                // Malloc failed - skip this match
+                nSearchPos = nFoundPos + nFindLen;
+            }
         }
         
-        if (nMatchCount > 0) {
-            // Get entire document text
-            GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};
-            int nLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-            
-            WCHAR *pszOriginal = (WCHAR*)malloc((nLen + 1) * sizeof(WCHAR));
-            if (!pszOriginal) {
-                free(pMatchPositions);
-                free(pszFindParsed);
-                free(pszReplaceParsed);
-                free(pszReplaceExpanded);
-                return;
-            }
-            
-            GETTEXTEX gt = {0};
-            gt.cb = (nLen + 1) * sizeof(WCHAR);
-            gt.flags = GT_DEFAULT;
-            gt.codepage = 1200;
-            SendMessage(g_hWndEdit, EM_GETTEXTEX, (WPARAM)&gt, (LPARAM)pszOriginal);
-            
-            // Build result with replacements
-            size_t nReplaceLen = wcslen(pszReplaceExpanded);
-            size_t nMaxResult = nLen + (nMatchCount * nReplaceLen) + 1000;
-            WCHAR *pszResult = (WCHAR*)malloc(nMaxResult * sizeof(WCHAR));
-            if (!pszResult) {
-                free(pszOriginal);
-                free(pMatchPositions);
-                free(pszFindParsed);
-                free(pszReplaceParsed);
-                free(pszReplaceExpanded);
-                return;
-            }
-            
-            // Copy text with replacements at marked positions
-            WCHAR *pDst = pszResult;
-            LONG nSrcPos = 0;
-            
-            for (int i = 0; i < nMatchCount; i++) {
-                LONG nMatchPos = pMatchPositions[i];
-                
-                // Copy text before match
-                while (nSrcPos < nMatchPos) {
-                    *pDst++ = pszOriginal[nSrcPos++];
-                }
-                
-                // Copy replacement text
-                wcscpy(pDst, pszReplaceExpanded);
-                pDst += nReplaceLen;
-                
-                // Skip matched text
-                nSrcPos += nFindLen;
-            }
-            
-            // Copy remaining text after last match
-            while (nSrcPos < nLen) {
-                *pDst++ = pszOriginal[nSrcPos++];
-            }
-            *pDst = L'\0';
-            
-            // Replace entire document using EM_SETTEXTEX (single undo!)
-            SendMessage(g_hWndEdit, WM_SETREDRAW, FALSE, 0);
-            
-            SETTEXTEX st = {0};
-            st.flags = ST_DEFAULT;
-            st.codepage = 1200;
-            SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszResult);
-            
-            SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);
-            InvalidateRect(g_hWndEdit, NULL, TRUE);
-            
-            free(pszOriginal);
-            free(pszResult);
-            
+        SendMessage(g_hWndEdit, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(g_hWndEdit, NULL, TRUE);
+        
+        free(pszFindParsed);
+        free(pszReplaceParsed);
+        free(pszReplaceExpanded);
+        
+        if (nReplacedCount > 0) {
             g_bModified = TRUE;
             UpdateTitle();
             AddToFindHistory(g_szFindWhat);
@@ -2656,7 +2620,7 @@ void DoReplaceAll()
             LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_MSG, szMsgFormat, 128);
             WCHAR szMsg[256];
             WCHAR szCount[32];
-            _itow(nMatchCount, szCount, 10);
+            _itow(nReplacedCount, szCount, 10);
             wcscpy(szMsg, L"");
             WCHAR *pFormat = wcsstr(szMsgFormat, L"%d");
             if (pFormat) {
@@ -2674,11 +2638,6 @@ void DoReplaceAll()
             LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
             MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
         }
-        
-        free(pMatchPositions);
-        free(pszFindParsed);
-        free(pszReplaceParsed);
-        free(pszReplaceExpanded);
         return;
     }
     
