@@ -140,6 +140,8 @@
 #define IDS_REDO_DELETE                 2054
 #define IDS_REDO_FILTER                 2055
 #define IDS_REDO_DRAGDROP               2056
+#define IDS_UNDO_REPLACE                2062  // Phase 2.9.2
+#define IDS_REDO_REPLACE                2063  // Phase 2.9.2
 
 // URL context menu and error strings (2057-2059)
 #define IDS_CONTEXT_OPEN_URL            2057

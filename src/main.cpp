@@ -86,6 +86,7 @@ WNDPROC g_pfnOriginalEditProc = NULL;         // Original RichEdit window proced
 // All standard operations (typing, delete, cut, paste, drag-drop) are
 // reported by RichEdit via EM_GETUNDONAME / EM_GETREDONAME messages.
 BOOL g_bLastOperationWasFilter = FALSE;  // TRUE if last operation was a filter
+BOOL g_bLastOperationWasReplace = FALSE; // TRUE if last operation was Replace All (Phase 2.9.2)
 
 //============================================================================
 // Filter System (Phase 2+)
@@ -2682,6 +2683,9 @@ void DoReplaceAll()
         AddToFindHistory(g_szFindWhat);
         AddToReplaceHistory(g_szReplaceWith);
         
+        // Mark as Replace operation for undo menu display
+        g_bLastOperationWasReplace = TRUE;
+        
         // Show completion message using localized format string
         WCHAR szMsgFormat[128];
         LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_MSG, szMsgFormat, 128);
@@ -4761,12 +4765,14 @@ void UpdateMenuUndoRedo(HMENU hMenu)
     // Update Undo menu item
     WCHAR szUndoText[64];
     if (canUndo) {
-        // Get undo type from RichEdit (or use filter flag)
-        LRESULT undoType = g_bLastOperationWasFilter ? 0 : SendMessage(g_hWndEdit, EM_GETUNDONAME, 0, 0);
+        // Get undo type from RichEdit (or use custom operation flags)
+        LRESULT undoType = (g_bLastOperationWasFilter || g_bLastOperationWasReplace) ? 0 : SendMessage(g_hWndEdit, EM_GETUNDONAME, 0, 0);
         
         UINT stringID = IDS_UNDO;
         if (g_bLastOperationWasFilter) {
             stringID = IDS_UNDO_FILTER;
+        } else if (g_bLastOperationWasReplace) {
+            stringID = IDS_UNDO_REPLACE;
         } else {
             switch (undoType) {
                 case 1: stringID = IDS_UNDO_TYPING;   break; // UID_TYPING
@@ -4807,8 +4813,9 @@ void UpdateMenuUndoRedo(HMENU hMenu)
             case 3: stringID = IDS_REDO_DRAGDROP; break; // UID_DRAGDROP
             case 4: stringID = IDS_REDO_CUT;      break; // UID_CUT
             case 5: stringID = IDS_REDO_PASTE;    break; // UID_PASTE
-            // Note: RichEdit doesn't know about filters, so filter redos will show as UID_UNKNOWN
-            default: stringID = IDS_REDO;         break; // UID_UNKNOWN or filter
+            // Note: RichEdit doesn't know about filters or replace, so they show as UID_UNKNOWN
+            // We can't distinguish between them after undo, so just show generic "Redo"
+            default: stringID = IDS_REDO;         break; // UID_UNKNOWN, filter, or replace
         }
         LoadStringResource(stringID, szRedoText, 64);
     } else {
@@ -6305,8 +6312,9 @@ BOOL PromptSaveChanges()
 //============================================================================
 void EditUndo()
 {
-    // Clear filter flag when undoing
+    // Clear operation flags when undoing
     g_bLastOperationWasFilter = FALSE;
+    g_bLastOperationWasReplace = FALSE;
     SendMessage(g_hWndEdit, EM_UNDO, 0, 0);
     
     // After undo, document may differ from saved file

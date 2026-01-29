@@ -210,6 +210,8 @@ BEGIN
     IDS_REDO_DELETE              "Redo Delete"
     IDS_REDO_FILTER              "Redo Filter"
     IDS_REDO_DRAGDROP            "Redo Drag-Drop"
+    IDS_UNDO_REPLACE             "Undo Replace All"
+    IDS_REDO_REPLACE             "Redo Replace All"
     
     // URL strings
     IDS_CONTEXT_OPEN_URL         "Open URL"
@@ -443,6 +445,8 @@ BEGIN
     IDS_REDO_DELETE              "Znovu smazání"
     IDS_REDO_FILTER              "Znovu filtr"
     IDS_REDO_DRAGDROP            "Znovu přetažení"
+    IDS_UNDO_REPLACE             "Zpět nahrazení všech"
+    IDS_REDO_REPLACE             "Znovu nahrazení všech"
     
     // URL strings
     IDS_CONTEXT_OPEN_URL         "Otevřít URL"
