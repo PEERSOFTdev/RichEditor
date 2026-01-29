@@ -337,12 +337,14 @@ BOOL g_bSelectAfterFind = TRUE;                  // Select found text (configura
 // Find history
 WCHAR g_szFindHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];
 int g_nFindHistoryCount = 0;
+BOOL g_bFindHistoryDirty = FALSE;                // TRUE if history needs saving (performance optimization)
 
 // Replace System (Phase 2.9.2)
 WCHAR g_szReplaceWith[MAX_SEARCH_TEXT] = L"";    // Current replacement text
 WCHAR g_szReplaceHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT]; // Replace history
 int g_nReplaceHistoryCount = 0;                  // Replace history count
 BOOL g_bReplaceMode = FALSE;                     // Dialog mode (FALSE=Find, TRUE=Replace)
+BOOL g_bReplaceHistoryDirty = FALSE;             // TRUE if history needs saving (performance optimization)
 
 //============================================================================
 // Date/Time Configuration (Phase 2.10, ToDo #3)
@@ -2200,17 +2202,15 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                 
                 case IDC_CLOSE_BTN:
                 case IDCANCEL:
-                    // Save history before closing
-                    SaveFindHistory();
-                    SaveReplaceHistory();
+                    // Don't save history here - only on application exit (performance optimization)
+                    // History is saved in WM_DESTROY handler
                     ShowWindow(hDlg, SW_HIDE);  // Hide instead of destroy (modeless)
                     return TRUE;
             }
             break;
         
         case WM_CLOSE:
-            SaveFindHistory();
-            SaveReplaceHistory();
+            // Don't save history here - only on application exit (performance optimization)
             ShowWindow(hDlg, SW_HIDE);  // Hide instead of destroy
             return TRUE;
     }
@@ -2246,6 +2246,12 @@ void LoadFindHistory()
 //============================================================================
 void SaveFindHistory()
 {
+    // Performance optimization: only save if history changed
+    // (Prevents ~23 INI writes on every dialog close, which can be slow with antivirus/slow disks)
+    if (!g_bFindHistoryDirty) {
+        return;
+    }
+    
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
@@ -2273,6 +2279,8 @@ void SaveFindHistory()
                  g_bFindWholeWord ? L"1" : L"0");
     WriteINIValue(szIniPath, L"Settings", L"FindUseEscapes", 
                  g_bFindUseEscapes ? L"1" : L"0");
+    
+    g_bFindHistoryDirty = FALSE;  // Reset dirty flag
 }
 
 //============================================================================
@@ -2296,6 +2304,7 @@ void AddToFindHistory(LPCWSTR pszText)
             
             // Put at top
             wcscpy(g_szFindHistory[0], szTemp);
+            g_bFindHistoryDirty = TRUE;  // Mark for saving
             return;
         }
     }
@@ -2312,6 +2321,7 @@ void AddToFindHistory(LPCWSTR pszText)
     
     // Add new item at top
     wcscpy(g_szFindHistory[0], pszText);
+    g_bFindHistoryDirty = TRUE;  // Mark for saving
 }
 
 //============================================================================
@@ -2696,7 +2706,12 @@ void DoReplaceAll()
         
         WCHAR szTitle[64];
         LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
+        
+        // Prevent autosave while showing completion dialog
+        // (MessageBox steals focus, triggering WM_KILLFOCUS, which would autosave the replaced text before user can undo!)
+        g_bShowingErrorDialog = TRUE;
         MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
+        g_bShowingErrorDialog = FALSE;
     }
     
     // Cleanup
@@ -2736,6 +2751,11 @@ void LoadReplaceHistory()
 
 void SaveReplaceHistory()
 {
+    // Performance optimization: only save if history changed
+    if (!g_bReplaceHistoryDirty) {
+        return;
+    }
+    
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
     WCHAR *pExt = wcsrchr(szIniPath, L'.');
@@ -2754,6 +2774,8 @@ void SaveReplaceHistory()
         
         WriteINIValue(szIniPath, L"ReplaceHistory", szKey, g_szReplaceHistory[i]);
     }
+    
+    g_bReplaceHistoryDirty = FALSE;  // Reset dirty flag
 }
 
 void AddToReplaceHistory(LPCWSTR pszText)
@@ -2774,6 +2796,7 @@ void AddToReplaceHistory(LPCWSTR pszText)
             
             // Put at top
             wcscpy(g_szReplaceHistory[0], szTemp);
+            g_bReplaceHistoryDirty = TRUE;  // Mark for saving
             return;
         }
     }
@@ -2790,6 +2813,7 @@ void AddToReplaceHistory(LPCWSTR pszText)
     
     // Add new item at top
     wcscpy(g_szReplaceHistory[0], pszText);
+    g_bReplaceHistoryDirty = TRUE;  // Mark for saving
 }
 
 //============================================================================
@@ -2885,8 +2909,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
         case WM_KILLFOCUS:
             // Autosave on focus loss if enabled
-            // BUT: Don't autosave if we're showing the save prompt OR error dialog (prevents saving before user responds / infinite loop)
-            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss && !g_bPromptingForSave && !g_bShowingErrorDialog) {
+            // BUT: Don't autosave if we're showing dialogs (prevents saving before user responds / infinite loop)
+            // Also skip if Find/Replace dialog is open (user may want to undo Replace All)
+            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss && !g_bPromptingForSave && !g_bShowingErrorDialog &&
+                g_hDlgFind == NULL) {
                 DoAutosave();
             }
             return 0;
@@ -3554,7 +3580,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Destroy Find dialog if open (Phase 2.9)
             if (g_hDlgFind) {
-                SaveFindHistory();  // Save before destroying
+                // Force save history on exit (ignore dirty flag)
+                g_bFindHistoryDirty = TRUE;
+                g_bReplaceHistoryDirty = TRUE;
+                SaveFindHistory();
+                SaveReplaceHistory();
                 DestroyWindow(g_hDlgFind);
                 g_hDlgFind = NULL;
             }
@@ -6278,6 +6308,12 @@ void EditUndo()
     // Clear filter flag when undoing
     g_bLastOperationWasFilter = FALSE;
     SendMessage(g_hWndEdit, EM_UNDO, 0, 0);
+    
+    // After undo, document may differ from saved file
+    // (If autosave ran after an operation, then undo reverts but file still has the change)
+    // Mark as modified to ensure save prompt appears
+    g_bModified = TRUE;
+    UpdateTitle();
 }
 
 //============================================================================
@@ -6286,6 +6322,11 @@ void EditUndo()
 void EditRedo()
 {
     SendMessage(g_hWndEdit, EM_REDO, 0, 0);
+    
+    // After redo, document state changes
+    // Mark as modified to ensure save prompt appears
+    g_bModified = TRUE;
+    UpdateTitle();
 }
 
 //============================================================================
@@ -8448,7 +8489,10 @@ void DoAutosave()
     // 2. Document has been modified
     // 3. Document has a filename (not "Untitled")
     // 4. Not in read-only mode
-    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly) {
+    // 5. Not showing a dialog (prevents saving before user can undo/respond)
+    // 6. Find/Replace dialog not open (user may want to undo Replace All)
+    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly ||
+        g_bPromptingForSave || g_bShowingErrorDialog || g_hDlgFind != NULL) {
         return;
     }
     
