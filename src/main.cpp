@@ -52,8 +52,6 @@ WCHAR g_szRichEditClassNameINI[64] = L"";           // User override from INI (P
 BOOL g_bAutosaveEnabled = TRUE;              // Enable/disable autosave
 UINT g_nAutosaveIntervalMinutes = 1;         // Autosave interval in minutes (0 = disabled)
 BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
-BOOL g_bPromptingForSave = FALSE;            // TRUE when showing save prompt (prevents autosave on focus loss)
-BOOL g_bShowingErrorDialog = FALSE;          // TRUE when showing error dialog (prevents autosave infinite loop)
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar display
 
@@ -2711,11 +2709,7 @@ void DoReplaceAll()
         WCHAR szTitle[64];
         LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
         
-        // Prevent autosave while showing completion dialog
-        // (MessageBox steals focus, triggering WM_KILLFOCUS, which would autosave the replaced text before user can undo!)
-        g_bShowingErrorDialog = TRUE;
         MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
-        g_bShowingErrorDialog = FALSE;
     }
     
     // Cleanup
@@ -2911,15 +2905,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
             
-        case WM_KILLFOCUS:
-            // Autosave on focus loss if enabled
-            // BUT: Don't autosave if we're showing dialogs (prevents saving before user responds / infinite loop)
-            // Also skip if Find/Replace dialog is open (user may want to undo Replace All)
-            if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss && !g_bPromptingForSave && !g_bShowingErrorDialog &&
-                g_hDlgFind == NULL) {
-                DoAutosave();
+        case WM_ACTIVATEAPP:
+        {
+            if (!wParam) { // app is being deactivated
+                if (g_bAutosaveEnabled && g_bAutosaveOnFocusLoss) {
+                    DoAutosave();
+                }
             }
             return 0;
+        }
             
         case WM_TIMER:
             // Handle autosave timer
@@ -5145,11 +5139,7 @@ void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError)
     WCHAR szTitle[64];
     LoadStringResource(IDS_ERROR, szTitle, 64);
     
-    // Set flag to prevent autosave-on-focus-loss while showing error dialog
-    // (MessageBox steals focus, triggering WM_KILLFOCUS, which would cause infinite loop!)
-    g_bShowingErrorDialog = TRUE;
     MessageBox(g_hWndMain, szError, szTitle, MB_OK | MB_ICONERROR);
-    g_bShowingErrorDialog = FALSE;
 }
 
 //============================================================================
@@ -6278,15 +6268,8 @@ BOOL PromptSaveChanges()
         _snwprintf(szPrompt, MAX_PATH + 100, szTemplate, szUntitled);
     }
     
-    // Set flag to prevent autosave-on-focus-loss while showing the prompt
-    // (MessageBox steals focus, triggering WM_KILLFOCUS, which would autosave before user responds!)
-    g_bPromptingForSave = TRUE;
-    
     int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",
                            MB_YESNOCANCEL | MB_ICONQUESTION);
-    
-    // Clear flag after user responds
-    g_bPromptingForSave = FALSE;
     
     switch (result) {
         case IDYES:
@@ -8497,10 +8480,19 @@ void DoAutosave()
     // 2. Document has been modified
     // 3. Document has a filename (not "Untitled")
     // 4. Not in read-only mode
-    // 5. Not showing a dialog (prevents saving before user can undo/respond)
-    // 6. Find/Replace dialog not open (user may want to undo Replace All)
-    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly ||
-        g_bPromptingForSave || g_bShowingErrorDialog || g_hDlgFind != NULL) {
+    // 5. No dialog from our app is currently in foreground
+    
+    // Check if a dialog from our app has foreground focus
+    BOOL bDialogActive = FALSE;
+    HWND hwndForeground = GetForegroundWindow();
+    if (hwndForeground != NULL && hwndForeground != g_hWndMain) {
+        // Check if foreground window is part of our app hierarchy
+        if (GetAncestor(hwndForeground, GA_ROOT) == g_hWndMain) {
+            bDialogActive = TRUE;  // One of our dialogs is active
+        }
+    }
+    
+    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly || bDialogActive) {
         return;
     }
     
