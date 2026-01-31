@@ -446,6 +446,7 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
 void LoadFindHistory();
 void SaveFindHistory();
 void AddToFindHistory(LPCWSTR pszText);
+int LoadHistoryList(LPCWSTR pszSection, WCHAR history[][MAX_SEARCH_TEXT], int maxCount);
 
 // Replace functions (Phase 2.9.2)
 void UpdateDialogMode(HWND hDlg, BOOL bReplaceMode);
@@ -460,6 +461,12 @@ void AddToReplaceHistory(LPCWSTR pszText);
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
 int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault);
 BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue);
+BOOL LoadINIFileToWide(LPCWSTR pszIniPath, std::wstring& wideData);
+BOOL WriteWideINIFile(LPCWSTR pszIniPath, const std::wstring& wideData);
+BOOL ReplaceINISection(LPCWSTR pszIniPath, LPCWSTR pszSection, const std::wstring& sectionContent);
+void AppendKeyValueLine(std::wstring& section, LPCWSTR pszKey, LPCWSTR pszValue);
+void AppendIndexedLine(std::wstring& section, LPCWSTR pszKeyPrefix, int index, LPCWSTR pszValue);
+void BuildHistorySection(std::wstring& section, LPCWSTR pszSectionName, const WCHAR history[][MAX_SEARCH_TEXT], int count);
 
 // Resume file functions (Phase 2.6)
 enum ResumeFileSaveMode {
@@ -2222,22 +2229,7 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
 //============================================================================
 void LoadFindHistory()
 {
-    WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
-    
-    // Read count
-    g_nFindHistoryCount = ReadINIInt(szIniPath, L"FindHistory", L"Count", 0);
-    if (g_nFindHistoryCount > MAX_FIND_HISTORY) {
-        g_nFindHistoryCount = MAX_FIND_HISTORY;
-    }
-    
-    // Read each item
-    for (int i = 0; i < g_nFindHistoryCount; i++) {
-        WCHAR szKey[32];
-        swprintf(szKey, 32, L"Item%d", i + 1);  // OK: numeric formatting only
-        ReadINIValue(szIniPath, L"FindHistory", szKey, 
-                    g_szFindHistory[i], MAX_SEARCH_TEXT, L"");
-    }
+    g_nFindHistoryCount = LoadHistoryList(L"FindHistory", g_szFindHistory, MAX_FIND_HISTORY);
 }
 
 //============================================================================
@@ -2259,17 +2251,9 @@ void SaveFindHistory()
         AddToFindHistory(g_szFindWhat);
     }
     
-    // Write count
-    WCHAR szCount[16];
-    swprintf(szCount, 16, L"%d", g_nFindHistoryCount);
-    WriteINIValue(szIniPath, L"FindHistory", L"Count", szCount);
-    
-    // Write each item
-    for (int i = 0; i < g_nFindHistoryCount; i++) {
-        WCHAR szKey[32];
-        swprintf(szKey, 32, L"Item%d", i + 1);
-        WriteINIValue(szIniPath, L"FindHistory", szKey, g_szFindHistory[i]);
-    }
+    std::wstring historySection;
+    BuildHistorySection(historySection, L"FindHistory", g_szFindHistory, g_nFindHistoryCount);
+    ReplaceINISection(szIniPath, L"FindHistory", historySection);
     
     // Save checkbox states to Settings section
     WriteINIValue(szIniPath, L"Settings", L"FindMatchCase", 
@@ -2722,29 +2706,7 @@ void DoReplaceAll()
 
 void LoadReplaceHistory()
 {
-    WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    WCHAR *pExt = wcsrchr(szIniPath, L'.');
-    if (pExt) wcscpy(pExt, L".ini");
-    
-    WCHAR szCount[16];
-    ReadINIValue(szIniPath, L"ReplaceHistory", L"Count", szCount, 16, L"0");
-    g_nReplaceHistoryCount = _wtoi(szCount);
-    
-    if (g_nReplaceHistoryCount > MAX_FIND_HISTORY) {
-        g_nReplaceHistoryCount = MAX_FIND_HISTORY;
-    }
-    
-    for (int i = 0; i < g_nReplaceHistoryCount; i++) {
-        WCHAR szKey[32];
-        wcscpy(szKey, L"Item");
-        WCHAR szNum[16];
-        _itow(i, szNum, 10);
-        wcscat(szKey, szNum);
-        
-        ReadINIValue(szIniPath, L"ReplaceHistory", szKey, 
-                    g_szReplaceHistory[i], MAX_SEARCH_TEXT, L"");
-    }
+    g_nReplaceHistoryCount = LoadHistoryList(L"ReplaceHistory", g_szReplaceHistory, MAX_FIND_HISTORY);
 }
 
 void SaveReplaceHistory()
@@ -2755,23 +2717,11 @@ void SaveReplaceHistory()
     }
     
     WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetModuleFileName(NULL, szIniPath, EXTENDED_PATH_MAX);
-    WCHAR *pExt = wcsrchr(szIniPath, L'.');
-    if (pExt) wcscpy(pExt, L".ini");
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
-    WCHAR szCount[16];
-    _itow(g_nReplaceHistoryCount, szCount, 10);
-    WriteINIValue(szIniPath, L"ReplaceHistory", L"Count", szCount);
-    
-    for (int i = 0; i < g_nReplaceHistoryCount; i++) {
-        WCHAR szKey[32];
-        wcscpy(szKey, L"Item");
-        WCHAR szNum[16];
-        _itow(i, szNum, 10);
-        wcscat(szKey, szNum);
-        
-        WriteINIValue(szIniPath, L"ReplaceHistory", szKey, g_szReplaceHistory[i]);
-    }
+    std::wstring historySection;
+    BuildHistorySection(historySection, L"ReplaceHistory", g_szReplaceHistory, g_nReplaceHistoryCount);
+    ReplaceINISection(szIniPath, L"ReplaceHistory", historySection);
     
     g_bReplaceHistoryDirty = FALSE;  // Reset dirty flag
 }
@@ -5733,6 +5683,181 @@ BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWS
 }
 
 //============================================================================
+// LoadINIFileToWide - Read INI file into wide string
+//============================================================================
+BOOL LoadINIFileToWide(LPCWSTR pszIniPath, std::wstring& wideData)
+{
+    std::string existingData;
+    HANDLE hFile = CreateFile(pszIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    
+    if (hFile != INVALID_HANDLE_VALUE) {
+        DWORD dwSize = GetFileSize(hFile, NULL);
+        if (dwSize > 0 && dwSize != INVALID_FILE_SIZE) {
+            char* pszFileData = (char*)malloc(dwSize + 1);
+            if (pszFileData) {
+                DWORD dwRead;
+                if (ReadFile(hFile, pszFileData, dwSize, &dwRead, NULL)) {
+                    pszFileData[dwRead] = '\0';
+                    existingData.assign(pszFileData, dwRead);
+                }
+                free(pszFileData);
+            }
+        }
+        CloseHandle(hFile);
+    }
+    
+    wideData.clear();
+    if (existingData.empty()) {
+        return TRUE;
+    }
+    
+    int cchWide = MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, NULL, 0);
+    if (cchWide <= 0) {
+        return FALSE;
+    }
+    
+    WCHAR* pszWideData = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
+    if (!pszWideData) {
+        return FALSE;
+    }
+    
+    MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, pszWideData, cchWide);
+    wideData = pszWideData;
+    free(pszWideData);
+    
+    return TRUE;
+}
+
+//============================================================================
+// WriteWideINIFile - Write wide string to INI file (UTF-8)
+//============================================================================
+BOOL WriteWideINIFile(LPCWSTR pszIniPath, const std::wstring& wideData)
+{
+    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, NULL, 0, NULL, NULL);
+    if (cbUTF8 <= 0) {
+        return FALSE;
+    }
+    
+    char* pszUTF8 = (char*)malloc(cbUTF8);
+    if (!pszUTF8) {
+        return FALSE;
+    }
+    
+    WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, pszUTF8, cbUTF8, NULL, NULL);
+    
+    HANDLE hFile = CreateFile(pszIniPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        free(pszUTF8);
+        return FALSE;
+    }
+    
+    DWORD dwWritten;
+    BOOL success = WriteFile(hFile, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
+    CloseHandle(hFile);
+    free(pszUTF8);
+    
+    return success;
+}
+
+//============================================================================
+// ReplaceINISection - Replace or append a section with new content
+//============================================================================
+BOOL ReplaceINISection(LPCWSTR pszIniPath, LPCWSTR pszSection, const std::wstring& sectionContent)
+{
+    std::wstring wideData;
+    if (!LoadINIFileToWide(pszIniPath, wideData)) {
+        return FALSE;
+    }
+    
+    WCHAR szSectionHeader[256];
+    _snwprintf(szSectionHeader, 256, L"[%s]", pszSection);
+    
+    size_t sectionPos = wideData.find(szSectionHeader);
+    if (sectionPos != std::wstring::npos) {
+        size_t nextSectionPos = wideData.find(L"\n[", sectionPos + wcslen(szSectionHeader));
+        if (nextSectionPos != std::wstring::npos) {
+            wideData.erase(sectionPos, nextSectionPos - sectionPos + 1);
+        } else {
+            wideData.erase(sectionPos);
+        }
+    }
+    
+    if (!wideData.empty() && wideData[wideData.length() - 1] != L'\n') {
+        wideData += L"\r\n";
+    }
+    wideData += sectionContent;
+    
+    return WriteWideINIFile(pszIniPath, wideData);
+}
+
+//============================================================================
+// AppendKeyValueLine - Append key=value\r\n to section string
+//============================================================================
+void AppendKeyValueLine(std::wstring& section, LPCWSTR pszKey, LPCWSTR pszValue)
+{
+    section += pszKey;
+    section += L"=";
+    section += pszValue;
+    section += L"\r\n";
+}
+
+//============================================================================
+// AppendIndexedLine - Append PrefixN=value\r\n (N is 1-based)
+//============================================================================
+void AppendIndexedLine(std::wstring& section, LPCWSTR pszKeyPrefix, int index, LPCWSTR pszValue)
+{
+    WCHAR szKey[64];
+    WCHAR szNum[16];
+    wcscpy(szKey, pszKeyPrefix);
+    _itow(index, szNum, 10);
+    wcscat(szKey, szNum);
+    AppendKeyValueLine(section, szKey, pszValue);
+}
+
+//============================================================================
+// BuildHistorySection - Build [Section] with Count and Item1..ItemN
+//============================================================================
+void BuildHistorySection(std::wstring& section, LPCWSTR pszSectionName, const WCHAR history[][MAX_SEARCH_TEXT], int count)
+{
+    WCHAR szCount[16];
+    _itow(count, szCount, 10);
+    
+    section = L"[";
+    section += pszSectionName;
+    section += L"]\r\n";
+    AppendKeyValueLine(section, L"Count", szCount);
+    
+    for (int i = 0; i < count; i++) {
+        AppendIndexedLine(section, L"Item", i + 1, history[i]);
+    }
+}
+
+//============================================================================
+// LoadHistoryList - Load Item1..ItemN history list from INI
+//============================================================================
+int LoadHistoryList(LPCWSTR pszSection, WCHAR history[][MAX_SEARCH_TEXT], int maxCount)
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+    
+    int count = ReadINIInt(szIniPath, pszSection, L"Count", 0);
+    if (count > maxCount) {
+        count = maxCount;
+    }
+    
+    for (int i = 0; i < count; i++) {
+        WCHAR szKey[32];
+        WCHAR szNum[16];
+        wcscpy(szKey, L"Item");
+        _itow(i + 1, szNum, 10);
+        wcscat(szKey, szNum);
+        ReadINIValue(szIniPath, pszSection, szKey, history[i], MAX_SEARCH_TEXT, L"");
+    }
+    
+    return count;
+}
+
+//============================================================================
 // FileNew - Create new document
 //============================================================================
 void FileNew()
@@ -8002,6 +8127,8 @@ void UpdateMenuStates(HWND hwnd)
         enableStartREPL ? MF_ENABLED : MF_GRAYED);
     EnableMenuItem(hMenu, ID_TOOLS_EXIT_INTERACTIVE, 
         enableExitREPL ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(hMenu, ID_SEARCH_REPLACE,
+        g_bReadOnly ? MF_GRAYED : MF_ENABLED);
     
     DrawMenuBar(hwnd);
 }
@@ -8039,89 +8166,13 @@ void SaveMRU()
     // Get path to INI file
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
-    
-    // Read entire INI file
-    std::string existingData;
-    HANDLE hFile = CreateFile(szIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    
-    if (hFile != INVALID_HANDLE_VALUE) {
-        DWORD dwSize = GetFileSize(hFile, NULL);
-        if (dwSize > 0 && dwSize != INVALID_FILE_SIZE) {
-            char* pszFileData = (char*)malloc(dwSize + 1);
-            if (pszFileData) {
-                DWORD dwRead;
-                if (ReadFile(hFile, pszFileData, dwSize, &dwRead, NULL)) {
-                    pszFileData[dwRead] = '\0';
-                    existingData.assign(pszFileData, dwRead);
-                }
-                free(pszFileData);
-            }
-        }
-        CloseHandle(hFile);
-    }
-    
-    // Convert to wide string
-    std::wstring wideData;
-    if (!existingData.empty()) {
-        int cchWide = MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, NULL, 0);
-        if (cchWide > 0) {
-            WCHAR* pszWideData = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
-            if (pszWideData) {
-                MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, pszWideData, cchWide);
-                wideData = pszWideData;
-                free(pszWideData);
-            }
-        }
-    }
-    
-    // Find and remove existing [MRU] section
-    size_t mruSectionPos = wideData.find(L"[MRU]");
-    if (mruSectionPos != std::wstring::npos) {
-        // Find the start of the next section or end of file
-        size_t nextSectionPos = wideData.find(L"\n[", mruSectionPos + 5);
-        if (nextSectionPos != std::wstring::npos) {
-            // Remove from [MRU] to start of next section
-            wideData.erase(mruSectionPos, nextSectionPos - mruSectionPos + 1);
-        } else {
-            // Remove from [MRU] to end of file
-            wideData.erase(mruSectionPos);
-        }
-    }
-    
-    // Build new [MRU] section
+
     std::wstring mruSection = L"[MRU]\r\n";
     for (int i = 0; i < g_nMRUCount; i++) {
-        WCHAR szLine[EXTENDED_PATH_MAX + 32];
-        _snwprintf(szLine, EXTENDED_PATH_MAX + 32, L"File%d=%s\r\n", i + 1, g_MRU[i]);
-        mruSection += szLine;
+        AppendIndexedLine(mruSection, L"File", i + 1, g_MRU[i]);
     }
     
-    // Append new [MRU] section at the end
-    if (!wideData.empty() && wideData[wideData.length() - 1] != L'\n') {
-        wideData += L"\r\n";
-    }
-    wideData += mruSection;
-    
-    // Convert back to UTF-8
-    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, NULL, 0, NULL, NULL);
-    if (cbUTF8 <= 0) return;
-    
-    char* pszUTF8 = (char*)malloc(cbUTF8);
-    if (!pszUTF8) return;
-    
-    WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, pszUTF8, cbUTF8, NULL, NULL);
-    
-    // Write to file
-    hFile = CreateFile(szIniPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        free(pszUTF8);
-        return;
-    }
-    
-    DWORD dwWritten;
-    WriteFile(hFile, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
-    CloseHandle(hFile);
-    free(pszUTF8);
+    ReplaceINISection(szIniPath, L"MRU", mruSection);
 }
 
 //============================================================================
