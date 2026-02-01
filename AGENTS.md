@@ -17,6 +17,7 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - **Single-file bias:** new functionality generally lives in `src/main.cpp`.
 - **UTF-8 (no BOM):** for text files written by the app.
 - **UNC paths:** avoid Win32 INI APIs (no `GetPrivateProfileString`).
+- **Small binary size:** prefer refactors over new code; report old/new sizes for feature changes.
 
 ## INI System (Current Behavior)
 
@@ -50,3 +51,5 @@ make
 ```
 
 Warnings about GETTEXTEX/SETTEXTEX should not appear; structs are explicitly initialized.
+
+When adding or adjusting features, prefer refactors over new code to keep the binary small, and report old/new binary sizes.

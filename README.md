@@ -135,4 +135,8 @@ The binary ships with English and Czech resources. Windows selects the UI langua
 
 ## License
 
-TBD
+MIT License. See `LICENSE`.
+
+## Project Philosophy
+
+See `PHILOSOPHY.md`.

@@ -40,3 +40,6 @@ msvc/*.exe
 # Other IDEs
 .idea/
 *.sublime-*
+
+# OpenCode workspace
+.opencode/
