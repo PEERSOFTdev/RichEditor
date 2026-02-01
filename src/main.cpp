@@ -40,6 +40,15 @@ BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowT
 BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
 BOOL g_bReadOnly = FALSE;         // Read-only mode (can be set via /readonly or File menu)
 
+// INI cache (single in-memory copy)
+struct IniCache {
+    std::wstring data;
+    BOOL loaded;
+    BOOL dirty;
+};
+
+IniCache g_IniCache = {L"", FALSE, FALSE};
+
 // RichEdit library management (Phase 2.8)
 HMODULE g_hRichEditLib = NULL;                      // RichEdit DLL handle
 float g_fRichEditVersion = 0.0f;                    // Detected version (e.g., 7.5, 8.0)
@@ -336,14 +345,12 @@ BOOL g_bSelectAfterFind = TRUE;                  // Select found text (configura
 // Find history
 WCHAR g_szFindHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT];
 int g_nFindHistoryCount = 0;
-BOOL g_bFindHistoryDirty = FALSE;                // TRUE if history needs saving (performance optimization)
 
 // Replace System (Phase 2.9.2)
 WCHAR g_szReplaceWith[MAX_SEARCH_TEXT] = L"";    // Current replacement text
 WCHAR g_szReplaceHistory[MAX_FIND_HISTORY][MAX_SEARCH_TEXT]; // Replace history
 int g_nReplaceHistoryCount = 0;                  // Replace history count
 BOOL g_bReplaceMode = FALSE;                     // Dialog mode (FALSE=Find, TRUE=Replace)
-BOOL g_bReplaceHistoryDirty = FALSE;             // TRUE if history needs saving (performance optimization)
 
 //============================================================================
 // Date/Time Configuration (Phase 2.10, ToDo #3)
@@ -445,6 +452,7 @@ BOOL DoFind(BOOL bSearchDown);
 INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void LoadFindHistory();
 void SaveFindHistory();
+void SaveFindOptions();
 void AddToFindHistory(LPCWSTR pszText);
 int LoadHistoryList(LPCWSTR pszSection, WCHAR history[][MAX_SEARCH_TEXT], int maxCount);
 
@@ -461,8 +469,8 @@ void AddToReplaceHistory(LPCWSTR pszText);
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
 int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault);
 BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue);
-BOOL LoadINIFileToWide(LPCWSTR pszIniPath, std::wstring& wideData);
-BOOL WriteWideINIFile(LPCWSTR pszIniPath, const std::wstring& wideData);
+BOOL EnsureIniCacheLoaded();
+BOOL FlushIniCache();
 BOOL ReplaceINISection(LPCWSTR pszIniPath, LPCWSTR pszSection, const std::wstring& sectionContent);
 void AppendKeyValueLine(std::wstring& section, LPCWSTR pszKey, LPCWSTR pszValue);
 void AppendIndexedLine(std::wstring& section, LPCWSTR pszKeyPrefix, int index, LPCWSTR pszValue);
@@ -508,6 +516,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     
     // Create default INI and load settings (must be before LoadRichEditLibrary)
     CreateDefaultINI();
+    EnsureIniCacheLoaded();
     LoadSettings();
     
     // Load RichEdit library (uses custom path from INI if specified)
@@ -2048,6 +2057,9 @@ BOOL DoFind(BOOL bSearchDown)
         }
         return FALSE;
     }
+
+    AddToFindHistory(g_szFindWhat);
+    SaveFindHistory();
     
     // Parse escape sequences if enabled
     LPWSTR pszSearchText = NULL;
@@ -2153,6 +2165,7 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                     g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
                     g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
                     g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    SaveFindOptions();
                     
                     // Perform search
                     DoFind(TRUE);  // Search down
@@ -2168,6 +2181,7 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                     g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
                     g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
                     g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    SaveFindOptions();
                     
                     // Perform search
                     DoFind(FALSE);  // Search up
@@ -2184,6 +2198,7 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                     g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
                     g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
                     g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    SaveFindOptions();
                     
                     // Perform replace
                     DoReplace();
@@ -2200,6 +2215,7 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                     g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
                     g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
                     g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    SaveFindOptions();
                     
                     // Perform replace all
                     DoReplaceAll();
@@ -2208,15 +2224,21 @@ INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                 
                 case IDC_CLOSE_BTN:
                 case IDCANCEL:
-                    // Don't save history here - only on application exit (performance optimization)
-                    // History is saved in WM_DESTROY handler
                     ShowWindow(hDlg, SW_HIDE);  // Hide instead of destroy (modeless)
+                    return TRUE;
+                
+                case IDC_MATCH_CASE:
+                case IDC_WHOLE_WORD:
+                case IDC_USE_ESCAPES:
+                    g_bFindMatchCase = (IsDlgButtonChecked(hDlg, IDC_MATCH_CASE) == BST_CHECKED);
+                    g_bFindWholeWord = (IsDlgButtonChecked(hDlg, IDC_WHOLE_WORD) == BST_CHECKED);
+                    g_bFindUseEscapes = (IsDlgButtonChecked(hDlg, IDC_USE_ESCAPES) == BST_CHECKED);
+                    SaveFindOptions();
                     return TRUE;
             }
             break;
         
         case WM_CLOSE:
-            // Don't save history here - only on application exit (performance optimization)
             ShowWindow(hDlg, SW_HIDE);  // Hide instead of destroy
             return TRUE;
     }
@@ -2237,33 +2259,25 @@ void LoadFindHistory()
 //============================================================================
 void SaveFindHistory()
 {
-    // Performance optimization: only save if history changed
-    // (Prevents ~23 INI writes on every dialog close, which can be slow with antivirus/slow disks)
-    if (!g_bFindHistoryDirty) {
-        return;
-    }
-    
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
-    
-    // Add current search term to history if not empty
-    if (g_szFindWhat[0] != L'\0') {
-        AddToFindHistory(g_szFindWhat);
-    }
     
     std::wstring historySection;
     BuildHistorySection(historySection, L"FindHistory", g_szFindHistory, g_nFindHistoryCount);
     ReplaceINISection(szIniPath, L"FindHistory", historySection);
+}
+
+void SaveFindOptions()
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
-    // Save checkbox states to Settings section
     WriteINIValue(szIniPath, L"Settings", L"FindMatchCase", 
                  g_bFindMatchCase ? L"1" : L"0");
     WriteINIValue(szIniPath, L"Settings", L"FindWholeWord", 
                  g_bFindWholeWord ? L"1" : L"0");
     WriteINIValue(szIniPath, L"Settings", L"FindUseEscapes", 
                  g_bFindUseEscapes ? L"1" : L"0");
-    
-    g_bFindHistoryDirty = FALSE;  // Reset dirty flag
 }
 
 //============================================================================
@@ -2287,7 +2301,6 @@ void AddToFindHistory(LPCWSTR pszText)
             
             // Put at top
             wcscpy(g_szFindHistory[0], szTemp);
-            g_bFindHistoryDirty = TRUE;  // Mark for saving
             return;
         }
     }
@@ -2304,7 +2317,6 @@ void AddToFindHistory(LPCWSTR pszText)
     
     // Add new item at top
     wcscpy(g_szFindHistory[0], pszText);
-    g_bFindHistoryDirty = TRUE;  // Mark for saving
 }
 
 //============================================================================
@@ -2485,8 +2497,8 @@ void DoReplace()
     free(pszReplaceExpanded);
     
     // Add to history
-    AddToFindHistory(g_szFindWhat);
     AddToReplaceHistory(g_szReplaceWith);
+    SaveReplaceHistory();
     
     // Find next occurrence
     DoFind(TRUE);  // Search down
@@ -2571,10 +2583,12 @@ void DoReplaceAll()
         return;
     }
     
-    GETTEXTEX gt = {0};
+    GETTEXTEX gt;
     gt.cb = (nLen + 1) * sizeof(WCHAR);
-    gt.flags = GT_DEFAULT;
+    gt.flags = GTL_DEFAULT;
     gt.codepage = 1200;  // UTF-16LE
+    gt.lpDefaultChar = NULL;
+    gt.lpUsedDefChar = NULL;
     SendMessage(g_hWndEdit, EM_GETTEXTEX, (WPARAM)&gt, (LPARAM)pszOriginal);
     
     // Do in-memory replacement
@@ -2652,7 +2666,7 @@ void DoReplaceAll()
         // Select all text first for proper undo support
         SendMessage(g_hWndEdit, EM_SETSEL, 0, -1);
         
-        SETTEXTEX st = {0};
+        SETTEXTEX st;
         st.flags = ST_SELECTION | ST_KEEPUNDO;  // Replace selection with undo support
         st.codepage = 1200;  // UTF-16LE
         SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)pszResult);
@@ -2663,7 +2677,9 @@ void DoReplaceAll()
         g_bModified = TRUE;
         UpdateTitle();
         AddToFindHistory(g_szFindWhat);
+        SaveFindHistory();
         AddToReplaceHistory(g_szReplaceWith);
+        SaveReplaceHistory();
         
         // Mark as Replace operation for undo menu display
         g_bLastOperationWasReplace = TRUE;
@@ -2711,19 +2727,12 @@ void LoadReplaceHistory()
 
 void SaveReplaceHistory()
 {
-    // Performance optimization: only save if history changed
-    if (!g_bReplaceHistoryDirty) {
-        return;
-    }
-    
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
     std::wstring historySection;
     BuildHistorySection(historySection, L"ReplaceHistory", g_szReplaceHistory, g_nReplaceHistoryCount);
     ReplaceINISection(szIniPath, L"ReplaceHistory", historySection);
-    
-    g_bReplaceHistoryDirty = FALSE;  // Reset dirty flag
 }
 
 void AddToReplaceHistory(LPCWSTR pszText)
@@ -2744,7 +2753,6 @@ void AddToReplaceHistory(LPCWSTR pszText)
             
             // Put at top
             wcscpy(g_szReplaceHistory[0], szTemp);
-            g_bReplaceHistoryDirty = TRUE;  // Mark for saving
             return;
         }
     }
@@ -2761,7 +2769,6 @@ void AddToReplaceHistory(LPCWSTR pszText)
     
     // Add new item at top
     wcscpy(g_szReplaceHistory[0], pszText);
-    g_bReplaceHistoryDirty = TRUE;  // Mark for saving
 }
 
 //============================================================================
@@ -2947,7 +2954,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case ID_SEARCH_FIND:
                     // Close existing dialog if open (allows switching from Replace to Find)
                     if (g_hDlgFind) {
-                        SaveFindHistory();
                         DestroyWindow(g_hDlgFind);
                         g_hDlgFind = NULL;
                     }
@@ -2966,7 +2972,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     
                     // Close existing dialog if open (allows switching from Find to Replace)
                     if (g_hDlgFind) {
-                        SaveFindHistory();
                         DestroyWindow(g_hDlgFind);
                         g_hDlgFind = NULL;
                     }
@@ -3478,6 +3483,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     WriteResumeToINI(g_szResumeFilePath, 
                                    g_szFileName[0] ? g_szFileName : L"");
                 }
+                FlushIniCache();
                 DestroyWindow(hwnd);
             } else {
                 // Shutdown was cancelled by another application
@@ -3528,11 +3534,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Destroy Find dialog if open (Phase 2.9)
             if (g_hDlgFind) {
-                // Force save history on exit (ignore dirty flag)
-                g_bFindHistoryDirty = TRUE;
-                g_bReplaceHistoryDirty = TRUE;
-                SaveFindHistory();
-                SaveReplaceHistory();
                 DestroyWindow(g_hDlgFind);
                 g_hDlgFind = NULL;
             }
@@ -3540,6 +3541,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Kill timers
             KillTimer(hwnd, IDT_AUTOSAVE);
             KillTimer(hwnd, IDT_FILTER_STATUSBAR);
+            FlushIniCache();
             PostQuitMessage(0);
             return 0;
     }
@@ -3821,6 +3823,7 @@ void WriteResumeToINI(const WCHAR* pszResumeFile, const WCHAR* pszOriginalPath)
     WriteINIValue(szIniPath, L"Resume", L"ResumeFile", pszResumeFile);
     WriteINIValue(szIniPath, L"Resume", L"OriginalPath", 
                   pszOriginalPath ? pszOriginalPath : L"");
+    FlushIniCache();
 }
 
 //============================================================================
@@ -3849,6 +3852,7 @@ void ClearResumeFromINI()
     
     WriteINIValue(szIniPath, L"Resume", L"ResumeFile", L"");
     WriteINIValue(szIniPath, L"Resume", L"OriginalPath", L"");
+    FlushIniCache();
 }
 
 //============================================================================
@@ -5375,13 +5379,12 @@ void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode)
 }
 
 //============================================================================
-// Simple INI reader that works with UNC paths
-// Reads entire INI file into memory and parses it
+// INI reader backed by cached in-memory data (UNC-safe)
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD cchValue, LPCWSTR pszDefault)
 {
-    // Read entire file
-    HANDLE hFile = CreateFile(pszIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
+    (void)pszIniPath;
+
+    if (!EnsureIniCacheLoaded()) {
         if (pszDefault) {
             wcsncpy(pszValue, pszDefault, cchValue);
             pszValue[cchValue - 1] = L'\0';
@@ -5390,59 +5393,14 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
         }
         return FALSE;
     }
-    
-    DWORD dwSize = GetFileSize(hFile, NULL);
-    if (dwSize == 0 || dwSize == INVALID_FILE_SIZE) {
-        CloseHandle(hFile);
-        if (pszDefault) {
-            wcsncpy(pszValue, pszDefault, cchValue);
-            pszValue[cchValue - 1] = L'\0';
-        } else {
-            pszValue[0] = L'\0';
-        }
-        return FALSE;
-    }
-    
-    char* pszFileData = (char*)malloc(dwSize + 1);
-    if (!pszFileData) {
-        CloseHandle(hFile);
-        pszValue[0] = L'\0';
-        return FALSE;
-    }
-    
-    DWORD dwRead;
-    if (!ReadFile(hFile, pszFileData, dwSize, &dwRead, NULL)) {
-        free(pszFileData);
-        CloseHandle(hFile);
-        if (pszDefault) {
-            wcsncpy(pszValue, pszDefault, cchValue);
-            pszValue[cchValue - 1] = L'\0';
-        } else {
-            pszValue[0] = L'\0';
-        }
-        return FALSE;
-    }
-    pszFileData[dwRead] = '\0';
-    CloseHandle(hFile);
-    
-    // Convert to wide string
-    int cchWide = MultiByteToWideChar(CP_UTF8, 0, pszFileData, -1, NULL, 0);
-    WCHAR* pszWideData = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
-    if (!pszWideData) {
-        free(pszFileData);
-        pszValue[0] = L'\0';
-        return FALSE;
-    }
-    MultiByteToWideChar(CP_UTF8, 0, pszFileData, -1, pszWideData, cchWide);
-    free(pszFileData);
     
     // Parse INI: find [Section]
     WCHAR szSectionHeader[256];
     _snwprintf(szSectionHeader, 256, L"[%s]", pszSection);
     
-    WCHAR* pszSectionStart = wcsstr(pszWideData, szSectionHeader);
+    const WCHAR* pszData = g_IniCache.data.c_str();
+    const WCHAR* pszSectionStart = wcsstr(pszData, szSectionHeader);
     if (!pszSectionStart) {
-        free(pszWideData);
         if (pszDefault) {
             wcsncpy(pszValue, pszDefault, cchValue);
             pszValue[cchValue - 1] = L'\0';
@@ -5455,7 +5413,6 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
     // Move past section header to next line
     pszSectionStart = wcschr(pszSectionStart, L'\n');
     if (!pszSectionStart) {
-        free(pszWideData);
         if (pszDefault) {
             wcsncpy(pszValue, pszDefault, cchValue);
             pszValue[cchValue - 1] = L'\0';
@@ -5467,7 +5424,7 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
     pszSectionStart++;
     
     // Find key=value
-    WCHAR* pszLine = pszSectionStart;
+    const WCHAR* pszLine = pszSectionStart;
     while (pszLine && *pszLine) {
         // Check if we hit another section
         if (*pszLine == L'[') break;
@@ -5504,7 +5461,6 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
                     pszValue[--i] = L'\0';
                 }
                 
-                free(pszWideData);
                 return TRUE;
             }
         }
@@ -5514,7 +5470,6 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
         if (pszLine) pszLine++;
     }
     
-    free(pszWideData);
     if (pszDefault) {
         wcsncpy(pszValue, pszDefault, cchValue);
         pszValue[cchValue - 1] = L'\0';
@@ -5538,39 +5493,13 @@ int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefa
 //============================================================================
 BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue)
 {
-    // Read entire file if it exists
-    std::string existingData;
-    HANDLE hFile = CreateFile(pszIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    
-    if (hFile != INVALID_HANDLE_VALUE) {
-        DWORD dwSize = GetFileSize(hFile, NULL);
-        if (dwSize > 0 && dwSize != INVALID_FILE_SIZE) {
-            char* pszFileData = (char*)malloc(dwSize + 1);
-            if (pszFileData) {
-                DWORD dwRead;
-                if (ReadFile(hFile, pszFileData, dwSize, &dwRead, NULL)) {
-                    pszFileData[dwRead] = '\0';
-                    existingData.assign(pszFileData, dwRead);
-                }
-                free(pszFileData);
-            }
-        }
-        CloseHandle(hFile);
+    (void)pszIniPath;
+
+    if (!EnsureIniCacheLoaded()) {
+        return FALSE;
     }
     
-    // Convert existing data to wide string for easier manipulation
-    std::wstring wideData;
-    if (!existingData.empty()) {
-        int cchWide = MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, NULL, 0);
-        if (cchWide > 0) {
-            WCHAR* pszWideData = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
-            if (pszWideData) {
-                MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, pszWideData, cchWide);
-                wideData = pszWideData;
-                free(pszWideData);
-            }
-        }
-    }
+    std::wstring& wideData = g_IniCache.data;
     
     // Build section header
     WCHAR szSectionHeader[256];
@@ -5587,108 +5516,91 @@ BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWS
         }
         wideData += szSectionHeader;
         wideData += L"\r\n";
-        wideData += pszKey;
-        wideData += L"=";
-        wideData += pszValue;
-        wideData += L"\r\n";
-        result = wideData;
-    } else {
-        // Section exists - find the key or insert it
-        size_t lineStart = sectionPos + wcslen(szSectionHeader);
+        AppendKeyValueLine(wideData, pszKey, pszValue);
+        g_IniCache.dirty = TRUE;
+        return TRUE;
+    }
+    
+    // Section exists - find the key or insert it
+    size_t lineStart = sectionPos + wcslen(szSectionHeader);
+    
+    // Skip to next line after section header
+    size_t nextLine = wideData.find(L'\n', lineStart);
+    if (nextLine != std::wstring::npos) {
+        lineStart = nextLine + 1;
+    }
+    
+    // Look for the key in this section
+    size_t keyLen = wcslen(pszKey);
+    bool keyFound = false;
+    size_t searchPos = lineStart;
+    
+    while (searchPos < wideData.length()) {
+        // Check if we hit another section
+        if (wideData[searchPos] == L'[') break;
         
-        // Skip to next line after section header
-        size_t nextLine = wideData.find(L'\n', lineStart);
-        if (nextLine != std::wstring::npos) {
-            lineStart = nextLine + 1;
-        }
-        
-        // Look for the key in this section
-        WCHAR szKeyPrefix[256];
-        _snwprintf(szKeyPrefix, 256, L"%s=", pszKey);
-        size_t keyLen = wcslen(pszKey);
-        
-        bool keyFound = false;
-        size_t searchPos = lineStart;
-        
-        while (searchPos < wideData.length()) {
-            // Check if we hit another section
-            if (wideData[searchPos] == L'[') break;
-            
-            // Check if this line starts with our key
-            if (wideData.compare(searchPos, keyLen, pszKey) == 0) {
-                // Skip whitespace after key
-                size_t afterKey = searchPos + keyLen;
-                while (afterKey < wideData.length() && (wideData[afterKey] == L' ' || wideData[afterKey] == L'\t')) {
-                    afterKey++;
-                }
-                
-                if (afterKey < wideData.length() && wideData[afterKey] == L'=') {
-                    // Found the key - replace the value
-                    size_t lineEnd = wideData.find(L'\n', searchPos);
-                    if (lineEnd == std::wstring::npos) lineEnd = wideData.length();
-                    
-                    result = wideData.substr(0, searchPos);
-                    result += pszKey;
-                    result += L"=";
-                    result += pszValue;
-                    if (lineEnd < wideData.length()) {
-                        result += wideData.substr(lineEnd);
-                    } else {
-                        result += L"\r\n";
-                    }
-                    keyFound = true;
-                    break;
-                }
+        // Check if this line starts with our key
+        if (wideData.compare(searchPos, keyLen, pszKey) == 0) {
+            // Skip whitespace after key
+            size_t afterKey = searchPos + keyLen;
+            while (afterKey < wideData.length() && (wideData[afterKey] == L' ' || wideData[afterKey] == L'\t')) {
+                afterKey++;
             }
             
-            // Move to next line
-            size_t nextLinePos = wideData.find(L'\n', searchPos);
-            if (nextLinePos == std::wstring::npos) break;
-            searchPos = nextLinePos + 1;
+            if (afterKey < wideData.length() && wideData[afterKey] == L'=') {
+                // Found the key - replace the value
+                size_t lineEnd = wideData.find(L'\n', searchPos);
+                if (lineEnd == std::wstring::npos) lineEnd = wideData.length();
+                
+                result = wideData.substr(0, searchPos);
+                result += pszKey;
+                result += L"=";
+                result += pszValue;
+                if (lineEnd < wideData.length()) {
+                    result += wideData.substr(lineEnd);
+                } else {
+                    result += L"\r\n";
+                }
+                keyFound = true;
+                break;
+            }
         }
         
-        if (!keyFound) {
-            // Key not found in section - add it after section header
-            result = wideData.substr(0, lineStart);
-            result += pszKey;
-            result += L"=";
-            result += pszValue;
-            result += L"\r\n";
-            result += wideData.substr(lineStart);
-        }
+        // Move to next line
+        size_t nextLinePos = wideData.find(L'\n', searchPos);
+        if (nextLinePos == std::wstring::npos) break;
+        searchPos = nextLinePos + 1;
     }
     
-    // Convert back to UTF-8
-    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, result.c_str(), -1, NULL, 0, NULL, NULL);
-    if (cbUTF8 <= 0) return FALSE;
-    
-    char* pszUTF8 = (char*)malloc(cbUTF8);
-    if (!pszUTF8) return FALSE;
-    
-    WideCharToMultiByte(CP_UTF8, 0, result.c_str(), -1, pszUTF8, cbUTF8, NULL, NULL);
-    
-    // Write to file
-    hFile = CreateFile(pszIniPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        free(pszUTF8);
-        return FALSE;
+    if (keyFound) {
+        wideData = result;
+        g_IniCache.dirty = TRUE;
+        return TRUE;
     }
     
-    DWORD dwWritten;
-    BOOL success = WriteFile(hFile, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
-    CloseHandle(hFile);
-    free(pszUTF8);
-    
-    return success;
+    // Key not found in section - add it after section header
+    result = wideData.substr(0, lineStart);
+    AppendKeyValueLine(result, pszKey, pszValue);
+    result += wideData.substr(lineStart);
+    wideData = result;
+    g_IniCache.dirty = TRUE;
+    return TRUE;
 }
 
 //============================================================================
-// LoadINIFileToWide - Read INI file into wide string
+// EnsureIniCacheLoaded - Load INI file into cache if needed
 //============================================================================
-BOOL LoadINIFileToWide(LPCWSTR pszIniPath, std::wstring& wideData)
+BOOL EnsureIniCacheLoaded()
 {
+    if (g_IniCache.loaded) {
+        return TRUE;
+    }
+    
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+    
     std::string existingData;
-    HANDLE hFile = CreateFile(pszIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hFile = CreateFile(szIniPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     
     if (hFile != INVALID_HANDLE_VALUE) {
         DWORD dwSize = GetFileSize(hFile, NULL);
@@ -5706,8 +5618,10 @@ BOOL LoadINIFileToWide(LPCWSTR pszIniPath, std::wstring& wideData)
         CloseHandle(hFile);
     }
     
-    wideData.clear();
+    g_IniCache.data.clear();
     if (existingData.empty()) {
+        g_IniCache.loaded = TRUE;
+        g_IniCache.dirty = FALSE;
         return TRUE;
     }
     
@@ -5721,19 +5635,38 @@ BOOL LoadINIFileToWide(LPCWSTR pszIniPath, std::wstring& wideData)
         return FALSE;
     }
     
-    MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, pszWideData, cchWide);
-    wideData = pszWideData;
+    int nWideWritten = MultiByteToWideChar(CP_UTF8, 0, existingData.c_str(), -1, pszWideData, cchWide);
+    if (nWideWritten <= 0) {
+        free(pszWideData);
+        return FALSE;
+    }
+    
+    // Strip UTF-8 BOM if present (EF BB BF -> UTF-16 0xFEFF)
+    if (pszWideData[0] == 0xFEFF) {
+        g_IniCache.data = pszWideData + 1;
+    } else {
+        g_IniCache.data = pszWideData;
+    }
     free(pszWideData);
     
+    g_IniCache.loaded = TRUE;
+    g_IniCache.dirty = FALSE;
     return TRUE;
 }
 
 //============================================================================
-// WriteWideINIFile - Write wide string to INI file (UTF-8)
+// FlushIniCache - Write cached INI to disk if dirty
 //============================================================================
-BOOL WriteWideINIFile(LPCWSTR pszIniPath, const std::wstring& wideData)
+BOOL FlushIniCache()
 {
-    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, NULL, 0, NULL, NULL);
+    if (!g_IniCache.loaded || !g_IniCache.dirty) {
+        return TRUE;
+    }
+    
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+    
+    int cbUTF8 = WideCharToMultiByte(CP_UTF8, 0, g_IniCache.data.c_str(), -1, NULL, 0, NULL, NULL);
     if (cbUTF8 <= 0) {
         return FALSE;
     }
@@ -5743,9 +5676,13 @@ BOOL WriteWideINIFile(LPCWSTR pszIniPath, const std::wstring& wideData)
         return FALSE;
     }
     
-    WideCharToMultiByte(CP_UTF8, 0, wideData.c_str(), -1, pszUTF8, cbUTF8, NULL, NULL);
+    int nUTF8Written = WideCharToMultiByte(CP_UTF8, 0, g_IniCache.data.c_str(), -1, pszUTF8, cbUTF8, NULL, NULL);
+    if (nUTF8Written <= 0) {
+        free(pszUTF8);
+        return FALSE;
+    }
     
-    HANDLE hFile = CreateFile(pszIniPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hFile = CreateFile(szIniPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         free(pszUTF8);
         return FALSE;
@@ -5756,6 +5693,10 @@ BOOL WriteWideINIFile(LPCWSTR pszIniPath, const std::wstring& wideData)
     CloseHandle(hFile);
     free(pszUTF8);
     
+    if (success) {
+        g_IniCache.dirty = FALSE;
+    }
+    
     return success;
 }
 
@@ -5764,10 +5705,13 @@ BOOL WriteWideINIFile(LPCWSTR pszIniPath, const std::wstring& wideData)
 //============================================================================
 BOOL ReplaceINISection(LPCWSTR pszIniPath, LPCWSTR pszSection, const std::wstring& sectionContent)
 {
-    std::wstring wideData;
-    if (!LoadINIFileToWide(pszIniPath, wideData)) {
+    (void)pszIniPath;
+
+    if (!EnsureIniCacheLoaded()) {
         return FALSE;
     }
+    
+    std::wstring& wideData = g_IniCache.data;
     
     WCHAR szSectionHeader[256];
     _snwprintf(szSectionHeader, 256, L"[%s]", pszSection);
@@ -5786,8 +5730,9 @@ BOOL ReplaceINISection(LPCWSTR pszIniPath, LPCWSTR pszSection, const std::wstrin
         wideData += L"\r\n";
     }
     wideData += sectionContent;
+    g_IniCache.dirty = TRUE;
     
-    return WriteWideINIFile(pszIniPath, wideData);
+    return TRUE;
 }
 
 //============================================================================
@@ -5837,6 +5782,8 @@ void BuildHistorySection(std::wstring& section, LPCWSTR pszSectionName, const WC
 //============================================================================
 int LoadHistoryList(LPCWSTR pszSection, WCHAR history[][MAX_SEARCH_TEXT], int maxCount)
 {
+    (void)maxCount;
+
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
     
@@ -7481,6 +7428,11 @@ void CreateDefaultINI()
     
     WriteFile(hFile, szDefaultINI, strlen(szDefaultINI), &dwWritten, NULL);
     CloseHandle(hFile);
+
+    // Invalidate cache so it reloads the new file
+    g_IniCache.loaded = FALSE;
+    g_IniCache.dirty = FALSE;
+    g_IniCache.data.clear();
 }
 
 //============================================================================
