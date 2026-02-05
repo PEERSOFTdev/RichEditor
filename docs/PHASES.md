@@ -20,6 +20,7 @@ This project is organized into phases. The list below reflects completed work an
 
 - **Phase 2.10** - Additional documentation/test pass (see `docs/notes/IMPLEMENTATION_PLAN_Phase_2.10.md` for remaining checklist items).
 - **Phase 2.9.x** - Any follow-up items called out in `docs/notes/PHASE_2.9_PLAN.md`.
+- **Phase 2.11** - Wrap ruler (twips/column-based wrap) plan in `docs/notes/PHASE_2.11_WRAP_RULER_PLAN.md`.
 
 ## Notes
 

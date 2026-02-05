@@ -401,6 +401,9 @@ void EditPaste();
 void EditSelectAll();
 void EditInsertTimeDate();
 void ViewWordWrap();
+void SetRichEditWordWrap(HWND hEdit, LONG widthTwips);
+LONG GetTwipsForPixels(HWND hWnd, int widthPx);
+void ApplyWordWrap(HWND hEdit);
 void ExecuteFilter();
 void CreateDefaultINI();
 void LoadSettings();
@@ -2852,6 +2855,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     rcClient.right,
                     rcClient.bottom - rcStatus.bottom,
                     SWP_NOZORDER);
+
+                if (g_bWordWrap) {
+                    ApplyWordWrap(g_hWndEdit);
+                }
             }
             return 0;
             
@@ -4305,6 +4312,8 @@ HWND CreateRichEditControl(HWND hwndParent)
         if (g_bReadOnly) {
             SendMessage(hwndEdit, EM_SETREADONLY, TRUE, 0);
         }
+
+        ApplyWordWrap(hwndEdit);
         
         // Subclass the RichEdit control to intercept WM_KEYDOWN
         g_pfnOriginalEditProc = (WNDPROC)SetWindowLongPtr(hwndEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
@@ -4397,6 +4406,57 @@ void UpdateStatusBar()
     
     int visualLine, visualCol;
     int physicalLine, physicalCol;
+
+    auto getPhysicalLineAndCol = [&](int charPos, int* outLine, int* outCol) {
+        int line = 1;
+        int col = 1;
+        int lineStart = 0;
+
+        if (charPos > 0) {
+            LPWSTR buffer = (LPWSTR)malloc((charPos + 1) * sizeof(WCHAR));
+            if (buffer) {
+                TEXTRANGE tr;
+                tr.chrg.cpMin = 0;
+                tr.chrg.cpMax = charPos;
+                tr.lpstrText = buffer;
+
+                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                if (retrieved > 0) {
+                    int bufferPos = 0;
+
+                    while (bufferPos < retrieved) {
+                        if (buffer[bufferPos] == L'\r') {
+                            if (bufferPos + 1 < retrieved && buffer[bufferPos + 1] == L'\n') {
+                                bufferPos += 2;
+                            } else {
+                                bufferPos++;
+                            }
+                            line++;
+                            lineStart = bufferPos;
+                        } else if (buffer[bufferPos] == L'\n') {
+                            bufferPos++;
+                            line++;
+                            lineStart = bufferPos;
+                        } else {
+                            bufferPos++;
+                        }
+                    }
+
+                    int lineCharCount = bufferPos - lineStart;
+                    if (lineCharCount > 0) {
+                        col = CalculateTabAwareColumn(buffer + lineStart, lineCharCount);
+                    } else {
+                        col = 1;
+                    }
+                }
+
+                free(buffer);
+            }
+        }
+
+        *outLine = line;
+        *outCol = col;
+    };
     
     if (g_bWordWrap) {
         // When word wrap is ON:
@@ -4446,99 +4506,48 @@ void UpdateStatusBar()
             visualCol = 1;  // At start of line
         }
         
-        // Get physical (unwrapped) line and column by manually counting hard newlines
-        // Use EM_GETTEXTRANGE to get text up to cursor with exact character positions
-        physicalLine = 1;  // Start at line 1
-        physicalCol = 1;
-        int physicalLineStart = 0;  // Start of file is start of line 1
-        
-        if (cr.cpMin > 0) {
-            // Allocate buffer for text up to cursor
-            LPWSTR buffer = (LPWSTR)malloc((cr.cpMin + 1) * sizeof(WCHAR));
-            if (buffer) {
-                // Use EM_GETTEXTRANGE to get exactly the text from 0 to cursor position
-                TEXTRANGE tr;
-                tr.chrg.cpMin = 0;
-                tr.chrg.cpMax = cr.cpMin;
-                tr.lpstrText = buffer;
-                
-                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
-                
-                if (retrieved > 0) {
-                    // Count newlines and track positions
-                    // Note: retrieved is the number of chars returned, which should equal cr.cpMin
-                    int bufferPos = 0;  // Position in buffer
-                    
-                    while (bufferPos < retrieved) {
-                        if (buffer[bufferPos] == L'\r') {
-                            // Check if this is CRLF or just CR
-                            if (bufferPos + 1 < retrieved && buffer[bufferPos + 1] == L'\n') {
-                                // CRLF - treat as one newline
-                                bufferPos += 2;
-                                physicalLine++;
-                                physicalLineStart = bufferPos;
-                            } else {
-                                // Just CR
-                                bufferPos++;
-                                physicalLine++;
-                                physicalLineStart = bufferPos;
-                            }
-                        } else if (buffer[bufferPos] == L'\n') {
-                            // Just LF
-                            bufferPos++;
-                            physicalLine++;
-                            physicalLineStart = bufferPos;
-                        } else {
-                            // Regular character
-                            bufferPos++;
-                        }
-                    }
-                    
-                    // Calculate tab-aware physical column
-                    int lineCharCount = bufferPos - physicalLineStart;
-                    if (lineCharCount > 0) {
-                        // Extract line text from physicalLineStart to bufferPos
-                        physicalCol = CalculateTabAwareColumn(buffer + physicalLineStart, lineCharCount);
-                    } else {
-                        physicalCol = 1;  // At start of line
-                    }
-                }
-                
-                free(buffer);
-            }
-        }
+        getPhysicalLineAndCol(cr.cpMin, &physicalLine, &physicalCol);
         
     } else {
-        // When word wrap is OFF, visual = physical (no soft wraps)
-        visualLine = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin) + 1;
-        int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, visualLine - 1, 0);
-        
-        // Calculate tab-aware column
-        int charCount = cr.cpMin - lineStart;
-        if (charCount > 0) {
-            // Get line text from lineStart to cursor
-            LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
-            if (lineText) {
-                TEXTRANGE tr;
-                tr.chrg.cpMin = lineStart;
-                tr.chrg.cpMax = cr.cpMin;
-                tr.lpstrText = lineText;
-                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
-                if (retrieved > 0) {
-                    visualCol = CalculateTabAwareColumn(lineText, charCount);
-                } else {
-                    visualCol = 1;  // Fallback
-                }
-                free(lineText);
-            } else {
-                visualCol = charCount + 1;  // Fallback if malloc fails
-            }
+        // When word wrap is OFF:
+        if (g_fRichEditVersion >= 8.0f) {
+            // RichEdit 8+ may visually segment long lines; show physical (hard-break) lines
+            // to avoid line counts drifting from actual newline-based lines.
+            getPhysicalLineAndCol(cr.cpMin, &physicalLine, &physicalCol);
+            visualLine = physicalLine;
+            visualCol = physicalCol;
         } else {
-            visualCol = 1;  // At start of line
+            // Older RichEdit: visual = physical (no soft wraps)
+            visualLine = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin) + 1;
+            int lineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, visualLine - 1, 0);
+
+            // Calculate tab-aware column
+            int charCount = cr.cpMin - lineStart;
+            if (charCount > 0) {
+                // Get line text from lineStart to cursor
+                LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
+                if (lineText) {
+                    TEXTRANGE tr;
+                    tr.chrg.cpMin = lineStart;
+                    tr.chrg.cpMax = cr.cpMin;
+                    tr.lpstrText = lineText;
+                    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                    if (retrieved > 0) {
+                        visualCol = CalculateTabAwareColumn(lineText, charCount);
+                    } else {
+                        visualCol = 1;  // Fallback
+                    }
+                    free(lineText);
+                } else {
+                    visualCol = charCount + 1;  // Fallback if malloc fails
+                }
+            } else {
+                visualCol = 1;  // At start of line
+            }
+
+            physicalLine = visualLine;
+            physicalCol = visualCol;
         }
-        
-        physicalLine = visualLine;
-        physicalCol = visualCol;
     }
     
     // Get character at cursor (handle surrogate pairs for characters > U+FFFF)
@@ -6466,6 +6475,73 @@ void EditInsertTimeDate()
 }
 
 //============================================================================
+// SetRichEditWordWrap - Set RichEdit wrap width in twips
+//============================================================================
+void SetRichEditWordWrap(HWND hEdit, LONG widthTwips)
+{
+    if (!hEdit) return;
+
+    if (g_fRichEditVersion >= 8.0f) {
+        // RichEdit 8+ behaves more predictably with NULL HDC (Notepad-like behavior)
+        SendMessage(hEdit, EM_SETTARGETDEVICE, 0, (LPARAM)widthTwips);
+        return;
+    }
+
+    HDC hdc = GetDC(hEdit);
+    if (!hdc) return;
+    SendMessage(hEdit, EM_SETTARGETDEVICE, (WPARAM)hdc, (LPARAM)widthTwips);
+    ReleaseDC(hEdit, hdc);
+}
+
+//============================================================================
+// GetTwipsForPixels - Convert pixel width to twips (1/1440 inch)
+//============================================================================
+LONG GetTwipsForPixels(HWND hWnd, int widthPx)
+{
+    HDC hdc = GetDC(hWnd);
+    if (!hdc) return 0;
+    int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
+    ReleaseDC(hWnd, hdc);
+    return MulDiv(widthPx, 1440, dpiX);
+}
+
+//============================================================================
+// ApplyWordWrap - Apply current word wrap setting to an edit control
+//============================================================================
+void ApplyWordWrap(HWND hEdit)
+{
+    if (!hEdit) return;
+    
+    LONG_PTR style = GetWindowLongPtr(hEdit, GWL_STYLE);
+    
+    if (g_bWordWrap) {
+        style &= ~(WS_HSCROLL | ES_AUTOHSCROLL);
+        SetWindowLongPtr(hEdit, GWL_STYLE, style);
+        SetWindowPos(hEdit, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+        if (g_fRichEditVersion >= 8.0f) {
+            // RichEdit 8+ uses a Notepad-like internal wrap; widthTwips=0 uses window width
+            SetRichEditWordWrap(hEdit, 0);
+        } else {
+            RECT rcClient;
+            GetClientRect(hEdit, &rcClient);
+            LONG widthTwips = GetTwipsForPixels(hEdit, rcClient.right - rcClient.left);
+            SetRichEditWordWrap(hEdit, widthTwips);
+        }
+    } else {
+        style |= (WS_HSCROLL | ES_AUTOHSCROLL);
+        SetWindowLongPtr(hEdit, GWL_STYLE, style);
+        SetWindowPos(hEdit, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+        // RichEdit 8+ may still visually segment long lines (~1000 chars) without hard breaks
+        const LONG kNoWrapTwips = 0x7FFFFFFF;
+        SetRichEditWordWrap(hEdit, kNoWrapTwips);
+    }
+}
+
+//============================================================================
 // ViewWordWrap - Toggle word wrap on/off
 //============================================================================
 void ViewWordWrap()
@@ -6473,77 +6549,14 @@ void ViewWordWrap()
     // Toggle word wrap state
     g_bWordWrap = !g_bWordWrap;
     
-    // Get current selection to restore after recreation
-    CHARRANGE crSel;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crSel);
+    ApplyWordWrap(g_hWndEdit);
     
-    // Get current text to restore
-    int textLen = GetWindowTextLength(g_hWndEdit);
-    LPWSTR pszText = (LPWSTR)malloc((textLen + 1) * sizeof(WCHAR));
-    if (pszText) {
-        GetWindowText(g_hWndEdit, pszText, textLen + 1);
-    }
+    // Update menu checkmark
+    HMENU hMenu = GetMenu(g_hWndMain);
+    CheckMenuItem(hMenu, ID_VIEW_WORDWRAP, g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
     
-    // Destroy and recreate the edit control with new style
-    DestroyWindow(g_hWndEdit);
-    
-    // Create new edit control with or without horizontal scroll
-    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | 
-                  ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL;
-    
-    if (!g_bWordWrap) {
-        // Add horizontal scroll when word wrap is off
-        style |= WS_HSCROLL | ES_AUTOHSCROLL;
-    }
-    
-    g_hWndEdit = CreateWindowEx(
-        WS_EX_CLIENTEDGE,
-        MSFTEDIT_CLASS,
-        L"",
-        style,
-        0, 0, 0, 0,
-        g_hWndMain,
-        (HMENU)IDC_RICHEDIT,
-        GetModuleHandle(NULL),
-        NULL
-    );
-    
-    if (g_hWndEdit) {
-        // Set plain text mode
-        SendMessage(g_hWndEdit, EM_SETTEXTMODE, TM_PLAINTEXT, 0);
-        
-        // Set undo limit
-        SendMessage(g_hWndEdit, EM_SETUNDOLIMIT, 100, 0);
-        
-        // Set event mask for notifications
-        SendMessage(g_hWndEdit, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
-        
-        // Set large text limit (2GB)
-        SendMessage(g_hWndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
-        
-        // Restore text
-        if (pszText) {
-            g_bSettingText = TRUE;
-            SetWindowText(g_hWndEdit, pszText);
-            g_bSettingText = FALSE;
-            free(pszText);
-        }
-        
-        // Restore selection
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
-        
-        // Trigger resize to position control correctly
-        RECT rcClient;
-        GetClientRect(g_hWndMain, &rcClient);
-        SendMessage(g_hWndMain, WM_SIZE, 0, MAKELPARAM(rcClient.right, rcClient.bottom));
-        
-        // Update menu checkmark
-        HMENU hMenu = GetMenu(g_hWndMain);
-        CheckMenuItem(hMenu, ID_VIEW_WORDWRAP, g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
-        
-        // Set focus back to edit control
-        SetFocus(g_hWndEdit);
-    }
+    // Set focus back to edit control
+    SetFocus(g_hWndEdit);
 }
 
 //============================================================================

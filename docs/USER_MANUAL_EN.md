@@ -32,6 +32,8 @@ Shows:
 
 Toggle via `View -> Word Wrap` or `Ctrl+W`. When enabled, the status bar shows both visual and physical positions.
 
+Note: With Word Wrap off, RichEdit 8+ may still visually segment long lines around ~1000 characters without inserting line breaks. This matches Windows 11 Notepad behavior and is a display-only effect.
+
 ## Editing
 
 - Undo/Redo labels reflect the last operation

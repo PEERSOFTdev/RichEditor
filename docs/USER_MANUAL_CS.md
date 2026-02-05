@@ -32,6 +32,8 @@ Zobrazuje:
 
 Prepinani: `Zobrazit -> Zalomeni radku` nebo `Ctrl+W`. Pri zapnuti se ukazuje vizualni i fyzicka pozice.
 
+Poznamka: Pri vypnutem zalomeni radku muze RichEdit 8+ stale vizualne delit dlouhe radky kolem ~1000 znaku bez vlozeni zalomeni. Odpovida to chovani Windows 11 Notepadu a jde jen o zobrazeni.
+
 ## Editace
 
 - Popisky Zpet/Znovu odpovidaji posledni operaci
