@@ -133,6 +133,10 @@ The binary ships with English and Czech resources. Windows selects the UI langua
 
 - `docs/CHANGE_CHECKLIST.md`
 
+## Manual Guidelines
+
+- `docs/MANUAL_GUIDELINES.md`
+
 ## License
 
 MIT License. See `LICENSE`.
