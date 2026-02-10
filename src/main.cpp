@@ -205,6 +205,7 @@ const ReservedShortcut g_ReservedShortcuts[] = {
     { 'Q', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+Q (Exit Interactive)" },
     { 'T', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+T (Insert Template)" },
     { 'F', FCONTROL | FVIRTKEY, L"Ctrl+F (Find)" },
+    { 'G', FCONTROL | FVIRTKEY, L"Ctrl+G (Go to Line)" },
     { VK_F3, FVIRTKEY, L"F3 (Find Next)" },
     { VK_F3, FSHIFT | FVIRTKEY, L"Shift+F3 (Find Previous)" },
     { 0, 0, NULL }  // Sentinel
@@ -378,6 +379,7 @@ void UpdateMenuUndoRedo(HMENU hMenu);
 int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition);
 BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange);
 void OpenURL(HWND hwnd, LPCWSTR pszURL);
+INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
@@ -1050,7 +1052,7 @@ void LoadTemplates()
 HACCEL BuildAcceleratorTable()
 {
     // Count total accelerators needed
-    const int BUILTIN_COUNT = 19;  // Built-in shortcuts (including search shortcuts - Phase 2.9.2)
+    const int BUILTIN_COUNT = 20;  // Built-in shortcuts (including search shortcuts - Phase 2.9.4)
     int nTemplateShortcuts = 0;
     
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1089,6 +1091,7 @@ HACCEL BuildAcceleratorTable()
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'H'; pAccel[idx++].cmd = ID_SEARCH_REPLACE;
     pAccel[idx].fVirt = FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_NEXT;
     pAccel[idx].fVirt = FSHIFT | FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_PREVIOUS;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'G'; pAccel[idx++].cmd = ID_SEARCH_GOTO_LINE;
     
     // Add template shortcuts
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -2109,6 +2112,101 @@ BOOL DoFind(BOOL bSearchDown)
 }
 
 //============================================================================
+// DlgGotoProc - Go to Line dialog procedure (modal)
+//============================================================================
+INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    (void)lParam;  // Unused parameter
+    switch (message) {
+        case WM_INITDIALOG:
+        {
+            LONG nCurrentLine = SendMessage(g_hWndEdit, EM_LINEFROMCHAR, -1, 0);
+            LONG nTotalLines = SendMessage(g_hWndEdit, EM_GETLINECOUNT, 0, 0);
+
+            WCHAR szLabel[128];
+            WCHAR szTemplate[128];
+            LoadStringResource(IDS_GOTO_LABEL, szTemplate, 128);
+
+            WCHAR szNumber[16];
+            _snwprintf(szNumber, 16, L"%ld", nTotalLines);
+            szNumber[15] = L'\0';
+
+            // Build label text without swprintf (MinGW-safe)
+            // Replace %d with number manually
+            const WCHAR* pTemplate = szTemplate;
+            WCHAR* pOut = szLabel;
+            size_t remaining = sizeof(szLabel) / sizeof(szLabel[0]);
+            while (*pTemplate && remaining > 1) {
+                if (pTemplate[0] == L'%' && pTemplate[1] == L'd') {
+                    const WCHAR* pNum = szNumber;
+                    while (*pNum && remaining > 1) {
+                        *pOut++ = *pNum++;
+                        remaining--;
+                    }
+                    pTemplate += 2;
+                    continue;
+                }
+                *pOut++ = *pTemplate++;
+                remaining--;
+            }
+            *pOut = L'\0';
+
+            SetDlgItemText(hDlg, IDC_GOTO_LABEL, szLabel);
+            SetDlgItemInt(hDlg, IDC_GOTO_LINE, nCurrentLine + 1, FALSE);
+            SendDlgItemMessage(hDlg, IDC_GOTO_LINE, EM_SETSEL, 0, -1);
+            return TRUE;
+        }
+
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDOK) {
+                BOOL bTranslated = FALSE;
+                UINT nLine = GetDlgItemInt(hDlg, IDC_GOTO_LINE, &bTranslated, FALSE);
+                if (!bTranslated || nLine < 1) {
+                    WCHAR szMsg[128], szTitle[64];
+                    LoadStringResource(IDS_GOTO_INVALID_LINE, szMsg, 128);
+                    LoadStringResource(IDS_GOTO_TITLE, szTitle, 64);
+                    MessageBox(hDlg, szMsg, szTitle, MB_ICONEXCLAMATION);
+                    return TRUE;
+                }
+
+                LONG nTotalLines = SendMessage(g_hWndEdit, EM_GETLINECOUNT, 0, 0);
+                if (nLine > (UINT)nTotalLines) {
+                    WCHAR szMsg[128], szTitle[64];
+                    LoadStringResource(IDS_GOTO_INVALID_LINE, szMsg, 128);
+                    LoadStringResource(IDS_GOTO_TITLE, szTitle, 64);
+                    MessageBox(hDlg, szMsg, szTitle, MB_ICONEXCLAMATION);
+                    return TRUE;
+                }
+
+                LONG nCharPos = SendMessage(g_hWndEdit, EM_LINEINDEX, nLine - 1, 0);
+                if (nCharPos < 0) {
+                    WCHAR szMsg[128], szTitle[64];
+                    LoadStringResource(IDS_GOTO_INVALID_LINE, szMsg, 128);
+                    LoadStringResource(IDS_GOTO_TITLE, szTitle, 64);
+                    MessageBox(hDlg, szMsg, szTitle, MB_ICONEXCLAMATION);
+                    return TRUE;
+                }
+
+                CHARRANGE cr;
+                cr.cpMin = nCharPos;
+                cr.cpMax = nCharPos;
+                SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+                SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+                SetFocus(g_hWndEdit);
+
+                EndDialog(hDlg, IDOK);
+                return TRUE;
+            } else if (LOWORD(wParam) == IDCANCEL) {
+                EndDialog(hDlg, IDCANCEL);
+                return TRUE;
+            }
+            break;
+    }
+
+    return FALSE;
+}
+
+//============================================================================
 // DlgFindProc - Find dialog procedure (modeless)
 //============================================================================
 INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -2998,6 +3096,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 
                 case ID_SEARCH_FIND_PREVIOUS:
                     DoFind(FALSE);  // Search up
+                    break;
+
+                case ID_SEARCH_GOTO_LINE:
+                    DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_GOTO), hwnd, DlgGotoProc);
                     break;
                 
                 // Tools menu
@@ -8094,6 +8196,8 @@ void UpdateMenuStates(HWND hwnd)
         enableExitREPL ? MF_ENABLED : MF_GRAYED);
     EnableMenuItem(hMenu, ID_SEARCH_REPLACE,
         g_bReadOnly ? MF_GRAYED : MF_ENABLED);
+    EnableMenuItem(hMenu, ID_SEARCH_GOTO_LINE,
+        MF_ENABLED);
     
     DrawMenuBar(hwnd);
 }

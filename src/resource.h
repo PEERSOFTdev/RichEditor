@@ -38,6 +38,7 @@
 #define ID_SEARCH_FIND_NEXT             1301
 #define ID_SEARCH_FIND_PREVIOUS         1302
 #define ID_SEARCH_REPLACE               1303
+#define ID_SEARCH_GOTO_LINE              1304
 
 // Tools menu (Phase 2)
 #define ID_TOOLS_EXECUTEFILTER          1201
@@ -58,6 +59,7 @@
 // Dialog IDs
 #define IDD_ABOUT                       300
 #define IDD_FIND                        301
+#define IDD_GOTO                        302
 #define IDC_STATIC                      -1
 
 // Find dialog control IDs (Phase 2.9)
@@ -72,6 +74,10 @@
 #define IDC_REPLACE_BTN                 3022
 #define IDC_REPLACE_ALL_BTN             3023
 #define IDC_CLOSE_BTN                   3024
+
+// Go to Line dialog control IDs (Phase 2.9.4)
+#define IDC_GOTO_LINE                   3030
+#define IDC_GOTO_LABEL                  3031
 
 // String resource IDs (2000-2099)
 #define IDS_ERROR                       2000
@@ -199,7 +205,7 @@
 #define IDC_RICHEDIT_VERSION            102
 #define IDC_RICHEDIT_VERSION_PATH       103
 
-// Search feature strings (Phase 2.9.1: 2140-2160)
+// Search feature strings (Phase 2.9.1: 2140-2161)
 #define IDS_FIND_TITLE                  2140
 #define IDS_FIND_WHAT                   2141
 #define IDS_MATCH_CASE                  2143
@@ -220,5 +226,10 @@
 #define IDS_REPLACE_ALL_BTN             2156
 #define IDS_REPLACE_COMPLETE_TITLE      2157
 #define IDS_REPLACE_COMPLETE_MSG        2158
+
+// Go to Line strings (Phase 2.9.4: 2159-2161)
+#define IDS_GOTO_TITLE                  2159
+#define IDS_GOTO_LABEL                  2160
+#define IDS_GOTO_INVALID_LINE           2161
 
 #endif // RESOURCE_H

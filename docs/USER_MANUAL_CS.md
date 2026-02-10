@@ -4,7 +4,7 @@ RichEditor je lehký a přístupný textový editor pro systém Windows (Win32, 
 
 ## Rychlý start
 
-Otevírejte a ukládejte jako v klasickém editoru: `Soubor -> Otevřít` (`Ctrl+O`) a `Ctrl+S`. Zalamování řádků přepnete v `Zobrazit -> Zalamování řádků` (`Ctrl+W`). Najít a nahradit najdete pod `Hledat` (`Ctrl+F`, `Ctrl+H`).
+Otevírejte a ukládejte jako v klasickém editoru: `Soubor -> Otevřít` (`Ctrl+O`) a `Ctrl+S`. Zalamování řádků přepnete v `Zobrazit -> Zalamování řádků` (`Ctrl+W`). Najít, nahradit a přejít na řádek najdete pod `Hledat` (`Ctrl+F`, `Ctrl+H`, `Ctrl+G`).
 
 ## Základy rozhraní a stavový řádek
 
@@ -45,6 +45,9 @@ Poznámka: Při vypnutém zalamování může textová komponenta RichEdit ve ve
 ## Najít a nahradit
 
 Najít a nahradit funguje jako v klasických editorech (`Ctrl+F`, `Ctrl+H`, `F3`, `Shift+F3`). Historie se ukládá pouze po provedení Najít/Nahradit/Nahradit vše.
+
+Přejít na řádek (`Ctrl+G`) skočí na zadané číslo řádku a posune jej do zobrazení.
+Počítání řádků se řídí nastavením zalamování: při zapnutém zalamování se počítají vizuální řádky, při vypnutém fyzické řádky.
 
 Pokročilé:
 - Escape sekvence (zástupné zápisy znaků): `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`
@@ -254,6 +257,7 @@ Názvy kláves jsou uvedeny podle popisků na klávesnici (Ctrl, Shift, Alt, Ent
 | Shift+F3 | Najít předchozí |
 | Ctrl+F | Najít |
 | Ctrl+H | Nahradit |
+| Ctrl+G | Přejít na řádek |
 | F5 | Čas a datum |
 | Ctrl+Enter | Spustit filtr |
 | Ctrl+Shift+T | Výběr šablon |

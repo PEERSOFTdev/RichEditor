@@ -41,6 +41,8 @@ BEGIN
         MENUITEM "&Replace...\tCtrl+H", ID_SEARCH_REPLACE
         MENUITEM "Find &Next\tF3", ID_SEARCH_FIND_NEXT
         MENUITEM "Find &Previous\tShift+F3", ID_SEARCH_FIND_PREVIOUS
+        MENUITEM SEPARATOR
+        MENUITEM "&Go to Line...\tCtrl+G", ID_SEARCH_GOTO_LINE
     END
     POPUP "&View"
     BEGIN
@@ -102,6 +104,18 @@ BEGIN
     AUTOCHECKBOX    "Match &case", IDC_MATCH_CASE, 7, 48, 80, 10
     AUTOCHECKBOX    "&Whole word", IDC_WHOLE_WORD, 7, 63, 80, 10
     AUTOCHECKBOX    "Use &escape sequences (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 78, 180, 10
+END
+
+// Go to Line dialog (Phase 2.9.4)
+IDD_GOTO DIALOGEX 0, 0, 200, 80
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Go to Line"
+FONT 8, "MS Shell Dlg", 400, 0
+BEGIN
+    LTEXT           "", IDC_GOTO_LABEL, 10, 12, 180, 8
+    EDITTEXT        IDC_GOTO_LINE, 10, 25, 180, 14, ES_AUTOHSCROLL | ES_NUMBER
+    DEFPUSHBUTTON   "Go", IDOK, 55, 50, 40, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 105, 50, 40, 14
 END
 
 // Version Information
@@ -282,6 +296,9 @@ BEGIN
     IDS_REPLACE_ALL_BTN             "Replace &All"
     IDS_REPLACE_COMPLETE_TITLE      "Replace Complete"
     IDS_REPLACE_COMPLETE_MSG        "Replaced %d occurrence(s)"
+    IDS_GOTO_TITLE                  "Go to Line"
+    IDS_GOTO_LABEL                  "&Line number (1-%d):"
+    IDS_GOTO_INVALID_LINE           "Please enter a valid line number."
 END
 
 // ============================================================================
@@ -323,6 +340,8 @@ BEGIN
         MENUITEM "N&ahradit...\tCtrl+H", ID_SEARCH_REPLACE
         MENUITEM "Najít &další\tF3", ID_SEARCH_FIND_NEXT
         MENUITEM "Najít &předchozí\tShift+F3", ID_SEARCH_FIND_PREVIOUS
+        MENUITEM SEPARATOR
+        MENUITEM "&Přejít na řádek...\tCtrl+G", ID_SEARCH_GOTO_LINE
     END
     POPUP "&Zobrazit"
     BEGIN
@@ -384,6 +403,18 @@ BEGIN
     AUTOCHECKBOX    "Rozlišovat &velikost písmen", IDC_MATCH_CASE, 7, 48, 120, 10
     AUTOCHECKBOX    "&Celá slova", IDC_WHOLE_WORD, 7, 63, 80, 10
     AUTOCHECKBOX    "Použít &escape sekvence (\\n, \\t, \\xNN, \\uNNNN)", IDC_USE_ESCAPES, 7, 78, 180, 10
+END
+
+// Go to Line dialog (Phase 2.9.4)
+IDD_GOTO DIALOGEX 0, 0, 200, 80
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Přejít na řádek"
+FONT 8, "MS Shell Dlg", 400, 0
+BEGIN
+    LTEXT           "", IDC_GOTO_LABEL, 10, 12, 180, 8
+    EDITTEXT        IDC_GOTO_LINE, 10, 25, 180, 14, ES_AUTOHSCROLL | ES_NUMBER
+    DEFPUSHBUTTON   "Přejít", IDOK, 55, 50, 40, 14
+    PUSHBUTTON      "Zrušit", IDCANCEL, 105, 50, 40, 14
 END
 
 // String Resources (Czech)
@@ -517,4 +548,7 @@ BEGIN
     IDS_REPLACE_ALL_BTN             "Nahradit &vše"
     IDS_REPLACE_COMPLETE_TITLE      "Nahrazení dokončeno"
     IDS_REPLACE_COMPLETE_MSG        "Nahrazeno: %d"
+    IDS_GOTO_TITLE                  "Přejít na řádek"
+    IDS_GOTO_LABEL                  "&Číslo řádku (1-%d):"
+    IDS_GOTO_INVALID_LINE           "Zadejte platné číslo řádku."
 END

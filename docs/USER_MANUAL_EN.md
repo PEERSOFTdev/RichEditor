@@ -4,7 +4,7 @@ RichEditor is a lightweight, accessible Win32 text editor for plain text. It is 
 
 ## Quick Start
 
-Open and save like any classic editor: `File -> Open` (`Ctrl+O`) and `Ctrl+S`. Toggle word wrap with `View -> Word Wrap` (`Ctrl+W`). Find and Replace live under `Search` (`Ctrl+F` and `Ctrl+H`).
+Open and save like any classic editor: `File -> Open` (`Ctrl+O`) and `Ctrl+S`. Toggle word wrap with `View -> Word Wrap` (`Ctrl+W`). Find, Replace, and Go to Line live under `Search` (`Ctrl+F`, `Ctrl+H`, `Ctrl+G`).
 
 ## UI Basics and Status Bar
 
@@ -45,6 +45,9 @@ Note: With Word Wrap off, RichEdit 8+ may still visually segment long lines arou
 ## Find and Replace
 
 Find and Replace behave like classic editors (`Ctrl+F`, `Ctrl+H`, `F3`, `Shift+F3`). History is saved only when you perform Find/Replace/Replace All.
+
+Go to Line (`Ctrl+G`) jumps to a specific line number and scrolls it into view.
+Line counting follows Word Wrap mode: visual lines when wrap is ON, physical lines when wrap is OFF.
 
 Advanced:
 - Escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`
@@ -250,6 +253,7 @@ RichEditor.exe [options] [filename]
 | Shift+F3 | Find Previous |
 | Ctrl+F | Find |
 | Ctrl+H | Replace |
+| Ctrl+G | Go to Line |
 | F5 | Insert Time/Date |
 | Ctrl+Enter | Execute Filter |
 | Ctrl+Shift+T | Template Picker |

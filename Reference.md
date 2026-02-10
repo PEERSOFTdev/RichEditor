@@ -592,7 +592,7 @@ Shortcut=Ctrl+Shift+F
 - Edit: Ctrl+Z, Ctrl+Y, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+A
 - View: Ctrl+W
 - Tools: Ctrl+Enter, Ctrl+Shift+I, Ctrl+Shift+Q, Ctrl+Shift+T
-- Other: F5, Alt+F4
+- Other: F5, Ctrl+G, Alt+F4
 
 **Accessibility:**
 - Template descriptions shown in menu items by default
@@ -675,6 +675,14 @@ Shortcut=Ctrl+Shift+F
 - Optimized Replace All path with custom word-boundary logic
 - Replace history stored in `[ReplaceHistory]` (Item1 is newest)
 - Replace supports escape sequences when enabled (same rules as Find)
+
+### Phase 2.9.4 (Complete)
+
+**Go to Line:**
+- Ctrl+G opens a modal line jump dialog
+- Shows current line range and validates input (1..line count)
+- Moves caret to start of the chosen line and scrolls into view
+- Line counting follows Word Wrap mode: visual lines when ON, physical lines when OFF
 
 ### Phase 2.10 (Complete)
 
@@ -888,7 +896,7 @@ RichEditor supports read-only mode to prevent accidental file modifications whil
 - File operations: Open, Save As, New, Exit
 - File → Read-Only toggle (can turn read-only mode on/off)
 - Copy and Select All operations
-- Search → Find, Find Next, Find Previous
+- Search → Find, Find Next, Find Previous, Go to Line
 - View → Word Wrap
 - Filters with non-destructive actions:
   - Display filters (messagebox/statusbar)
@@ -941,6 +949,7 @@ RichEditor.exe /readonly source.cpp
 | `Ctrl+W` | Toggle word wrap |
 | `F5` | Insert time/date |
 | `Ctrl+Enter` | Execute current filter |
+| `Ctrl+G` | Go to Line |
 | `Ctrl+Shift+T` | Open template picker menu |
 | `Enter` | Open URL (when cursor is in URL) |
 | `Context Menu Key` | Open context menu with filters |
