@@ -37,6 +37,17 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - Autosave on focus loss uses `WM_ACTIVATEAPP` (external app switch only).
 - Timer autosave runs unless a dialog from this app is foreground.
 
+## Reference.md Maintenance (Agent Guidelines)
+
+- Preserve the README_OLD tone and structure; avoid reorganizing sections.
+- Only change text when it is inaccurate; otherwise move existing bullets to the correct phase.
+- Use commit history (oldest to newest) to place features and split phased evolutions.
+- Prefer minimal edits: move bullets, add small clarifying lines, avoid rewrites.
+- Keep examples international and neutral; do not introduce locale-specific slang.
+- If defaults changed over time, note the change explicitly in the correct phase.
+- Do not reintroduce duplicate phase blocks after Usage.
+- Verify behavior against `src/main.cpp` before updating Reference.md.
+
 ## Where to Look
 
 - `src/main.cpp`: all primary logic

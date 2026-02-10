@@ -137,6 +137,10 @@ The binary ships with English and Czech resources. Windows selects the UI langua
 
 - `docs/MANUAL_GUIDELINES.md`
 
+## Credits
+
+See `docs/CREDITS.md`.
+
 ## License
 
 MIT License. See `LICENSE`.
