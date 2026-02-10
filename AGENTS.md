@@ -39,7 +39,7 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 
 ## Reference.md Maintenance (Agent Guidelines)
 
-- Preserve the README_OLD tone and structure; avoid reorganizing sections.
+- Preserve the legacy README tone and structure (see `README.md` at commit `e2567a9`); avoid reorganizing sections.
 - Only change text when it is inaccurate; otherwise move existing bullets to the correct phase.
 - Use commit history (oldest to newest) to place features and split phased evolutions.
 - Prefer minimal edits: move bullets, add small clarifying lines, avoid rewrites.
