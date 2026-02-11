@@ -51,7 +51,6 @@ Last updated: 2026‑02‑08.
   - Show menu descriptions (accessibility)
   - Select after paste (power user feature, default: off)
 - Auto-generation of missing settings with defaults (self-documenting)
-- Filter Help dialog (Tools → Filter Help) with comprehensive documentation
 - No need to edit source code for customization
 
 **Autosave:**
@@ -1132,7 +1131,7 @@ Filters are automatically organized into submenus based on their `Category=` set
 **Filter Usage:**
 1. On first run, RichEditor creates `RichEditor.ini` with example filters demonstrating all action types
 2. Edit the INI file to add more filters
-3. Restart RichEditor to load the filters (or use Tools → Filter Help for documentation)
+3. Restart RichEditor to load the filters (see the manual or INI examples for documentation)
 4. Navigate to Tools → Select Filter → [Category] → [Filter Name]
 5. Checkmark shows the currently active filter
 7. Select text or place cursor on a line

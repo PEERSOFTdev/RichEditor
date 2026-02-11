@@ -42,7 +42,6 @@
 
 // Tools menu (Phase 2)
 #define ID_TOOLS_EXECUTEFILTER          1201
-#define ID_TOOLS_FILTER_HELP          1202
 #define ID_TOOLS_START_INTERACTIVE      1090  // Start Interactive Mode (Phase 2.5b)
 #define ID_TOOLS_EXIT_INTERACTIVE       1091  // Exit Interactive Mode (Phase 2.5b)
 #define ID_TOOLS_FILTER_BASE            5000  // Base for dynamic filter menu items (5000-5099)
@@ -91,8 +90,6 @@
 #define IDS_FILTER_EXEC_ERROR           2009
 #define IDS_FILTER_ERROR                2010
 #define IDS_FILTER_RESULT               2011
-#define IDS_FILTER_HELP_TITLE           2012
-#define IDS_FILTER_HELP_TEXT            2013
 #define IDS_UNTITLED                    2014
 #define IDS_NO_FILTERS_CONFIGURED       2015
 

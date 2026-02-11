@@ -3130,16 +3130,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     }
                     break;
                 
-                // Tools -> Filter Help
-                case ID_TOOLS_FILTER_HELP:
-                    {
-                        WCHAR szHelpText[2048], szTitle[64];
-                        LoadStringResource(IDS_FILTER_HELP_TEXT, szHelpText, 2048);
-                        LoadStringResource(IDS_FILTER_HELP_TITLE, szTitle, 64);
-                        MessageBox(hwnd, szHelpText, szTitle, MB_ICONINFORMATION);
-                    }
-                    break;
-                
                 // Tools -> Insert Template (Ctrl+Shift+T) - Show template picker menu
                 case ID_TOOLS_INSERT_TEMPLATE:
                     ShowTemplatePickerMenu(hwnd);
