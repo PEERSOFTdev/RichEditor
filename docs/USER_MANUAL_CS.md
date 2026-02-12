@@ -222,9 +222,9 @@ Soubory obnovení jsou standardně v `%TEMP%\RichEditor\` (dočasná složka sys
 
 ## RichEdit knihovna (pokročilé)
 
-RichEditor umí načítat novější knihovny RichEdit (DLL) pro lepší přístupnost a vykreslování. Windows 11 Poznámkový blok používá moderní RichEdit s vylepšením pro prostý text, například přesnější chování výběru u konců řádků a lepší práci kurzoru při vypnutém zalamování. Novější verze používají DirectWrite (systém pro vykreslování písma, včetně barevných emoji) a automatizaci uživatelského rozhraní (UI Automation, rozhraní pro čtečky obrazovky), což zlepšuje přístupnost. Vylepšení prostého textu v novějších RichEdit zahrnují také lepší práci s výběrem na konci řádku a pohyb kurzoru přes koncové mezery.
+RichEditor umí načítat novější knihovny RichEdit (DLL) pro lepší přístupnost a vykreslování. Windows 11 Poznámkový blok používá moderní RichEdit s lepším chováním kurzoru a výběru v prostém textu (zejména u konců řádků a koncových mezer) a s podporou DirectWrite a UI Automation pro barevná emoji a čtečky obrazovky.
 
-Můžete použít knihovnu RichEdit ze sady Microsoft Office (např. Office 2013+), která často obsahuje novější opravy než systémová knihovna. K tomu slouží `RichEditLibraryPath` a `RichEditClassName` v INI.
+Můžete použít knihovnu RichEdit ze sady Microsoft Office (např. Office 2013+), která často obsahuje novější opravy než systémová knihovna. K tomu slouží `RichEditLibraryPath` a `RichEditClassName` v INI. Pro Windows Poznámkový blok může cesta vypadat například takto: `C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.x.x.x_x64__8wekyb3d8bbwe\Notepad\riched20.dll`.
 
 ## Příkazová řádka (pokročilé)
 

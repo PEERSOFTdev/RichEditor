@@ -220,9 +220,9 @@ Resume files are stored in `%TEMP%\RichEditor\` by default.
 
 ## RichEdit Library (Advanced)
 
-RichEditor can load newer RichEdit DLLs for better accessibility and rendering. The Windows 11 Notepad uses a modern RichEdit build that brings plain-text UI improvements, including more consistent selection behavior near line ends and better caret handling when word wrap is off. Newer builds also use DirectWrite for color emoji and improved UI Automation, which helps screen readers. Plain-text UI improvements in recent RichEdit also include better handling of end-of-paragraph selection and caret movement over trailing spaces.
+RichEditor can load newer RichEdit DLLs for better accessibility and rendering. Windows 11 Notepad ships with a modern RichEdit build that improves plain-text caret/selection behavior (especially near line ends and trailing spaces) and uses DirectWrite and UI Automation for color emoji and screen reader support.
 
-You can point to Office RichEdit DLLs (e.g., Office 2013+), which often include more recent fixes than the Windows system DLL. Use `RichEditLibraryPath` and `RichEditClassName` in the INI if you want to experiment.
+You can point to Office RichEdit DLLs (e.g., Office 2013+), which often include more recent fixes than the Windows system DLL. Use `RichEditLibraryPath` and `RichEditClassName` in the INI if you want to experiment. For Windows Notepad, a typical path looks like: `C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.x.x.x_x64__8wekyb3d8bbwe\Notepad\riched20.dll`.
 
 ## Command Line (Advanced)
 

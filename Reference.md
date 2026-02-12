@@ -644,6 +644,8 @@ Shortcut=Ctrl+Shift+F
 
 **RichEdit Library Selection:**
 - Optional `RichEditLibraryPath` and `RichEditClassName` overrides
+- `RichEditLibraryPath` accepts absolute or relative paths
+- Example Windows Notepad DLL: `C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.x.x.x_x64__8wekyb3d8bbwe\Notepad\riched20.dll`
 - Default DLL cascade: MSFTEDIT.DLL → RICHED20.DLL → RICHED32.DLL
 - Class fallback chain includes RichEditD2DPT, RichEdit60W, RICHEDIT50W, RICHEDIT
 - RichEdit version detection exposed in the About dialog
