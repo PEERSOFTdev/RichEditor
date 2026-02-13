@@ -97,7 +97,7 @@ Adresy URL (webové odkazy) se detekují automaticky. Enter na adresu URL ji ote
 
 ## Konfigurace (INI – konfigurační soubor)
 
-Při prvním spuštění se vytvoří `RichEditor.ini` (konfigurační soubor INI) vedle souboru exe (spustitelný soubor programu). Soubor je samopopisný díky komentářům a je bezpečné jej upravovat, pokud je aplikace zavřená. Pokud komentáře odstraníte a chcete je zpět, stačí INI smazat a nechat aplikaci znovu vytvořit.
+Při prvním spuštění se vytvoří `RichEditor.ini` (konfigurační soubor INI) vedle souboru exe (spustitelný soubor programu). Soubor je samopopisný díky komentářům a je bezpečné jej upravovat, pokud je aplikace zavřená. Řádky začínající `;` nebo `#` se berou jako komentáře. Pokud komentáře odstraníte a chcete je zpět, stačí INI smazat a nechat aplikaci znovu vytvořit.
 
 Níže je kompletní, strukturovaný přehled všech sekcí a klíčů, které editor používá. Uvedené výchozí hodnoty odpovídají automaticky vytvořenému INI.
 

@@ -42,7 +42,8 @@ Last updated: 2026‑02‑08.
 
 **INI Configuration System:**
 - Auto-creation of default `RichEditor.ini` on first run
-- 10 example filters included demonstrating all action types
+- 10 example filters included demonstrating common action types
+- Lines starting with `;` or `#` are treated as comments in the INI file
 - All application settings configurable via INI file:
   - Word wrap default state
   - Autosave enable/disable
