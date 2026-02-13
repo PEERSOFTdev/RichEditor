@@ -38,7 +38,11 @@
 #define ID_SEARCH_FIND_NEXT             1301
 #define ID_SEARCH_FIND_PREVIOUS         1302
 #define ID_SEARCH_REPLACE               1303
-#define ID_SEARCH_GOTO_LINE              1304
+#define ID_SEARCH_GOTO_LINE             1304
+#define ID_SEARCH_TOGGLE_BOOKMARK       1305
+#define ID_SEARCH_NEXT_BOOKMARK         1306
+#define ID_SEARCH_PREV_BOOKMARK         1307
+#define ID_SEARCH_CLEAR_BOOKMARKS       1308
 
 // Tools menu (Phase 2)
 #define ID_TOOLS_EXECUTEFILTER          1201
@@ -228,5 +232,12 @@
 #define IDS_GOTO_TITLE                  2159
 #define IDS_GOTO_LABEL                  2160
 #define IDS_GOTO_INVALID_LINE           2161
+
+// Bookmark strings (Phase 2.9.3: 2162-2166)
+#define IDS_BOOKMARK_TOGGLE             2162
+#define IDS_BOOKMARK_NEXT               2163
+#define IDS_BOOKMARK_PREV               2164
+#define IDS_BOOKMARK_CLEAR_ALL          2165
+#define IDS_NO_BOOKMARKS                2166
 
 #endif // RESOURCE_H

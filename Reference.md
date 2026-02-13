@@ -677,6 +677,16 @@ Shortcut=Ctrl+Shift+F
 - Replace history stored in `[ReplaceHistory]` (Item1 is newest)
 - Replace supports escape sequences when enabled (same rules as Find)
 
+### Phase 2.9.3 (Complete)
+
+**Bookmarks:**
+- Ctrl+F2 toggles a bookmark on the current line
+- F2 jumps to the next bookmark, Shift+F2 to the previous
+- Clear All Bookmarks removes all bookmarks for the current file
+- Bookmarks persist per file (stored in INI under a hashed section)
+- Line interpretation follows Word Wrap mode: visual lines when ON, physical lines when OFF
+- When a bookmarked line is deleted, the bookmark relocates to the replacement line
+
 ### Phase 2.9.4 (Complete)
 
 **Go to Line:**
@@ -897,7 +907,7 @@ RichEditor supports read-only mode to prevent accidental file modifications whil
 - File operations: Open, Save As, New, Exit
 - File → Read-Only toggle (can turn read-only mode on/off)
 - Copy and Select All operations
-- Search → Find, Find Next, Find Previous, Go to Line
+- Search → Find, Find Next, Find Previous, Go to Line, Bookmarks
 - View → Word Wrap
 - Filters with non-destructive actions:
   - Display filters (messagebox/statusbar)
@@ -951,6 +961,9 @@ RichEditor.exe /readonly source.cpp
 | `F5` | Insert time/date |
 | `Ctrl+Enter` | Execute current filter |
 | `Ctrl+G` | Go to Line |
+| `Ctrl+F2` | Toggle bookmark |
+| `F2` | Next bookmark |
+| `Shift+F2` | Previous bookmark |
 | `Ctrl+Shift+T` | Open template picker menu |
 | `Enter` | Open URL (when cursor is in URL) |
 | `Context Menu Key` | Open context menu with filters |

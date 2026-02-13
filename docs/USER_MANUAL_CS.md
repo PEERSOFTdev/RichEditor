@@ -258,6 +258,9 @@ Názvy kláves jsou uvedeny podle popisků na klávesnici (Ctrl, Shift, Alt, Ent
 | Ctrl+F | Najít |
 | Ctrl+H | Nahradit |
 | Ctrl+G | Přejít na řádek |
+| Ctrl+F2 | Přepnout záložku |
+| F2 | Další záložka |
+| Shift+F2 | Předchozí záložka |
 | F5 | Čas a datum |
 | Ctrl+Enter | Spustit filtr |
 | Ctrl+Shift+T | Výběr šablon |

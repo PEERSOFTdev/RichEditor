@@ -40,6 +40,25 @@ BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowT
 BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
 BOOL g_bReadOnly = FALSE;         // Read-only mode (can be set via /readonly or File menu)
 
+//============================================================================
+// Bookmarks (Phase 2.9.3)
+//============================================================================
+#define MAX_BOOKMARKS 100
+#define BOOKMARK_CONTEXT_LEN 64
+
+struct Bookmark {
+    LONG charPos;                          // Char position (0-based)
+    LONG lineIndex;                        // Line index (wrap-aware)
+    WCHAR context[BOOKMARK_CONTEXT_LEN];   // Line context snippet
+    BOOL active;
+};
+
+Bookmark g_Bookmarks[MAX_BOOKMARKS];
+int g_nBookmarkCount = 0;
+BOOL g_bBookmarksDirty = FALSE;
+int g_nLastTextLen = 0;
+WCHAR g_szBookmarkSectionKey[64] = L"";
+
 // INI cache (single in-memory copy)
 struct IniCache {
     std::wstring data;
@@ -206,6 +225,9 @@ const ReservedShortcut g_ReservedShortcuts[] = {
     { 'T', FCONTROL | FSHIFT | FVIRTKEY, L"Ctrl+Shift+T (Insert Template)" },
     { 'F', FCONTROL | FVIRTKEY, L"Ctrl+F (Find)" },
     { 'G', FCONTROL | FVIRTKEY, L"Ctrl+G (Go to Line)" },
+    { VK_F2, FVIRTKEY, L"F2 (Next Bookmark)" },
+    { VK_F2, FSHIFT | FVIRTKEY, L"Shift+F2 (Previous Bookmark)" },
+    { VK_F2, FCONTROL | FVIRTKEY, L"Ctrl+F2 (Toggle Bookmark)" },
     { VK_F3, FVIRTKEY, L"F3 (Find Next)" },
     { VK_F3, FSHIFT | FVIRTKEY, L"Shift+F3 (Find Previous)" },
     { 0, 0, NULL }  // Sentinel
@@ -382,6 +404,14 @@ void OpenURL(HWND hwnd, LPCWSTR pszURL);
 INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
+void LoadBookmarksForCurrentFile();
+void SaveBookmarksForCurrentFile();
+void ClearBookmarks();
+void ToggleBookmark();
+void NextBookmark(BOOL bForward);
+void ClearAllBookmarks();
+void UpdateBookmarksAfterEdit(LONG nEditPos, int nDelta);
+static void RefreshBookmarkLineIndices();
 LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
 BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
@@ -1052,7 +1082,7 @@ void LoadTemplates()
 HACCEL BuildAcceleratorTable()
 {
     // Count total accelerators needed
-    const int BUILTIN_COUNT = 20;  // Built-in shortcuts (including search shortcuts - Phase 2.9.4)
+    const int BUILTIN_COUNT = 23;  // Built-in shortcuts (including search shortcuts - Phase 2.9.3)
     int nTemplateShortcuts = 0;
     
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1092,6 +1122,9 @@ HACCEL BuildAcceleratorTable()
     pAccel[idx].fVirt = FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_NEXT;
     pAccel[idx].fVirt = FSHIFT | FVIRTKEY; pAccel[idx].key = VK_F3; pAccel[idx++].cmd = ID_SEARCH_FIND_PREVIOUS;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'G'; pAccel[idx++].cmd = ID_SEARCH_GOTO_LINE;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = VK_F2; pAccel[idx++].cmd = ID_SEARCH_TOGGLE_BOOKMARK;
+    pAccel[idx].fVirt = FVIRTKEY; pAccel[idx].key = VK_F2; pAccel[idx++].cmd = ID_SEARCH_NEXT_BOOKMARK;
+    pAccel[idx].fVirt = FSHIFT | FVIRTKEY; pAccel[idx].key = VK_F2; pAccel[idx++].cmd = ID_SEARCH_PREV_BOOKMARK;
     
     // Add template shortcuts
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -2916,6 +2949,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Load MRU list
             LoadMRU();
             UpdateMRUMenu(hwnd);
+
+            // Initialize bookmark state
+            g_nLastTextLen = GetWindowTextLength(g_hWndEdit);
             
             // Set initial word wrap menu checkmark
             HMENU hMenu = GetMenu(hwnd);
@@ -2993,10 +3029,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_COMMAND:
             // Handle edit control notifications
             if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == g_hWndEdit) {
-                if (!g_bSettingText && !g_bModified) {
-                    g_bModified = TRUE;
-                    g_lastURLRange.cpMin = -1;  // Invalidate cached URL range
-                    UpdateTitle();
+                if (!g_bSettingText) {
+                    int currentLen = GetWindowTextLength(g_hWndEdit);
+                    int delta = currentLen - g_nLastTextLen;
+                    CHARRANGE cr;
+                    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                    if (g_nLastTextLen > 0) {
+                        LONG editPos = cr.cpMin;
+                        if (delta > 0) {
+                            editPos = cr.cpMin - delta;
+                            if (editPos < 0) editPos = 0;
+                        }
+                        UpdateBookmarksAfterEdit(editPos, delta);
+                    }
+                    g_nLastTextLen = currentLen;
+
+                    if (!g_bModified) {
+                        g_bModified = TRUE;
+                        g_lastURLRange.cpMin = -1;  // Invalidate cached URL range
+                        UpdateTitle();
+                    }
                 }
                 return 0;
             }
@@ -3100,6 +3152,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
                 case ID_SEARCH_GOTO_LINE:
                     DialogBox(GetModuleHandle(NULL), MAKEINTRESOURCE(IDD_GOTO), hwnd, DlgGotoProc);
+                    break;
+
+                case ID_SEARCH_TOGGLE_BOOKMARK:
+                    ToggleBookmark();
+                    break;
+
+                case ID_SEARCH_NEXT_BOOKMARK:
+                    NextBookmark(TRUE);
+                    break;
+
+                case ID_SEARCH_PREV_BOOKMARK:
+                    NextBookmark(FALSE);
+                    break;
+
+                case ID_SEARCH_CLEAR_BOOKMARKS:
+                    ClearAllBookmarks();
                     break;
                 
                 // Tools menu
@@ -3630,6 +3698,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             if (g_bREPLMode) {
                 ExitREPLMode();
             }
+
+            SaveBookmarksForCurrentFile();
             
             // Destroy Find dialog if open (Phase 2.9)
             if (g_hDlgFind) {
@@ -5026,6 +5096,8 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     
     // Update file extension for template filtering
     UpdateFileExtension(pszFileName);
+
+    LoadBookmarksForCurrentFile();
     
     // Clear resume file state when loading a new file (if requested)
     if (bClearResumeState && g_bIsResumedFile) {
@@ -5116,6 +5188,10 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     if (bClearResumeState) {
         g_bModified = FALSE;
     }
+
+    if (bClearResumeState) {
+        SaveBookmarksForCurrentFile();
+    }
     
     // Clear resume file state after successful save (if requested)
     if (bClearResumeState && g_bIsResumedFile) {
@@ -5195,6 +5271,585 @@ void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError)
     LoadStringResource(IDS_ERROR, szTitle, 64);
     
     MessageBox(g_hWndMain, szError, szTitle, MB_OK | MB_ICONERROR);
+}
+
+//============================================================================
+// Bookmark helpers (Phase 2.9.3)
+//============================================================================
+static DWORD HashStringFNV1a(LPCWSTR pszText)
+{
+    DWORD hash = 2166136261u;
+    if (!pszText) return hash;
+
+    for (const WCHAR* p = pszText; *p; ++p) {
+        WCHAR ch = *p;
+        // Normalize to lowercase for stable path hashing
+        if (ch >= L'A' && ch <= L'Z') {
+            ch = (WCHAR)(ch + (L'a' - L'A'));
+        }
+        hash ^= (DWORD)ch;
+        hash *= 16777619u;
+    }
+
+    return hash;
+}
+
+static void NormalizePathForBookmarkKey(LPCWSTR pszPath, WCHAR* pszOut, int cchOut)
+{
+    if (!pszPath || !pszOut || cchOut <= 0) return;
+    pszOut[0] = L'\0';
+
+    WCHAR szFull[EXTENDED_PATH_MAX];
+    if (GetFullPathName(pszPath, EXTENDED_PATH_MAX, szFull, NULL) == 0) {
+        wcsncpy(pszOut, pszPath, cchOut - 1);
+        pszOut[cchOut - 1] = L'\0';
+        return;
+    }
+
+    // Normalize slashes and lowercase
+    for (int i = 0; szFull[i] != L'\0' && i < cchOut - 1; i++) {
+        WCHAR ch = szFull[i];
+        if (ch == L'/') ch = L'\\';
+        if (ch >= L'A' && ch <= L'Z') ch = (WCHAR)(ch + (L'a' - L'A'));
+        pszOut[i] = ch;
+        pszOut[i + 1] = L'\0';
+    }
+}
+
+static void GetBookmarkSectionKey(LPCWSTR pszPath, WCHAR* pszKey, int cchKey)
+{
+    if (!pszKey || cchKey <= 0) return;
+    pszKey[0] = L'\0';
+
+    WCHAR szNorm[EXTENDED_PATH_MAX];
+    NormalizePathForBookmarkKey(pszPath, szNorm, EXTENDED_PATH_MAX);
+
+    DWORD hash = HashStringFNV1a(szNorm);
+    _snwprintf(pszKey, cchKey, L"Bookmarks.%08X", hash);
+    pszKey[cchKey - 1] = L'\0';
+}
+
+static int HexValue(WCHAR ch)
+{
+    if (ch >= L'0' && ch <= L'9') return ch - L'0';
+    if (ch >= L'a' && ch <= L'f') return ch - L'a' + 10;
+    if (ch >= L'A' && ch <= L'F') return ch - L'A' + 10;
+    return -1;
+}
+
+static void EncodeContextHex(const WCHAR* pszContext, WCHAR* pszOut, int cchOut)
+{
+    if (!pszContext || !pszOut || cchOut <= 0) return;
+    int outPos = 0;
+    for (int i = 0; pszContext[i] != L'\0' && outPos + 4 < cchOut; i++) {
+        WCHAR ch = pszContext[i];
+        _snwprintf(pszOut + outPos, cchOut - outPos, L"%04X", (unsigned int)ch);
+        outPos += 4;
+    }
+    pszOut[outPos] = L'\0';
+}
+
+static void DecodeContextHex(const WCHAR* pszHex, WCHAR* pszOut, int cchOut)
+{
+    if (!pszHex || !pszOut || cchOut <= 0) return;
+    int outPos = 0;
+    int inPos = 0;
+    while (pszHex[inPos] && pszHex[inPos + 1] && pszHex[inPos + 2] && pszHex[inPos + 3] && outPos + 1 < cchOut) {
+        int v1 = HexValue(pszHex[inPos]);
+        int v2 = HexValue(pszHex[inPos + 1]);
+        int v3 = HexValue(pszHex[inPos + 2]);
+        int v4 = HexValue(pszHex[inPos + 3]);
+        if (v1 < 0 || v2 < 0 || v3 < 0 || v4 < 0) break;
+        WCHAR ch = (WCHAR)((v1 << 12) | (v2 << 8) | (v3 << 4) | v4);
+        pszOut[outPos++] = ch;
+        inPos += 4;
+    }
+    pszOut[outPos] = L'\0';
+}
+
+static int GetLineIndexWrapAwareFromChar(LONG charPos)
+{
+    if (g_bWordWrap) {
+        int visualLine = 1;
+        int currentLineStart = 0;
+        int lineIndex = 0;
+
+        while (currentLineStart < charPos) {
+            int nextLineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
+            if (nextLineStart == -1 || nextLineStart <= currentLineStart) {
+                break;
+            }
+            if (nextLineStart <= charPos) {
+                visualLine++;
+                currentLineStart = nextLineStart;
+                lineIndex++;
+            } else {
+                break;
+            }
+        }
+
+        return visualLine - 1;  // 0-based
+    }
+
+    return (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, charPos);
+}
+
+static int GetCurrentLineIndexWrapAware()
+{
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    return GetLineIndexWrapAwareFromChar(cr.cpMin);
+}
+
+static void GetLineContextFromCharPos(LONG charPos, WCHAR* pszOut, int cchOut)
+{
+    if (!pszOut || cchOut <= 0) return;
+    pszOut[0] = L'\0';
+
+    LONG lineIndex = (LONG)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, charPos);
+    LONG lineStart = (LONG)SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex, 0);
+    LONG lineLength = (LONG)SendMessage(g_hWndEdit, EM_LINELENGTH, lineStart, 0);
+    if (lineLength <= 0) return;
+
+    LONG copyLen = lineLength;
+    if (copyLen > BOOKMARK_CONTEXT_LEN - 1) {
+        copyLen = BOOKMARK_CONTEXT_LEN - 1;
+    }
+
+    TEXTRANGE tr;
+    tr.chrg.cpMin = lineStart;
+    tr.chrg.cpMax = lineStart + copyLen;
+    tr.lpstrText = pszOut;
+    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    pszOut[copyLen] = L'\0';
+}
+
+static LONG GetBookmarkLineStart(int lineIndex)
+{
+    if (g_bWordWrap) {
+        int currentLineStart = 0;
+        int currentIndex = 0;
+
+        while (currentIndex < lineIndex) {
+            int nextLineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, currentIndex + 1, 0);
+            if (nextLineStart == -1 || nextLineStart <= currentLineStart) {
+                return -1;
+            }
+            currentLineStart = nextLineStart;
+            currentIndex++;
+        }
+
+        return (LONG)currentLineStart;
+    }
+
+    return (LONG)SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex, 0);
+}
+
+void ClearBookmarks()
+{
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        g_Bookmarks[i].active = FALSE;
+        g_Bookmarks[i].charPos = 0;
+        g_Bookmarks[i].lineIndex = 0;
+        g_Bookmarks[i].context[0] = L'\0';
+    }
+    g_nBookmarkCount = 0;
+    g_bBookmarksDirty = FALSE;
+}
+
+static void GetBookmarkIniKey(int index, WCHAR* pszKey, int cchKey)
+{
+    if (!pszKey || cchKey <= 0) return;
+    WCHAR szNum[16];
+    wcscpy(pszKey, L"Item");
+    _itow(index + 1, szNum, 10);
+    wcscat(pszKey, szNum);
+}
+
+static int FindBookmarkByLineIndex(int lineIndex)
+{
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (!g_Bookmarks[i].active) continue;
+        if (g_Bookmarks[i].lineIndex == lineIndex) return i;
+    }
+    return -1;
+}
+
+void LoadBookmarksForCurrentFile()
+{
+    ClearBookmarks();
+    g_szBookmarkSectionKey[0] = L'\0';
+
+    if (g_szFileName[0] == L'\0') {
+        return;
+    }
+
+    WCHAR szSection[64];
+    GetBookmarkSectionKey(g_szFileName, szSection, 64);
+    wcscpy(g_szBookmarkSectionKey, szSection);
+
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+
+    int count = ReadINIInt(szIniPath, szSection, L"Count", 0);
+    if (count > MAX_BOOKMARKS) count = MAX_BOOKMARKS;
+
+    for (int i = 0; i < count; i++) {
+        WCHAR szKey[32];
+        WCHAR szValue[512];
+        GetBookmarkIniKey(i, szKey, 32);
+        ReadINIValue(szIniPath, szSection, szKey, szValue, 512, L"");
+        if (szValue[0] == L'\0') continue;
+
+        WCHAR* pPos = wcsstr(szValue, L"pos=");
+        WCHAR* pCtx = wcsstr(szValue, L"|ctx=");
+        if (!pPos || !pCtx) continue;
+
+        *pCtx = L'\0';
+        pCtx += 5;
+        LONG pos = _wtol(pPos + 4);
+
+        g_Bookmarks[i].charPos = pos;
+        g_Bookmarks[i].lineIndex = 0;
+        DecodeContextHex(pCtx, g_Bookmarks[i].context, BOOKMARK_CONTEXT_LEN);
+        g_Bookmarks[i].active = TRUE;
+        g_nBookmarkCount++;
+    }
+
+    g_bBookmarksDirty = TRUE;
+    g_nLastTextLen = GetWindowTextLength(g_hWndEdit);
+}
+
+void SaveBookmarksForCurrentFile()
+{
+    if (g_szFileName[0] == L'\0') {
+        return;
+    }
+
+    WCHAR szSection[64];
+    GetBookmarkSectionKey(g_szFileName, szSection, 64);
+    wcscpy(g_szBookmarkSectionKey, szSection);
+
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+
+    std::wstring sectionData;
+    sectionData.reserve(4096);
+
+    sectionData += L"[";
+    sectionData += szSection;
+    sectionData += L"]\r\n";
+    sectionData += L"Path=";
+    sectionData += g_szFileName;
+    sectionData += L"\r\n";
+
+    int count = 0;
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (!g_Bookmarks[i].active) continue;
+        count++;
+    }
+
+    WCHAR szCount[16];
+    _itow(count, szCount, 10);
+    sectionData += L"Count=";
+    sectionData += szCount;
+    sectionData += L"\r\n";
+
+    int idx = 0;
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (!g_Bookmarks[i].active) continue;
+
+        WCHAR szKey[32];
+        WCHAR szPos[32];
+        WCHAR szCtx[BOOKMARK_CONTEXT_LEN * 4 + 1];
+
+        GetBookmarkIniKey(idx, szKey, 32);
+        _snwprintf(szPos, 32, L"%ld", g_Bookmarks[i].charPos);
+        szPos[31] = L'\0';
+        EncodeContextHex(g_Bookmarks[i].context, szCtx, (int)(sizeof(szCtx) / sizeof(szCtx[0])));
+
+        sectionData += szKey;
+        sectionData += L"=pos=";
+        sectionData += szPos;
+        sectionData += L"|ctx=";
+        sectionData += szCtx;
+        sectionData += L"\r\n";
+        idx++;
+    }
+
+    ReplaceINISection(szIniPath, szSection, sectionData);
+    FlushIniCache();
+}
+
+static BOOL BookmarkContextMatchesAt(LONG charPos, const WCHAR* context)
+{
+    if (!context || context[0] == L'\0') return FALSE;
+
+    int ctxLen = (int)wcslen(context);
+    if (ctxLen <= 0) return FALSE;
+
+    TEXTRANGE tr;
+    WCHAR buffer[BOOKMARK_CONTEXT_LEN + 1];
+    tr.chrg.cpMin = charPos;
+    tr.chrg.cpMax = charPos + ctxLen;
+    tr.lpstrText = buffer;
+    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    if (retrieved <= 0) return FALSE;
+
+    buffer[ctxLen] = L'\0';
+    return (wcscmp(buffer, context) == 0);
+}
+
+static LONG FindContextNearPos(LONG charPos, const WCHAR* context, int windowSize)
+{
+    if (!context || context[0] == L'\0') return -1;
+
+    int textLen = GetWindowTextLength(g_hWndEdit);
+    if (textLen <= 0) return -1;
+
+    LONG start = charPos - windowSize;
+    if (start < 0) start = 0;
+    LONG end = charPos + windowSize;
+    if (end > textLen) end = textLen;
+
+    int ctxLen = (int)wcslen(context);
+    if (ctxLen <= 0) return -1;
+
+    LONG rangeLen = end - start;
+    if (rangeLen <= 0) return -1;
+
+    WCHAR* buffer = (WCHAR*)malloc((rangeLen + 1) * sizeof(WCHAR));
+    if (!buffer) return -1;
+
+    TEXTRANGE tr;
+    tr.chrg.cpMin = start;
+    tr.chrg.cpMax = end;
+    tr.lpstrText = buffer;
+    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    if (retrieved <= 0) {
+        free(buffer);
+        return -1;
+    }
+
+    buffer[retrieved] = L'\0';
+
+    WCHAR* found = wcsstr(buffer, context);
+    if (!found) {
+        free(buffer);
+        return -1;
+    }
+
+    LONG offset = (LONG)(found - buffer);
+    free(buffer);
+    return start + offset;
+}
+
+static LONG FindContextInDocument(const WCHAR* context)
+{
+    if (!context || context[0] == L'\0') return -1;
+
+    int textLen = GetWindowTextLength(g_hWndEdit);
+    if (textLen <= 0) return -1;
+
+    WCHAR* buffer = (WCHAR*)malloc((textLen + 1) * sizeof(WCHAR));
+    if (!buffer) return -1;
+
+    TEXTRANGE tr;
+    tr.chrg.cpMin = 0;
+    tr.chrg.cpMax = textLen;
+    tr.lpstrText = buffer;
+    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    if (retrieved <= 0) {
+        free(buffer);
+        return -1;
+    }
+
+    buffer[retrieved] = L'\0';
+    WCHAR* found = wcsstr(buffer, context);
+    if (!found) {
+        free(buffer);
+        return -1;
+    }
+
+    LONG offset = (LONG)(found - buffer);
+    free(buffer);
+    return offset;
+}
+
+static int CompareBookmarksByLine(const void* a, const void* b)
+{
+    const Bookmark* pa = *(const Bookmark* const*)a;
+    const Bookmark* pb = *(const Bookmark* const*)b;
+    if (pa->lineIndex < pb->lineIndex) return -1;
+    if (pa->lineIndex > pb->lineIndex) return 1;
+    return 0;
+}
+
+void UpdateBookmarksAfterEdit(LONG nEditPos, int nDelta)
+{
+    if (nDelta == 0) return;
+
+    LONG deletedCount = 0;
+    LONG deletedStart = nEditPos;
+    LONG deletedEnd = nEditPos;
+    if (nDelta < 0) {
+        deletedCount = -nDelta;
+        deletedEnd = nEditPos + deletedCount;
+        if (deletedEnd < deletedStart) deletedEnd = deletedStart;
+    }
+
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (!g_Bookmarks[i].active) continue;
+
+        LONG pos = g_Bookmarks[i].charPos;
+
+        if (nDelta < 0 && pos >= deletedStart && pos < deletedEnd) {
+            LONG newPos = deletedStart;
+            int lineIndex = GetLineIndexWrapAwareFromChar(newPos);
+            LONG lineStart = GetBookmarkLineStart(lineIndex);
+            if (lineStart >= 0) newPos = lineStart;
+            g_Bookmarks[i].charPos = newPos;
+        } else if (pos >= nEditPos) {
+            g_Bookmarks[i].charPos += nDelta;
+            if (g_Bookmarks[i].charPos < 0) g_Bookmarks[i].charPos = 0;
+        }
+    }
+
+    g_bBookmarksDirty = TRUE;
+}
+
+void ToggleBookmark()
+{
+    if (!g_hWndEdit) return;
+
+    if (g_bBookmarksDirty) {
+        RefreshBookmarkLineIndices();
+    }
+
+    CHARRANGE cr;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+
+    int currentLineIndex = GetCurrentLineIndexWrapAware();
+    LONG lineStart = GetBookmarkLineStart(currentLineIndex);
+    if (lineStart < 0) return;
+
+    // Check if bookmark exists on this line
+    int existingIndex = FindBookmarkByLineIndex(currentLineIndex);
+    if (existingIndex >= 0) {
+        g_Bookmarks[existingIndex].active = FALSE;
+        g_nBookmarkCount--;
+        if (g_nBookmarkCount < 0) g_nBookmarkCount = 0;
+        return;
+    }
+
+    // Find empty slot
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (g_Bookmarks[i].active) continue;
+
+        g_Bookmarks[i].active = TRUE;
+        g_Bookmarks[i].charPos = lineStart;
+        g_Bookmarks[i].lineIndex = currentLineIndex;
+        GetLineContextFromCharPos(lineStart, g_Bookmarks[i].context, BOOKMARK_CONTEXT_LEN);
+        g_nBookmarkCount++;
+        return;
+    }
+}
+
+static void RefreshBookmarkLineIndices()
+{
+    CHARRANGE crOriginal;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crOriginal);
+
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (!g_Bookmarks[i].active) continue;
+        if (!BookmarkContextMatchesAt(g_Bookmarks[i].charPos, g_Bookmarks[i].context)) {
+            LONG nearPos = FindContextNearPos(g_Bookmarks[i].charPos, g_Bookmarks[i].context, 8192);
+            if (nearPos < 0) {
+                nearPos = FindContextInDocument(g_Bookmarks[i].context);
+            }
+            if (nearPos >= 0) {
+                g_Bookmarks[i].charPos = nearPos;
+            }
+        }
+        if (g_bWordWrap) {
+            CHARRANGE cr;
+            cr.cpMin = g_Bookmarks[i].charPos;
+            cr.cpMax = g_Bookmarks[i].charPos;
+            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            g_Bookmarks[i].lineIndex = GetCurrentLineIndexWrapAware();
+        } else {
+            g_Bookmarks[i].lineIndex = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, g_Bookmarks[i].charPos);
+        }
+    }
+
+    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crOriginal);
+
+    g_bBookmarksDirty = FALSE;
+}
+
+void NextBookmark(BOOL bForward)
+{
+    if (g_nBookmarkCount <= 0) {
+        WCHAR szMsg[128], szTitle[64];
+        LoadStringResource(IDS_NO_BOOKMARKS, szMsg, 128);
+        LoadStringResource(IDS_INFORMATION, szTitle, 64);
+        MessageBox(g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
+        return;
+    }
+
+    if (g_bBookmarksDirty) {
+        RefreshBookmarkLineIndices();
+    }
+
+    CHARRANGE crOriginal;
+    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crOriginal);
+
+    int currentLine = GetCurrentLineIndexWrapAware();
+    Bookmark* sorted[MAX_BOOKMARKS];
+    int sortedCount = 0;
+
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (!g_Bookmarks[i].active) continue;
+        sorted[sortedCount++] = &g_Bookmarks[i];
+    }
+
+    qsort(sorted, sortedCount, sizeof(Bookmark*), CompareBookmarksByLine);
+
+    int targetIndex = -1;
+    if (bForward) {
+        for (int i = 0; i < sortedCount; i++) {
+            if (sorted[i]->lineIndex > currentLine) {
+                targetIndex = i;
+                break;
+            }
+        }
+        if (targetIndex < 0) targetIndex = 0;  // Wrap
+    } else {
+        for (int i = sortedCount - 1; i >= 0; i--) {
+            if (sorted[i]->lineIndex < currentLine) {
+                targetIndex = i;
+                break;
+            }
+        }
+        if (targetIndex < 0) targetIndex = sortedCount - 1;  // Wrap
+    }
+
+    if (targetIndex >= 0 && targetIndex < sortedCount) {
+        LONG pos = sorted[targetIndex]->charPos;
+        CHARRANGE cr;
+        cr.cpMin = pos;
+        cr.cpMax = pos;
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+        SetFocus(g_hWndEdit);
+    } else {
+        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crOriginal);
+    }
+}
+
+void ClearAllBookmarks()
+{
+    ClearBookmarks();
 }
 
 //============================================================================
@@ -5925,6 +6580,10 @@ void FileNew()
     g_szFileTitle[0] = L'\0';
     g_bModified = FALSE;
     wcscpy(g_szCurrentFileExtension, L"txt");  // Reset to txt for new file
+
+    ClearBookmarks();
+    g_szBookmarkSectionKey[0] = L'\0';
+    g_nLastTextLen = 0;
     
     // Clear read-only mode on new file
     g_bReadOnly = FALSE;
@@ -5977,6 +6636,10 @@ void FileNewFromTemplate(int nTemplateIndex)
     g_szFileName[0] = L'\0';
     g_szFileTitle[0] = L'\0';
     g_bModified = TRUE;  // Mark as modified (has unsaved template content)
+
+    ClearBookmarks();
+    g_szBookmarkSectionKey[0] = L'\0';
+    g_nLastTextLen = GetWindowTextLength(g_hWndEdit);
     
     // Set file extension based on template's file type
     if (pTemplate->szFileExtension[0] != L'\0') {
@@ -6649,6 +7312,8 @@ void ViewWordWrap()
     
     // Set focus back to edit control
     SetFocus(g_hWndEdit);
+
+    g_bBookmarksDirty = TRUE;
 }
 
 //============================================================================
@@ -7025,9 +7690,9 @@ void ExecuteFilter()
         // Get line number
         LONG lineNum = SendMessage(g_hWndEdit, EM_LINEFROMCHAR, crSel.cpMin, 0);
         // Get line start
-        LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineNum, 0);
-        // Get line length (excluding newline characters)
-        LONG lineLength = SendMessage(g_hWndEdit, EM_LINELENGTH, lineStart, 0);
+                LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineNum, 0);
+                // Get line length (excluding newline characters)
+                LONG lineLength = SendMessage(g_hWndEdit, EM_LINELENGTH, lineStart, 0);
         
         crSel.cpMin = lineStart;
         crSel.cpMax = lineStart + lineLength;
@@ -8188,6 +8853,8 @@ void UpdateMenuStates(HWND hwnd)
         g_bReadOnly ? MF_GRAYED : MF_ENABLED);
     EnableMenuItem(hMenu, ID_SEARCH_GOTO_LINE,
         MF_ENABLED);
+    EnableMenuItem(hMenu, ID_SEARCH_CLEAR_BOOKMARKS,
+        g_nBookmarkCount > 0 ? MF_ENABLED : MF_GRAYED);
     
     DrawMenuBar(hwnd);
 }
@@ -8605,6 +9272,7 @@ void DoAutosave()
     if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly || bDialogActive) {
         return;
     }
+
     
     // Save the file silently (passing FALSE to preserve resume file and MRU behavior)
     if (SaveTextFile(g_szFileName, FALSE)) {

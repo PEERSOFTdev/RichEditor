@@ -254,6 +254,9 @@ RichEditor.exe [options] [filename]
 | Ctrl+F | Find |
 | Ctrl+H | Replace |
 | Ctrl+G | Go to Line |
+| Ctrl+F2 | Toggle Bookmark |
+| F2 | Next Bookmark |
+| Shift+F2 | Previous Bookmark |
 | F5 | Insert Time/Date |
 | Ctrl+Enter | Execute Filter |
 | Ctrl+Shift+T | Template Picker |

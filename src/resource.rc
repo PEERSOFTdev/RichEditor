@@ -43,6 +43,11 @@ BEGIN
         MENUITEM "Find &Previous\tShift+F3", ID_SEARCH_FIND_PREVIOUS
         MENUITEM SEPARATOR
         MENUITEM "&Go to Line...\tCtrl+G", ID_SEARCH_GOTO_LINE
+        MENUITEM SEPARATOR
+        MENUITEM "Toggle &Bookmark\tCtrl+F2", ID_SEARCH_TOGGLE_BOOKMARK
+        MENUITEM "&Next Bookmark\tF2", ID_SEARCH_NEXT_BOOKMARK
+        MENUITEM "&Previous Bookmark\tShift+F2", ID_SEARCH_PREV_BOOKMARK
+        MENUITEM "&Clear All Bookmarks", ID_SEARCH_CLEAR_BOOKMARKS
     END
     POPUP "&View"
     BEGIN
@@ -295,6 +300,11 @@ BEGIN
     IDS_GOTO_TITLE                  "Go to Line"
     IDS_GOTO_LABEL                  "&Line number (1-%d):"
     IDS_GOTO_INVALID_LINE           "Please enter a valid line number."
+    IDS_BOOKMARK_TOGGLE             "Toggle Bookmark"
+    IDS_BOOKMARK_NEXT               "Next Bookmark"
+    IDS_BOOKMARK_PREV               "Previous Bookmark"
+    IDS_BOOKMARK_CLEAR_ALL          "Clear All Bookmarks"
+    IDS_NO_BOOKMARKS                "No bookmarks are set."
 END
 
 // ============================================================================
@@ -338,6 +348,11 @@ BEGIN
         MENUITEM "Najít &předchozí\tShift+F3", ID_SEARCH_FIND_PREVIOUS
         MENUITEM SEPARATOR
         MENUITEM "&Přejít na řádek...\tCtrl+G", ID_SEARCH_GOTO_LINE
+        MENUITEM SEPARATOR
+        MENUITEM "Přepnout &záložku\tCtrl+F2", ID_SEARCH_TOGGLE_BOOKMARK
+        MENUITEM "&Další záložka\tF2", ID_SEARCH_NEXT_BOOKMARK
+        MENUITEM "&Předchozí záložka\tShift+F2", ID_SEARCH_PREV_BOOKMARK
+        MENUITEM "&Smazat všechny záložky", ID_SEARCH_CLEAR_BOOKMARKS
     END
     POPUP "&Zobrazit"
     BEGIN
@@ -543,4 +558,9 @@ BEGIN
     IDS_GOTO_TITLE                  "Přejít na řádek"
     IDS_GOTO_LABEL                  "&Číslo řádku (1-%d):"
     IDS_GOTO_INVALID_LINE           "Zadejte platné číslo řádku."
+    IDS_BOOKMARK_TOGGLE             "Přepnout záložku"
+    IDS_BOOKMARK_NEXT               "Další záložka"
+    IDS_BOOKMARK_PREV               "Předchozí záložka"
+    IDS_BOOKMARK_CLEAR_ALL          "Smazat všechny záložky"
+    IDS_NO_BOOKMARKS                "Nejsou nastavené žádné záložky."
 END
