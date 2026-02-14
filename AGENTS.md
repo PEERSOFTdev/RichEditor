@@ -48,6 +48,17 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - Do not reintroduce duplicate phase blocks after Usage.
 - Verify behavior against `src/main.cpp` before updating Reference.md.
 
+## Commit Message Guidelines
+
+- Subject line: imperative verb + object, no prefix tags, no period, <= 72 chars.
+- Be specific: if replacing/migrating, name both old and new.
+- One logical change per commit; split unrelated edits.
+- Body: add a blank line, then 1-5 short verb-led bullets for intent/impact when non-trivial.
+- Docs-only changes: use verbs like Document/Update/Refine.
+- Avoid vague subjects ("misc", "fix stuff").
+- Tests: if run, add a final "Tests: ..." line; if not run and notable, add "Tests: not run".
+- Never commit secrets or ignored/local files unless explicitly requested.
+
 ## Where to Look
 
 - `src/main.cpp`: all primary logic
