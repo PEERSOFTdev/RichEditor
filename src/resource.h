@@ -240,4 +240,8 @@
 #define IDS_BOOKMARK_CLEAR_ALL          2165
 #define IDS_NO_BOOKMARKS                2166
 
+// Elevated save strings (ToDo #2)
+#define IDS_ELEVATE_SAVE_PROMPT          2167
+#define IDS_ERROR_ELEVATED_SAVE          2168
+
 #endif // RESOURCE_H

@@ -1,7 +1,4 @@
-1. Search & Replace, bookmarks
-* add edit field to the Find dialog box to show found text and context for more accessible reviewing of found text and ability to continue search with the open dialog
-
-2. Elevate On Save: If the 'Access Denied' error is encountered while saving, offer to launch elevated to be able to save (possibly with intermediate save to %temp% and then elevating just to move that file, not for the whole editing session)
+6. Close On Escape: in read-only mode only, configurable through the INI file (off by default)
 
 3. Support Tab Completion For Active REPL Filter: Triggered by pressing TAB while on the Prompt Line after the detected prompt; sends TAB to the REPL Filter and captures its stdout, inserting it into the current line at the cursor position
 
@@ -118,6 +115,9 @@ cleanup:
     CoUninitialize();
     return 0;
 }
+
+1. Search & Replace, bookmarks
+* add edit field to the Find dialog box to show found text and context for more accessible reviewing of found text and ability to continue search with the open dialog
 
 5. Markdown:
    - Parser: https://github.com/mity/md4c

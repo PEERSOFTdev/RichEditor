@@ -305,6 +305,8 @@ BEGIN
     IDS_BOOKMARK_PREV               "Previous Bookmark"
     IDS_BOOKMARK_CLEAR_ALL          "Clear All Bookmarks"
     IDS_NO_BOOKMARKS                "No bookmarks are set."
+    IDS_ELEVATE_SAVE_PROMPT          "Access denied while saving.\n\nSave with administrator permissions?"
+    IDS_ERROR_ELEVATED_SAVE          "Could not save with administrator permissions"
 END
 
 // ============================================================================
@@ -563,4 +565,6 @@ BEGIN
     IDS_BOOKMARK_PREV               "Předchozí záložka"
     IDS_BOOKMARK_CLEAR_ALL          "Smazat všechny záložky"
     IDS_NO_BOOKMARKS                "Nejsou nastavené žádné záložky."
+    IDS_ELEVATE_SAVE_PROMPT          "Při ukládání byl odepřen přístup.\n\nUložit s oprávněními správce?"
+    IDS_ERROR_ELEVATED_SAVE          "Nepodařilo se uložit s oprávněními správce"
 END

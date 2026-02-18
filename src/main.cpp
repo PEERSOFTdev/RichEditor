@@ -39,6 +39,7 @@ BOOL g_bModified = FALSE;         // Document modified flag
 BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
 BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
 BOOL g_bReadOnly = FALSE;         // Read-only mode (can be set via /readonly or File menu)
+BOOL g_bSaveInProgress = FALSE;   // Prevent concurrent saves/autosave reentrancy
 
 //============================================================================
 // Bookmarks (Phase 2.9.3)
@@ -387,6 +388,15 @@ WCHAR g_MRU[MAX_MRU][EXTENDED_PATH_MAX];
 int g_nMRUCount = 0;
 BOOL g_bNoMRU = FALSE;              // TRUE when /nomru command-line option is specified
 
+// SaveTextFile failure tracking (ToDo #2)
+enum SaveTextFailure {
+    SAVE_TEXT_FAILURE_NONE = 0,
+    SAVE_TEXT_FAILURE_OUT_OF_MEMORY,
+    SAVE_TEXT_FAILURE_CONVERT,
+    SAVE_TEXT_FAILURE_CREATE,
+    SAVE_TEXT_FAILURE_WRITE
+};
+
 //============================================================================
 // Function Declarations
 //============================================================================
@@ -416,8 +426,16 @@ LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
 BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
 BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
+BOOL SaveTextFileWithError(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure);
+BOOL SaveTextFileInternal(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure, BOOL bUpdateState, BOOL bShowErrors);
+BOOL SaveTextFileSilently(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
 void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError);
+void ShowSaveTextFailure(SaveTextFailure failure, DWORD dwError);
+static void RestoreForegroundAfterElevation();
+void RestoreForegroundAfterElevation();
+void RestoreForegroundAfterElevation();
+void RestoreForegroundAfterElevation();
 void FileNew();
 void FileNewFromTemplate(int nTemplateIndex);
 void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount, int* pnTxtFilterIndex);
@@ -525,6 +543,11 @@ BOOL ReadResumeFromINI(WCHAR* pszResumeFile, DWORD dwResumeSize, WCHAR* pszOrigi
 void ClearResumeFromINI();
 BOOL DeleteResumeFile(const WCHAR* pszResumeFile);
 BOOL SaveToResumeFile(ResumeFileSaveMode mode = RESUME_SAVE_WITH_INI);
+BOOL CreateElevatedSaveStagingFile(WCHAR* pszStagingPath, DWORD cchPath);
+BOOL RunElevatedSave(LPCWSTR pszStagingPath, LPCWSTR pszTargetPath, DWORD* pLastError);
+void FinalizeSuccessfulSave(LPCWSTR pszFileName, BOOL bClearResumeState);
+BOOL PerformElevatedSave(LPCWSTR pszTargetPath);
+BOOL ElevatedSaveWorker(LPCWSTR pszStagingPath, LPCWSTR pszTargetPath);
 
 // REPL filter functions (Phase 2.5)
 void StartREPLFilter(int filterIndex);
@@ -548,11 +571,60 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&icc);
+
+    // Parse command line arguments early (needed for elevated save mode)
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    WCHAR szCommandLineFile[EXTENDED_PATH_MAX] = L"";
+    WCHAR szElevatedStaging[EXTENDED_PATH_MAX] = L"";
+    WCHAR szElevatedTarget[EXTENDED_PATH_MAX] = L"";
+    BOOL bElevatedSaveMode = FALSE;
+    BOOL bCmdNoMRU = FALSE;
+    BOOL bCmdReadOnly = FALSE;
     
+    // Parse arguments: look for /nomru option and filename
+    // /nomru can appear before or after the filename
+    // Examples: RichEditor.exe file.json /nomru
+    //           RichEditor.exe /nomru file.json
+    for (int i = 1; i < argc; i++) {
+        if (_wcsicmp(argv[i], L"/nomru") == 0) {
+            bCmdNoMRU = TRUE;
+        } else if (_wcsicmp(argv[i], L"/readonly") == 0) {
+            bCmdReadOnly = TRUE;
+        } else if (_wcsicmp(argv[i], L"/elevated-save") == 0) {
+            if (i + 2 < argc) {
+                wcscpy_s(szElevatedStaging, EXTENDED_PATH_MAX, argv[i + 1]);
+                wcscpy_s(szElevatedTarget, EXTENDED_PATH_MAX, argv[i + 2]);
+                bElevatedSaveMode = TRUE;
+                i += 2;
+            }
+        } else if (argv[i][0] != L'\0' && szCommandLineFile[0] == L'\0') {
+            // First non-option argument is the filename
+            wcscpy_s(szCommandLineFile, EXTENDED_PATH_MAX, argv[i]);
+        }
+    }
+
+    if (argv) {
+        LocalFree(argv);
+    }
+
+    if (bElevatedSaveMode) {
+        BOOL bResult = ElevatedSaveWorker(szElevatedStaging, szElevatedTarget);
+        return bResult ? 0 : (GetLastError() ? GetLastError() : 1);
+    }
+
     // Create default INI and load settings (must be before LoadRichEditLibrary)
     CreateDefaultINI();
     EnsureIniCacheLoaded();
     LoadSettings();
+    
+    // Command-line options override settings
+    if (bCmdNoMRU) {
+        g_bNoMRU = TRUE;
+    }
+    if (bCmdReadOnly) {
+        g_bReadOnly = TRUE;
+    }
     
     // Load RichEdit library (uses custom path from INI if specified)
     if (!LoadRichEditLibrary()) {
@@ -561,30 +633,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
         LoadString(GetModuleHandle(NULL), IDS_ERROR, szTitle, 64);
         MessageBox(NULL, szError, szTitle, MB_ICONERROR);
         return 1;
-    }
-    
-    // Parse command line arguments
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    WCHAR szCommandLineFile[EXTENDED_PATH_MAX] = L"";
-    
-    // Parse arguments: look for /nomru option and filename
-    // /nomru can appear before or after the filename
-    // Examples: RichEditor.exe file.json /nomru
-    //           RichEditor.exe /nomru file.json
-    for (int i = 1; i < argc; i++) {
-        if (_wcsicmp(argv[i], L"/nomru") == 0) {
-            g_bNoMRU = TRUE;
-        } else if (_wcsicmp(argv[i], L"/readonly") == 0) {
-            g_bReadOnly = TRUE;
-        } else if (argv[i][0] != L'\0' && szCommandLineFile[0] == L'\0') {
-            // First non-option argument is the filename
-            wcscpy_s(szCommandLineFile, EXTENDED_PATH_MAX, argv[i]);
-        }
-    }
-    
-    if (argv) {
-        LocalFree(argv);
     }
 
     // Register window class
@@ -945,7 +993,7 @@ void LoadTemplates()
     // Get path to INI file
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
-    
+
     // Read template count
     g_nTemplateCount = ReadINIInt(szIniPath, L"Templates", L"Count", 0);
     if (g_nTemplateCount > MAX_TEMPLATES) {
@@ -3595,6 +3643,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_CLOSE:
             // Normal close - behavior depends on AutoSaveUntitledOnClose setting
             {
+                // Stop autosave timer to prevent save attempts during shutdown
+                KillTimer(hwnd, IDT_AUTOSAVE);
+                BOOL bPrevSaveInProgress = g_bSaveInProgress;
+                g_bSaveInProgress = FALSE; // allow saves during prompt/close
+
                 // Check if REPL is active and prompt user
                 if (g_bREPLMode) {
                     WCHAR szPrompt[512], szTitle[128];
@@ -3626,19 +3679,25 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 L"Failed to save session. Close without saving?",
                                 szPrompt, MB_YESNO | MB_ICONWARNING);
                             if (result != IDYES) {
+                                g_bSaveInProgress = FALSE;
                                 return 0;
                             }
                         }
                     } else {
                         // Traditional mode - prompt user
                         if (!PromptSaveChanges()) {
+                            if (g_bAutosaveEnabled && g_nAutosaveIntervalMinutes > 0) {
+                                StartAutosaveTimer(hwnd);
+                            }
+                            g_bSaveInProgress = bPrevSaveInProgress;
                             return 0; // User cancelled - keep editing
                         }
                     }
                 }
-                
+
                 // Close the window
                 DestroyWindow(hwnd);
+                g_bSaveInProgress = bPrevSaveInProgress;
                 return 0;
             }
             
@@ -4115,6 +4174,299 @@ BOOL SaveToResumeFile(ResumeFileSaveMode mode)
     // Remember resume file path globally
     wcscpy(g_szResumeFilePath, szResumeFile);
     
+    return TRUE;
+}
+
+//============================================================================
+// CreateElevatedSaveStagingFile - Save document to a temp staging file
+// Returns: TRUE on success, FALSE on failure
+//============================================================================
+BOOL CreateElevatedSaveStagingFile(WCHAR* pszStagingPath, DWORD cchPath)
+{
+    if (!pszStagingPath || cchPath == 0) {
+        return FALSE;
+    }
+
+    pszStagingPath[0] = L'\0';
+
+    if (!EnsureRichEditorTempDirExists()) {
+        ShowError(IDS_ERROR_CREATE_FILE, L"Could not create temporary directory", 0);
+        return FALSE;
+    }
+
+    WCHAR szTempDir[MAX_PATH];
+    if (!GetRichEditorTempDir(szTempDir, MAX_PATH)) {
+        ShowError(IDS_ERROR_CREATE_FILE, L"Could not locate temporary directory", 0);
+        return FALSE;
+    }
+
+    WCHAR szTempFile[MAX_PATH];
+    if (GetTempFileName(szTempDir, L"RES", 0, szTempFile) == 0) {
+        ShowError(IDS_ERROR_CREATE_FILE, L"Could not create temporary file", GetLastError());
+        return FALSE;
+    }
+
+    wcscpy_s(pszStagingPath, cchPath, szTempFile);
+
+    DWORD dwError = 0;
+    SaveTextFailure failure = SAVE_TEXT_FAILURE_NONE;
+    if (!SaveTextFileInternal(pszStagingPath, FALSE, &dwError, &failure, FALSE, FALSE)) {
+        ShowSaveTextFailure(failure, dwError);
+        DeleteFile(pszStagingPath);
+        pszStagingPath[0] = L'\0';
+        return FALSE;
+    }
+
+    // Preserve timestamps and attributes of target if it already exists so the elevated worker can restore them
+    DWORD dwAttrib = GetFileAttributes(pszStagingPath);
+    if (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_READONLY)) {
+        SetFileAttributes(pszStagingPath, dwAttrib & ~FILE_ATTRIBUTE_READONLY);
+    }
+
+    return TRUE;
+}
+
+//============================================================================
+// RunElevatedSave - Launch elevated helper to save staged content
+//============================================================================
+BOOL RunElevatedSave(LPCWSTR pszStagingPath, LPCWSTR pszTargetPath, DWORD* pLastError)
+{
+    if (pLastError) {
+        *pLastError = 0;
+    }
+
+    if (!pszStagingPath || !pszTargetPath) {
+        return FALSE;
+    }
+
+    WCHAR szExePath[MAX_PATH];
+    if (GetModuleFileName(NULL, szExePath, MAX_PATH) == 0) {
+        return FALSE;
+    }
+
+    WCHAR szParams[EXTENDED_PATH_MAX * 2 + 64];
+    _snwprintf(szParams, sizeof(szParams) / sizeof(szParams[0]), L"/elevated-save \"%s\" \"%s\"", pszStagingPath, pszTargetPath);
+    szParams[(sizeof(szParams) / sizeof(szParams[0])) - 1] = L'\0';
+
+    SHELLEXECUTEINFO sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.hwnd = g_hWndMain;
+    sei.lpVerb = L"runas";
+    sei.lpFile = szExePath;
+    sei.lpParameters = szParams;
+    sei.nShow = SW_SHOWNORMAL;
+
+    if (!ShellExecuteEx(&sei) || !sei.hProcess) {
+        if (pLastError) {
+            *pLastError = GetLastError();
+        }
+        return FALSE;
+    }
+
+    WaitForSingleObject(sei.hProcess, INFINITE);
+
+    DWORD dwExitCode = 1;
+    GetExitCodeProcess(sei.hProcess, &dwExitCode);
+    CloseHandle(sei.hProcess);
+
+    if (dwExitCode != 0) {
+        if (pLastError) {
+            *pLastError = (dwExitCode == STILL_ACTIVE) ? ERROR_GEN_FAILURE : dwExitCode;
+        }
+        return FALSE;
+    }
+
+    if (pLastError) {
+        *pLastError = 0;
+    }
+    return TRUE;
+}
+
+//============================================================================
+// ElevatedSaveWorker - Perform the elevated copy from staging to target
+//============================================================================
+BOOL ElevatedSaveWorker(LPCWSTR pszStagingPath, LPCWSTR pszTargetPath)
+{
+    DWORD dwError = ERROR_SUCCESS;
+
+    if (!pszStagingPath || !pszTargetPath || pszStagingPath[0] == L'\0' || pszTargetPath[0] == L'\0') {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    HANDLE hSource = INVALID_HANDLE_VALUE;
+    HANDLE hDest = INVALID_HANDLE_VALUE;
+    BYTE* pBuffer = NULL;
+    BOOL bSuccess = FALSE;
+    const DWORD kBufferSize = 64 * 1024;
+    DWORD dwAttributes = INVALID_FILE_ATTRIBUTES;
+    DWORD dwOriginalAttributes = INVALID_FILE_ATTRIBUTES;
+    BOOL bTargetExists = FALSE;
+    FILETIME ftCreate = {};
+    FILETIME ftAccess = {};
+    FILETIME ftWrite = {};
+    DWORD dwCreateAttributes = FILE_ATTRIBUTE_NORMAL;
+
+    hSource = CreateFile(pszStagingPath, GENERIC_READ, FILE_SHARE_READ, NULL,
+                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hSource == INVALID_HANDLE_VALUE) {
+        dwError = GetLastError();
+        goto Cleanup;
+    }
+
+    dwAttributes = GetFileAttributes(pszTargetPath);
+    dwOriginalAttributes = dwAttributes;
+    bTargetExists = (dwAttributes != INVALID_FILE_ATTRIBUTES);
+
+    if (bTargetExists) {
+        HANDLE hExisting = CreateFile(pszTargetPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hExisting != INVALID_HANDLE_VALUE) {
+            GetFileTime(hExisting, &ftCreate, &ftAccess, &ftWrite);
+            CloseHandle(hExisting);
+        }
+    }
+
+    if (bTargetExists && dwOriginalAttributes != INVALID_FILE_ATTRIBUTES && (dwOriginalAttributes & FILE_ATTRIBUTE_READONLY)) {
+        if (!SetFileAttributes(pszTargetPath, dwOriginalAttributes & ~FILE_ATTRIBUTE_READONLY)) {
+            dwError = GetLastError();
+            goto Cleanup;
+        }
+    }
+
+    if (bTargetExists && dwOriginalAttributes != INVALID_FILE_ATTRIBUTES) {
+        dwCreateAttributes = (dwOriginalAttributes & ~FILE_ATTRIBUTE_READONLY);
+    }
+
+    hDest = CreateFile(pszTargetPath, GENERIC_WRITE, 0, NULL,
+                       CREATE_ALWAYS, dwCreateAttributes, NULL);
+    if (hDest == INVALID_HANDLE_VALUE) {
+        dwError = GetLastError();
+        goto Cleanup;
+    }
+
+    pBuffer = (BYTE*)malloc(kBufferSize);
+    if (!pBuffer) {
+        dwError = ERROR_OUTOFMEMORY;
+        goto Cleanup;
+    }
+
+    bSuccess = TRUE;
+    SetLastError(ERROR_SUCCESS);
+    while (TRUE) {
+        DWORD dwReadChunk = 0;
+        BOOL bReadOk = ReadFile(hSource, pBuffer, kBufferSize, &dwReadChunk, NULL);
+        if (!bReadOk) {
+            dwError = GetLastError();
+            if (dwError == ERROR_HANDLE_EOF) {
+                dwError = ERROR_SUCCESS;
+            }
+            bSuccess = FALSE;
+            break;
+        }
+
+        if (dwReadChunk == 0) {
+            break; // EOF
+        }
+
+        DWORD dwWritten = 0;
+        if (!WriteFile(hDest, pBuffer, dwReadChunk, &dwWritten, NULL) || dwWritten != dwReadChunk) {
+            dwError = GetLastError();
+            bSuccess = FALSE;
+            break;
+        }
+    }
+
+    if (bSuccess) {
+        if (!FlushFileBuffers(hDest)) {
+            dwError = GetLastError();
+            bSuccess = FALSE;
+        }
+    }
+
+    if (bSuccess && bTargetExists && (ftCreate.dwLowDateTime || ftCreate.dwHighDateTime ||
+                                      ftAccess.dwLowDateTime || ftAccess.dwHighDateTime ||
+                                      ftWrite.dwLowDateTime || ftWrite.dwHighDateTime)) {
+        SetFileTime(hDest, &ftCreate, &ftAccess, &ftWrite);
+    }
+
+    if (bTargetExists && dwOriginalAttributes != INVALID_FILE_ATTRIBUTES) {
+        SetFileAttributes(pszTargetPath, dwOriginalAttributes);
+    }
+
+Cleanup:
+    if (pBuffer) free(pBuffer);
+    if (hSource != INVALID_HANDLE_VALUE) CloseHandle(hSource);
+    if (hDest != INVALID_HANDLE_VALUE) CloseHandle(hDest);
+
+    if (!bSuccess && dwError == ERROR_SUCCESS) {
+        dwError = ERROR_GEN_FAILURE;
+    }
+
+    SetLastError(dwError);
+    return bSuccess;
+}
+
+//============================================================================
+// RestoreForegroundAfterElevation - Best-effort to regain focus after UAC
+//============================================================================
+static void RestoreForegroundAfterElevation()
+{
+    if (!g_hWndMain) return;
+
+    // Bring the main window to the foreground if allowed by the OS focus rules
+    ShowWindow(g_hWndMain, SW_SHOWNORMAL);
+    SetForegroundWindow(g_hWndMain);
+    SetActiveWindow(g_hWndMain);
+    if (g_hWndEdit) {
+        SetFocus(g_hWndEdit);
+    }
+}
+
+//============================================================================
+// PerformElevatedSave - Try saving with elevation on access denied
+//============================================================================
+BOOL PerformElevatedSave(LPCWSTR pszTargetPath)
+{
+    WCHAR szPrompt[256];
+    LoadStringResource(IDS_ELEVATE_SAVE_PROMPT, szPrompt, 256);
+
+    WCHAR szTitle[64];
+    LoadStringResource(IDS_CONFIRM, szTitle, 64);
+
+    int result = MessageBox(g_hWndMain, szPrompt, szTitle, MB_YESNOCANCEL | MB_ICONQUESTION);
+    if (result != IDYES) {
+        return FALSE;
+    }
+
+    WCHAR szStagingPath[EXTENDED_PATH_MAX];
+    if (!CreateElevatedSaveStagingFile(szStagingPath, EXTENDED_PATH_MAX)) {
+        return FALSE;
+    }
+
+    DWORD dwElevatedError = 0;
+    BOOL bSuccess = RunElevatedSave(szStagingPath, pszTargetPath, &dwElevatedError);
+    DeleteFile(szStagingPath);
+
+    // Attempt to bring focus back after UAC prompt
+    RestoreForegroundAfterElevation();
+
+    if (!bSuccess) {
+        if (dwElevatedError == ERROR_CANCELLED) {
+            return FALSE;
+        }
+
+        // If the elevated worker propagated a Win32 error, map to create/write failure to reuse messaging
+        if (dwElevatedError == ERROR_ACCESS_DENIED || dwElevatedError == ERROR_SHARING_VIOLATION) {
+            ShowSaveTextFailure(SAVE_TEXT_FAILURE_WRITE, dwElevatedError);
+        } else {
+            ShowError(IDS_ERROR_ELEVATED_SAVE, L"Could not save with administrator permissions", dwElevatedError);
+        }
+        return FALSE;
+    }
+
+    FinalizeSuccessfulSave(pszTargetPath, TRUE);
     return TRUE;
 }
 
@@ -5119,11 +5471,20 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
 }
 
 //============================================================================
-// SaveTextFile - Save RichEdit control content as UTF-8 text file
+// SaveTextFileInternal - Save RichEdit control content as UTF-8 text file
 // bClearResumeState: TRUE = delete resume file (explicit save), FALSE = keep it (autosave)
+// bUpdateState: TRUE = update global state, FALSE = save only
+// bShowErrors: TRUE = show UI errors, FALSE = silent
 //============================================================================
-BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
+BOOL SaveTextFileInternal(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure, BOOL bUpdateState, BOOL bShowErrors)
 {
+    if (pLastError) {
+        *pLastError = 0;
+    }
+    if (pFailure) {
+        *pFailure = SAVE_TEXT_FAILURE_NONE;
+    }
+
     // Get text length
     int cchText = GetWindowTextLength(g_hWndEdit);
     if (cchText < 0) return FALSE;
@@ -5131,7 +5492,12 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     // Allocate buffer for UTF-16 text
     LPWSTR pszUTF16 = (LPWSTR)malloc((cchText + 1) * sizeof(WCHAR));
     if (!pszUTF16) {
-        ShowError(IDS_ERROR_OUT_OF_MEMORY, L"Out of memory", 0);
+        if (pFailure) {
+            *pFailure = SAVE_TEXT_FAILURE_OUT_OF_MEMORY;
+        }
+        if (bShowErrors) {
+            ShowSaveTextFailure(SAVE_TEXT_FAILURE_OUT_OF_MEMORY, 0);
+        }
         return FALSE;
     }
     
@@ -5143,7 +5509,12 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     free(pszUTF16);
     
     if (!pszUTF8) {
-        ShowError(IDS_ERROR_CONVERT_TEXT_ENCODING, L"Could not convert text encoding", 0);
+        if (pFailure) {
+            *pFailure = SAVE_TEXT_FAILURE_CONVERT;
+        }
+        if (bShowErrors) {
+            ShowSaveTextFailure(SAVE_TEXT_FAILURE_CONVERT, 0);
+        }
         return FALSE;
     }
     
@@ -5151,8 +5522,17 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     HANDLE hFile = CreateFile(pszFileName, GENERIC_WRITE, 0, NULL,
                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
+        DWORD dwError = GetLastError();
+        if (pFailure) {
+            *pFailure = SAVE_TEXT_FAILURE_CREATE;
+        }
+        if (pLastError) {
+            *pLastError = dwError;
+        }
         free(pszUTF8);
-        ShowError(IDS_ERROR_CREATE_FILE, L"Could not create file", GetLastError());
+        if (bShowErrors) {
+            ShowSaveTextFailure(SAVE_TEXT_FAILURE_CREATE, dwError);
+        }
         return FALSE;
     }
     
@@ -5160,15 +5540,36 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     DWORD dwBytesToWrite = (DWORD)strlen(pszUTF8);
     DWORD dwBytesWritten;
     if (!WriteFile(hFile, pszUTF8, dwBytesToWrite, &dwBytesWritten, NULL)) {
+        DWORD dwError = GetLastError();
+        if (pFailure) {
+            *pFailure = SAVE_TEXT_FAILURE_WRITE;
+        }
+        if (pLastError) {
+            *pLastError = dwError;
+        }
         free(pszUTF8);
         CloseHandle(hFile);
-        ShowError(IDS_ERROR_WRITE_FILE, L"Could not write file", GetLastError());
+        if (bShowErrors) {
+            ShowSaveTextFailure(SAVE_TEXT_FAILURE_WRITE, dwError);
+        }
         return FALSE;
     }
     
     free(pszUTF8);
     CloseHandle(hFile);
     
+    if (bUpdateState) {
+        FinalizeSuccessfulSave(pszFileName, bClearResumeState);
+    }
+    
+    return TRUE;
+}
+
+//============================================================================
+// FinalizeSuccessfulSave - Update state after a successful save
+//============================================================================
+void FinalizeSuccessfulSave(LPCWSTR pszFileName, BOOL bClearResumeState)
+{
     // Update state
     wcscpy_s(g_szFileName, MAX_PATH, pszFileName);
     
@@ -5208,8 +5609,31 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     if (bClearResumeState) {
         AddToMRU(pszFileName);
     }
-    
-    return TRUE;
+}
+
+//============================================================================
+// SaveTextFile - Save RichEdit control content as UTF-8 text file
+// bClearResumeState: TRUE = delete resume file (explicit save), FALSE = keep it (autosave)
+//============================================================================
+BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
+{
+    return SaveTextFileInternal(pszFileName, bClearResumeState, NULL, NULL, TRUE, TRUE);
+}
+
+//============================================================================
+// SaveTextFileWithError - Save file while returning last Win32 error
+//============================================================================
+BOOL SaveTextFileWithError(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure)
+{
+    return SaveTextFileInternal(pszFileName, bClearResumeState, pLastError, pFailure, TRUE, TRUE);
+}
+
+//============================================================================
+// SaveTextFileSilently - Save file without showing errors
+//============================================================================
+BOOL SaveTextFileSilently(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure)
+{
+    return SaveTextFileInternal(pszFileName, bClearResumeState, pLastError, pFailure, TRUE, FALSE);
 }
 
 //============================================================================
@@ -5271,6 +5695,30 @@ void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError)
     LoadStringResource(IDS_ERROR, szTitle, 64);
     
     MessageBox(g_hWndMain, szError, szTitle, MB_OK | MB_ICONERROR);
+}
+
+//============================================================================
+// ShowSaveTextFailure - Display save errors based on failure type
+//============================================================================
+void ShowSaveTextFailure(SaveTextFailure failure, DWORD dwError)
+{
+    switch (failure) {
+        case SAVE_TEXT_FAILURE_OUT_OF_MEMORY:
+            ShowError(IDS_ERROR_OUT_OF_MEMORY, L"Out of memory", 0);
+            break;
+        case SAVE_TEXT_FAILURE_CONVERT:
+            ShowError(IDS_ERROR_CONVERT_TEXT_ENCODING, L"Could not convert text encoding", 0);
+            break;
+        case SAVE_TEXT_FAILURE_CREATE:
+            ShowError(IDS_ERROR_CREATE_FILE, L"Could not create file", dwError);
+            break;
+        case SAVE_TEXT_FAILURE_WRITE:
+            ShowError(IDS_ERROR_WRITE_FILE, L"Could not write file", dwError);
+            break;
+        case SAVE_TEXT_FAILURE_NONE:
+        default:
+            break;
+    }
 }
 
 //============================================================================
@@ -5533,6 +5981,18 @@ void SaveBookmarksForCurrentFile()
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
 
+    int count = 0;
+    for (int i = 0; i < MAX_BOOKMARKS; i++) {
+        if (!g_Bookmarks[i].active) continue;
+        count++;
+    }
+
+    if (count == 0) {
+        ReplaceINISection(szIniPath, szSection, L"");
+        FlushIniCache();
+        return;
+    }
+
     std::wstring sectionData;
     sectionData.reserve(4096);
 
@@ -5542,12 +6002,6 @@ void SaveBookmarksForCurrentFile()
     sectionData += L"Path=";
     sectionData += g_szFileName;
     sectionData += L"\r\n";
-
-    int count = 0;
-    for (int i = 0; i < MAX_BOOKMARKS; i++) {
-        if (!g_Bookmarks[i].active) continue;
-        count++;
-    }
 
     WCHAR szCount[16];
     _itow(count, szCount, 10);
@@ -6473,6 +6927,7 @@ BOOL ReplaceINISection(LPCWSTR pszIniPath, LPCWSTR pszSection, const std::wstrin
     _snwprintf(szSectionHeader, 256, L"[%s]", pszSection);
     
     size_t sectionPos = wideData.find(szSectionHeader);
+    bool removed = false;
     if (sectionPos != std::wstring::npos) {
         size_t nextSectionPos = wideData.find(L"\n[", sectionPos + wcslen(szSectionHeader));
         if (nextSectionPos != std::wstring::npos) {
@@ -6480,6 +6935,14 @@ BOOL ReplaceINISection(LPCWSTR pszIniPath, LPCWSTR pszSection, const std::wstrin
         } else {
             wideData.erase(sectionPos);
         }
+        removed = true;
+    }
+
+    if (sectionContent.empty()) {
+        if (removed) {
+            g_IniCache.dirty = TRUE;
+        }
+        return TRUE;
     }
     
     if (!wideData.empty() && wideData[wideData.length() - 1] != L'\n') {
@@ -6901,9 +7364,16 @@ void FileOpen()
 //============================================================================
 BOOL FileSave()
 {
+    if (g_bSaveInProgress) {
+        return FALSE; // avoid reentrant save attempts
+    }
+    g_bSaveInProgress = TRUE;
+
     // If this is a resumed untitled file, force "Save As" dialog
     if (g_bIsResumedFile && g_szOriginalFilePath[0] == L'\0') {
-        return FileSaveAs();
+        BOOL bResult = FileSaveAs();
+        g_bSaveInProgress = FALSE;
+        return bResult;
     }
     
     // If this is a resumed saved file, ask user where to save
@@ -6944,10 +7414,29 @@ BOOL FileSave()
     }
     
     if (g_szFileName[0] == L'\0') {
-        return FileSaveAs();
+        BOOL bResult = FileSaveAs();
+        g_bSaveInProgress = FALSE;
+        return bResult;
     }
     
-    return SaveTextFile(g_szFileName);
+    DWORD dwLastError = 0;
+    SaveTextFailure failure = SAVE_TEXT_FAILURE_NONE;
+    if (SaveTextFileSilently(g_szFileName, TRUE, &dwLastError, &failure)) {
+        g_bSaveInProgress = FALSE;
+        return TRUE;
+    }
+
+    if ((failure == SAVE_TEXT_FAILURE_CREATE || failure == SAVE_TEXT_FAILURE_WRITE) &&
+        dwLastError == ERROR_ACCESS_DENIED) {
+        // Suppress the initial access-denied message; we'll prompt to elevate instead
+        BOOL bResult = PerformElevatedSave(g_szFileName);
+        g_bSaveInProgress = FALSE;
+        return bResult;
+    }
+
+    ShowSaveTextFailure(failure, dwLastError);
+    g_bSaveInProgress = FALSE;
+    return FALSE;
 }
 
 //============================================================================
@@ -6955,6 +7444,11 @@ BOOL FileSave()
 //============================================================================
 BOOL FileSaveAs()
 {
+    if (g_bSaveInProgress) {
+        return FALSE; // avoid reentrant save attempts
+    }
+    g_bSaveInProgress = TRUE;
+
     // Setup file dialog
     OPENFILENAME ofn = {};
     WCHAR szFile[EXTENDED_PATH_MAX] = L"";
@@ -7064,16 +7558,53 @@ BOOL FileSaveAs()
     ofn.nFilterIndex = nFilterIndex;  // Dynamic filter index based on file type
     ofn.lpstrInitialDir = szInitialDir;
     ofn.lpstrDefExt = szDefExt;  // Dynamic default extension based on current file
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
+    // Avoid built-in test creates in protected folders; we handle overwrite/elevation ourselves.
+    // Use NOTESTFILECREATE so the common dialog doesn't probe the path and pop
+    // the OS "save to Documents" prompt in protected folders; we handle
+    // overwrite and elevation ourselves after selection.
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOTESTFILECREATE;
     
     // Show dialog
     if (GetSaveFileName(&ofn)) {
-        if (SaveTextFile(szFile)) {
+        // Manual overwrite confirmation to avoid common dialog's protected-path prompt
+        DWORD dwAttrib = GetFileAttributes(szFile);
+        if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
+            WCHAR szPrompt[512];
+            WCHAR szTitle[64];
+            LoadStringResource(IDS_CONFIRM, szTitle, 64);
+            _snwprintf(szPrompt, 512, L"%s\n\n%s", szFile, L"File already exists. Replace it?");
+            int overwrite = MessageBox(g_hWndMain, szPrompt, szTitle, MB_YESNO | MB_ICONQUESTION);
+            if (overwrite != IDYES) {
+                g_bSaveInProgress = FALSE;
+                return FALSE;
+            }
+        }
+
+        DWORD dwLastError = 0;
+        SaveTextFailure failure = SAVE_TEXT_FAILURE_NONE;
+        if (SaveTextFileSilently(szFile, TRUE, &dwLastError, &failure)) {
             SetFocus(g_hWndEdit);
+            g_bSaveInProgress = FALSE;
             return TRUE;
         }
+
+        if ((failure == SAVE_TEXT_FAILURE_CREATE || failure == SAVE_TEXT_FAILURE_WRITE) &&
+            dwLastError == ERROR_ACCESS_DENIED) {
+            // Suppress the initial access-denied message; we'll prompt to elevate instead
+            if (PerformElevatedSave(szFile)) {
+                SetFocus(g_hWndEdit);
+                g_bSaveInProgress = FALSE;
+                return TRUE;
+            }
+            g_bSaveInProgress = FALSE;
+            return FALSE;
+        }
+
+        ShowSaveTextFailure(failure, dwLastError);
     }
-    
+
+    g_bSaveInProgress = FALSE;
+
     return FALSE;
 }
 
@@ -7119,6 +7650,9 @@ BOOL PromptSaveChanges()
                 g_szResumeFilePath[0] = L'\0';
                 g_szOriginalFilePath[0] = L'\0';
             }
+            // Prevent any further save attempts during shutdown and clear modified flag
+            g_bModified = FALSE;
+            g_bSaveInProgress = TRUE;
             return TRUE; // Don't save, but continue
         case IDCANCEL:
         default:
@@ -9268,11 +9802,12 @@ void DoAutosave()
         }
     }
     
-    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly || bDialogActive) {
+    if (!g_bAutosaveEnabled || !g_bModified || g_szFileName[0] == L'\0' || g_bReadOnly || bDialogActive || g_bSaveInProgress) {
         return;
     }
 
-    
+    g_bSaveInProgress = TRUE;
+
     // Save the file silently (passing FALSE to preserve resume file and MRU behavior)
     if (SaveTextFile(g_szFileName, FALSE)) {
         // Autosave succeeded - clear the modified flag
@@ -9289,6 +9824,8 @@ void DoAutosave()
         Sleep(1000);  // Brief flash
         SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szOldStatus);
     }
+
+    g_bSaveInProgress = FALSE;
 }
 
 //============================================================================
