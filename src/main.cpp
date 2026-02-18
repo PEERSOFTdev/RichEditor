@@ -426,16 +426,12 @@ LPWSTR UTF8ToUTF16(LPCSTR pszUTF8);
 LPSTR UTF16ToUTF8(LPCWSTR pszUTF16);
 BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
 BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
-BOOL SaveTextFileWithError(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure);
 BOOL SaveTextFileInternal(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure, BOOL bUpdateState, BOOL bShowErrors);
 BOOL SaveTextFileSilently(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
 void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError);
 void ShowSaveTextFailure(SaveTextFailure failure, DWORD dwError);
 static void RestoreForegroundAfterElevation();
-void RestoreForegroundAfterElevation();
-void RestoreForegroundAfterElevation();
-void RestoreForegroundAfterElevation();
 void FileNew();
 void FileNewFromTemplate(int nTemplateIndex);
 void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount, int* pnTxtFilterIndex);
@@ -5618,14 +5614,6 @@ void FinalizeSuccessfulSave(LPCWSTR pszFileName, BOOL bClearResumeState)
 BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
 {
     return SaveTextFileInternal(pszFileName, bClearResumeState, NULL, NULL, TRUE, TRUE);
-}
-
-//============================================================================
-// SaveTextFileWithError - Save file while returning last Win32 error
-//============================================================================
-BOOL SaveTextFileWithError(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure)
-{
-    return SaveTextFileInternal(pszFileName, bClearResumeState, pLastError, pFailure, TRUE, TRUE);
 }
 
 //============================================================================
