@@ -19,7 +19,13 @@ This file holds extended design notes, historical context, and larger implementa
 - MRU ordering: newest is `Item1`.
 - History is saved only on actions; checkbox state is saved on toggle.
 
-## Resume System (Phase 2.6 Pattern)
+## Elevated Save (Phase 2.x Pattern)
+
+- On `ERROR_ACCESS_DENIED` during save, the editor stages content to `%TEMP%\RichEditor\` and re-launches itself with `/elevated-save "<staging>" "<target>"` via `ShellExecuteEx` with `runas` verb.
+- The child process runs `ElevatedSaveWorker` headlessly (no window), copies the staging file to the target, exits with 0 on success or `GetLastError()` on failure.
+- The parent waits synchronously, reads the exit code as a Win32 error, and either calls `FinalizeSuccessfulSave` or `ShowSaveTextFailure`.
+- `RestoreForegroundAfterElevation` is `static`; it does a best-effort `SetForegroundWindow` after UAC completes.
+- `OFN_NOTESTFILECREATE` is set in Save As to prevent the shell from refusing to show the dialog for paths the user cannot write (e.g., `C:\Windows\`). A manual overwrite check follows.
 
 - Two-phase shutdown: use `WM_QUERYENDSESSION` to prepare, `WM_ENDSESSION` to commit.
 - Only write resume entry in `WM_ENDSESSION` when shutdown is confirmed.

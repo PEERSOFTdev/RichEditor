@@ -36,6 +36,19 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 
 - Autosave on focus loss uses `WM_ACTIVATEAPP` (external app switch only).
 - Timer autosave runs unless a dialog from this app is foreground.
+- Autosave is blocked while `g_bSaveInProgress` is set.
+
+## Save Pipeline (Current)
+
+- `FileSave` / `FileSaveAs`: attempt silent save via `SaveTextFileSilently`; on `ERROR_ACCESS_DENIED` → `PerformElevatedSave`.
+- `SaveTextFileSilently` → `SaveTextFileInternal(..., bShowErrors=FALSE)`: writes file without showing errors; returns failure type and Win32 error via out-params.
+- `SaveTextFileInternal`: canonical implementation; all save wrappers delegate here.
+- `SaveTextFile`: thin wrapper for `SaveTextFileInternal` with error display enabled (used by autosave and resume save).
+- `PerformElevatedSave`: stages content to `%TEMP%\RichEditor\`, launches self with `/elevated-save` via `ShellExecuteEx` (`runas`), waits, restores foreground.
+- `FinalizeSuccessfulSave`: single place that updates `g_szFileName`, clears modified flag, updates title and MRU after any successful save.
+- `ShowSaveTextFailure`: single place that shows save error dialogs by failure type.
+- `g_bSaveInProgress`: guard set by `FileSave`, `FileSaveAs`, and `DoAutosave`; prevents re-entrant saves. `WM_CLOSE` clears it before the close sequence. `PromptSaveChanges` IDNO path sets `g_bModified=FALSE` and `g_bSaveInProgress=TRUE` to block post-discard saves.
+- `OFN_NOTESTFILECREATE` is set on Save As dialog flags intentionally, with a manual overwrite prompt, to bypass the shell's refusal to present the dialog for protected paths.
 
 ## Reference.md Maintenance (Agent Guidelines)
 

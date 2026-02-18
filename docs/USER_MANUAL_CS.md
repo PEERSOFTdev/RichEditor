@@ -31,6 +31,8 @@ Popisky Zpět/Znovu popisují poslední akci (Psaní, Vložit, Nahradit vše, ..
 
 Soubory se ukládají v kódování UTF‑8 bez značky BOM (značka pořadí bajtů). Konce řádků se podle možnosti zachovávají; výchozí ukládání používá CRLF (návrat vozíku + nový řádek).
 
+Pokud se uložení nezdaří z důvodu odepřeného přístupu k chráněné cestě, editor nabídne opakování s oprávněními správce. Zobrazí se dialog UAC (řízení přístupu uživatelů); po potvrzení se soubor uloží prostřednictvím dočasné kopie. Platí pro Uložit (`Ctrl+S`) i Uložit jako.
+
 Pokročilé: `SelectAfterPaste=1` automaticky vybere vložený text. Psaní pak vybranou část nahradí.
 
 ## Zalamování řádků a pozice
@@ -234,6 +236,8 @@ RichEditor.exe [volby] [soubor]
 /nomru     Otevřít bez přidání do MRU (seznam nedávných souborů)
 /readonly  Otevřít v režimu pouze pro čtení
 ```
+
+Poznámka: `/elevated-save` je interní přepínač, který editor používá při opakování uložení s oprávněními správce. Není určen pro přímé použití.
 
 ## Klávesové zkratky
 

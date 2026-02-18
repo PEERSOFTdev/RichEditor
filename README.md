@@ -11,6 +11,7 @@ RichEditor is a lightweight, accessible Win32 text editor built around the RichE
 - URL auto-detection with keyboard activation
 - Autosave (timer + app switch)
 - Optional session resume for unsaved work
+- Elevated save: retries with administrator permissions on access denied
 - English + Czech resources in one binary
 
 ## Quick Start
@@ -42,6 +43,7 @@ RichEditor.exe /nomru "C:\path\file.txt"
 - Word wrap toggle
 - Time/Date insertion (F5) with configurable templates
 - Read-only mode with UI protection
+- Elevated save: when saving to a protected path fails with access denied, the editor prompts to retry with administrator permissions (UAC)
 
 ### Find & Replace
 

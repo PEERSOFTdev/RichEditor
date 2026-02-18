@@ -31,6 +31,8 @@ Undo/Redo labels describe the last action (Typing, Paste, Replace All, etc.). In
 
 Files are saved as UTF‑8 without BOM. Line endings are preserved when possible; default save uses Windows CRLF.
 
+If saving fails because the target path requires administrator access, the editor prompts you to retry with elevated permissions. A UAC dialog will appear; if you approve, the file is saved using a temporary staging copy. This applies to both Save (`Ctrl+S`) and Save As.
+
 Advanced: `SelectAfterPaste=1` selects pasted text automatically. Typing replaces the selection; this is a power feature, not a default.
 
 ## Word Wrap and Positions
@@ -232,6 +234,8 @@ RichEditor.exe [options] [filename]
 /nomru     Open without adding to MRU
 /readonly  Open in read-only mode
 ```
+
+Note: `/elevated-save` is used internally by the editor when retrying a save with administrator permissions. It is not intended for direct use.
 
 ## Keyboard Shortcuts
 
