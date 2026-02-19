@@ -5,6 +5,7 @@ I am PEERSOFT, the author and maintainer of RichEditor. I did not write the code
 The codebase was drafted and evolved with GitHub Copilot‑provided AI agents, and I want that collaboration to be visible and explicit:
 
 - Claude Sonnet 4.5
+- Claude Sonnet 4.6
 - OpenAI Codex 5.2
 - OpenAI Codex 5.1 max
 
