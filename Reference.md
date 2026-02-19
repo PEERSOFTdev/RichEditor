@@ -2,7 +2,7 @@
 
 A lightweight, accessible Win32 text editor built around the RichEdit control (default MSFTEDIT.DLL) with optional library overrides. This reference keeps the original phase narrative and stays in sync with current behavior; the user manuals focus on end‑user workflows.
 
-Last updated: 2026‑02‑08.
+Last updated: 2026‑02‑19.
 
 ## Features
 
@@ -696,6 +696,14 @@ Shortcut=Ctrl+Shift+F
 - Moves caret to start of the chosen line and scrolls into view
 - Line counting follows Word Wrap mode: visual lines when ON, physical lines when OFF
 
+### Phase 2.9.5 (Complete)
+
+**Elevated Save:**
+- When Save (`Ctrl+S`) or Save As fails with access denied, the editor prompts to retry with administrator permissions
+- On confirmation, content is staged to `%TEMP%\RichEditor\` and the editor re-launches itself with `/elevated-save` via `ShellExecuteEx` (`runas`), waits synchronously, then restores foreground
+- `Save As` dialog uses `OFN_NOTESTFILECREATE` so the shell presents the dialog even for protected paths; a manual overwrite prompt follows
+- `/elevated-save` is an internal command-line mode only; it is not intended for direct user invocation
+
 ### Phase 2.10 (Complete)
 
 **Configurable Date/Time Formatting:**
@@ -842,6 +850,7 @@ RichEditor.exe [options] [filename]
 **Options:**
 - `/nomru` - Open file without adding it to the Most Recently Used (MRU) list
 - `/readonly` - Open file in read-only mode (prevents accidental modifications)
+- `/elevated-save "<staging>" "<target>"` - **Internal use only.** Used by the editor itself when retrying a save with administrator permissions; not intended for direct invocation.
 
 **Examples:**
 ```bash

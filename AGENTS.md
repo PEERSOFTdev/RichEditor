@@ -76,6 +76,7 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 
 - `src/main.cpp`: all primary logic
 - `README.md`: user-facing behavior and usage
+- `Reference.md`: full phase-by-phase feature reference and usage details; update for every user-facing or architectural change
 - `docs/notes/AGENTS_APPENDIX.md`: historical deep dives and patterns
 - `docs/CHANGE_CHECKLIST.md`: post-change documentation checklist
 

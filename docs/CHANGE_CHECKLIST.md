@@ -7,6 +7,7 @@ Use this checklist after code changes. It is meant to keep docs and behavior in 
 * If user-facing behavior changed, update:
 
   * README.md
+  * Reference.md (phase entry under Features + Usage section if applicable)
   * docs/USER\_MANUAL\_EN.md
   * docs/USER\_MANUAL\_CS.md
 
@@ -19,14 +20,16 @@ Use this checklist after code changes. It is meant to keep docs and behavior in 
 * If INI settings/defaults changed, update:
 
   * README.md (configuration section)
+  * Reference.md (configuration section)
   * both user manuals
   * default INI documentation in CreateDefaultINI (if applicable)
 
-* If command-line options changed, update README + both manuals.
+* If command-line options changed, update README, Reference.md + both manuals.
 * If menu labels, dialogs, or shortcuts changed, update manuals and resources.
 * If a phase is completed or a new phase is planned, update:
 
   * docs/PHASES.md
+  * Reference.md (add/update phase entry under Features)
   * docs/notes/ (plan or final status doc)
 
 ## UI/Accessibility
