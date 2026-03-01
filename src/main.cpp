@@ -5,6 +5,8 @@
 
 #include <windows.h>
 #include <richedit.h>
+#include <richole.h>
+#include <tom.h>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shlobj.h>
@@ -72,6 +74,11 @@ IniCache g_IniCache = {L"", FALSE, FALSE};
 // RichEdit library management (Phase 2.8)
 HMODULE g_hRichEditLib = NULL;                      // RichEdit DLL handle
 float g_fRichEditVersion = 0.0f;                    // Detected version (e.g., 7.5, 8.0)
+ITextDocument* g_pTextDoc = NULL;                   // TOM interface for O(1) physical line queries
+// IID_ITextDocument GUID — not in any MinGW static import lib; define it here.
+// {8CC497C0-A1DF-11CE-8098-00AA0047BE5D}
+static const GUID IID_ITextDocument_ =
+    {0x8CC497C0,0xA1DF,0x11CE,{0x80,0x98,0x00,0xAA,0x00,0x47,0xBE,0x5D}};
 WCHAR g_szRichEditLibPath[MAX_PATH] = L"";          // Full path to loaded DLL
 WCHAR g_szRichEditLibPathINI[MAX_PATH] = L"";       // User preference from INI
 WCHAR g_szRichEditClassName[64] = L"RICHEDIT50W";  // Window class to use
@@ -83,6 +90,7 @@ UINT g_nAutosaveIntervalMinutes = 1;         // Autosave interval in minutes (0 
 BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar display
+const UINT_PTR IDT_AUTOSAVE_FLASH = 3;       // Timer ID for "[Autosaved]" status bar flash
 
 // Accessibility settings
 BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menus (for accessibility)
@@ -350,6 +358,7 @@ BOOL g_bREPLIntentionalExit = FALSE;   // TRUE when user intentionally exits REP
 // Status bar filter display
 WCHAR g_szFilterStatusBarText[512] = L"";
 BOOL g_bFilterStatusBarActive = FALSE;
+WCHAR g_szAutosaveFlashPrevStatus[512] = L"";  // Status text saved before "[Autosaved]" flash
 
 //============================================================================
 // Search System (Phase 2.9)
@@ -610,6 +619,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     }
 
     // Create default INI and load settings (must be before LoadRichEditLibrary)
+    OleInitialize(NULL);    // Required for TOM (ITextDocument) and RichEdit OLE support
     CreateDefaultINI();
     EnsureIniCacheLoaded();
     LoadSettings();
@@ -788,6 +798,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     if (g_hRichEditLib) {
         FreeLibrary(g_hRichEditLib);
     }
+    OleUninitialize();
     
     return (int)msg.wParam;
 }
@@ -2975,6 +2986,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 return -1;
             }
             
+            // Acquire TOM ITextDocument for O(1) physical line queries in UpdateStatusBar
+            {
+                IRichEditOle* pRichOle = NULL;
+                if (SendMessage(g_hWndEdit, EM_GETOLEINTERFACE, 0, (LPARAM)&pRichOle) && pRichOle) {
+                    pRichOle->QueryInterface(IID_ITextDocument_, (void**)&g_pTextDoc);
+                    pRichOle->Release();
+                }
+            }
+            
             // Create status bar
             g_hWndStatus = CreateStatusBar(hwnd);
             
@@ -3061,6 +3081,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Handle autosave timer
             if (wParam == IDT_AUTOSAVE) {
                 DoAutosave();
+            }
+            // Handle "[Autosaved]" status bar flash — restore previous text
+            else if (wParam == IDT_AUTOSAVE_FLASH) {
+                KillTimer(hwnd, IDT_AUTOSAVE_FLASH);
+                if (g_hWndStatus)
+                    SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)g_szAutosaveFlashPrevStatus);
             }
             // Handle filter status bar timer (30-second display)
             else if (wParam == IDT_FILTER_STATUSBAR) {
@@ -3765,6 +3791,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Kill timers
             KillTimer(hwnd, IDT_AUTOSAVE);
             KillTimer(hwnd, IDT_FILTER_STATUSBAR);
+            KillTimer(hwnd, IDT_AUTOSAVE_FLASH);
+            // Release TOM interface
+            if (g_pTextDoc) { g_pTextDoc->Release(); g_pTextDoc = NULL; }
             FlushIniCache();
             PostQuitMessage(0);
             return 0;
@@ -4918,6 +4947,42 @@ void UpdateStatusBar()
     int physicalLine, physicalCol;
 
     auto getPhysicalLineAndCol = [&](int charPos, int* outLine, int* outCol) {
+        if (g_pTextDoc) {
+            // Fast path: TOM O(1)/O(log N) — no full-document text fetch
+            ITextRange* pRange = NULL;
+            if (SUCCEEDED(g_pTextDoc->Range(charPos, charPos, &pRange)) && pRange) {
+                LONG paraIndex = 0;
+                pRange->GetIndex(tomParagraph, &paraIndex);
+                // Collapse range start to beginning of this paragraph (tomMove = 0)
+                LONG delta = 0;
+                pRange->StartOf(tomParagraph, 0, &delta);
+                LONG lineStart = 0;
+                pRange->GetStart(&lineStart);
+                pRange->Release();
+
+                *outLine = (int)paraIndex;
+                int charCount = charPos - (int)lineStart;
+                if (charCount > 0) {
+                    LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
+                    if (lineText) {
+                        TEXTRANGE tr;
+                        tr.chrg.cpMin = lineStart;
+                        tr.chrg.cpMax = (LONG)charPos;
+                        tr.lpstrText = lineText;
+                        int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                        *outCol = (retrieved > 0) ? CalculateTabAwareColumn(lineText, charCount) : 1;
+                        free(lineText);
+                    } else {
+                        *outCol = charCount + 1;
+                    }
+                } else {
+                    *outCol = 1;
+                }
+                return;
+            }
+        }
+
+        // Slow fallback: scan full prefix (TOM unavailable)
         int line = 1;
         int col = 1;
         int lineStart = 0;
@@ -4973,23 +5038,35 @@ void UpdateStatusBar()
         // - Visual line/col: counts display lines including soft wraps (from RichEdit)
         // - Physical line/col: counts only hard line breaks by parsing the text
         
-        // Get visual (wrapped) line by counting display lines from start to cursor
-        visualLine = 1;
+        // Get visual (wrapped) line and its start via TOM.
+        // GetIndex(tomLine) uses RichEdit's internal line table and does NOT trigger
+        // a full D2D layout pass, unlike EM_EXLINEFROMCHAR on RichEdit 8.
         int currentLineStart = 0;
-        int lineIndex = 0;
-        
-        while (currentLineStart < cr.cpMin) {
-            int nextLineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
-            if (nextLineStart == -1 || nextLineStart <= currentLineStart) {
-                break;
-            }
-            if (nextLineStart <= cr.cpMin) {
-                visualLine++;
-                currentLineStart = nextLineStart;
-                lineIndex++;
+        if (g_pTextDoc) {
+            ITextRange* pRange = NULL;
+            if (SUCCEEDED(g_pTextDoc->Range(cr.cpMin, cr.cpMin, &pRange)) && pRange) {
+                LONG visLine = 1;
+                pRange->GetIndex(tomLine, &visLine);
+                visualLine = (int)visLine;
+                // Collapse to start of visual line to get line start position
+                LONG delta = 0;
+                pRange->StartOf(tomLine, 0, &delta);
+                LONG visLineStart = 0;
+                pRange->GetStart(&visLineStart);
+                pRange->Release();
+                currentLineStart = (int)visLineStart;
             } else {
-                break;
+                if (pRange) { pRange->Release(); pRange = NULL; }
+                // TOM Range failed — fall back to message-based API
+                int lineIdx = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
+                visualLine = lineIdx + 1;
+                currentLineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, lineIdx, 0);
             }
+        } else {
+            // TOM unavailable — fall back to message-based API
+            int lineIdx = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
+            visualLine = lineIdx + 1;
+            currentLineStart = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, lineIdx, 0);
         }
         
         // Calculate tab-aware visual column
@@ -5062,7 +5139,7 @@ void UpdateStatusBar()
     
     // Get character at cursor (handle surrogate pairs for characters > U+FFFF)
     WCHAR charInfo[128] = L"";
-    int textLen = GetWindowTextLength(g_hWndEdit);
+    int textLen = g_nLastTextLen;  // Use cached length; updated by EN_CHANGE, avoids O(N) call per keystroke
     
     if (cr.cpMin < textLen) {
         // Get up to 2 WCHARs to handle surrogate pairs
@@ -9799,18 +9876,15 @@ void DoAutosave()
     // Save the file silently (passing FALSE to preserve resume file and MRU behavior)
     if (SaveTextFile(g_szFileName, FALSE)) {
         // Autosave succeeded - clear the modified flag
-        // (The file is now saved, so there are no unsaved changes)
         g_bModified = FALSE;
         UpdateTitle();  // Remove asterisk from title bar
         
-        // Update status briefly to show autosave happened
-        WCHAR szOldStatus[512];
-        SendMessage(g_hWndStatus, SB_GETTEXT, 0, (LPARAM)szOldStatus);
-        SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)L"[Autosaved]");
-        
-        // Restore original status after 1 second
-        Sleep(1000);  // Brief flash
-        SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szOldStatus);
+        // Flash "[Autosaved]" in status bar for 1 second without blocking the UI thread
+        if (g_hWndStatus) {
+            SendMessage(g_hWndStatus, SB_GETTEXT, 0, (LPARAM)g_szAutosaveFlashPrevStatus);
+            SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)L"[Autosaved]");
+            SetTimer(g_hWndMain, IDT_AUTOSAVE_FLASH, 1000, NULL);
+        }
     }
 
     g_bSaveInProgress = FALSE;
