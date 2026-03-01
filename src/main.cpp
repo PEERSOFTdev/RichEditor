@@ -13,6 +13,8 @@
 #include <shlwapi.h>    // Path functions (PathIsRelative, PathCombine, etc.)
 #include <stdio.h>
 #include <string>
+#include <vector>
+#include <algorithm>
 #include "resource.h"
 
 //============================================================================
@@ -60,6 +62,9 @@ Bookmark g_Bookmarks[MAX_BOOKMARKS];
 int g_nBookmarkCount = 0;
 BOOL g_bBookmarksDirty = FALSE;
 int g_nLastTextLen = 0;
+// Line-starts index for O(log N) physical line queries (avoids slow RichEdit APIs on large files)
+static std::vector<LONG> g_lineStarts;   // g_lineStarts[i] = char offset of line (i+1)
+static bool g_bLineIndexDirty = true;    // rebuild needed; set on any content change
 WCHAR g_szBookmarkSectionKey[64] = L"";
 
 // INI cache (single in-memory copy)
@@ -3113,6 +3118,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         UpdateBookmarksAfterEdit(editPos, delta);
                     }
                     g_nLastTextLen = currentLen;
+                    g_bLineIndexDirty = true;  // text changed; rebuild line index before next query
 
                     if (!g_bModified) {
                         g_bModified = TRUE;
@@ -4933,6 +4939,62 @@ int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition)
 }
 
 //============================================================================
+// RebuildLineIndex - Scan document text and cache character offset of each line start.
+// Called lazily before any physical-line query; O(N) once per content change.
+// Cursor-movement queries then use std::upper_bound: O(log N), no RichEdit API call.
+//============================================================================
+static void RebuildLineIndex()
+{
+    g_lineStarts.clear();
+    g_lineStarts.push_back(0);  // line 1 always starts at character 0
+
+    int totalLen = g_nLastTextLen;
+    if (totalLen <= 0) {
+        g_bLineIndexDirty = false;
+        return;
+    }
+
+    // Reserve a rough estimate to avoid repeated reallocations (assume avg ~40 chars/line)
+    g_lineStarts.reserve(totalLen / 40 + 2);
+
+    const int CHUNK = 262144;  // 256 K chars per request (~512 KB); few Win32 round-trips
+    LPWSTR buf = (LPWSTR)malloc((CHUNK + 1) * sizeof(WCHAR));
+    if (!buf) { g_bLineIndexDirty = false; return; }
+
+    bool prevCR = false;  // tracks \r at end of previous chunk for \r\n pair handling
+    int pos = 0;
+    while (pos < totalLen) {
+        int end = (pos + CHUNK < totalLen) ? pos + CHUNK : totalLen;
+        TEXTRANGE tr;
+        tr.chrg.cpMin = pos;
+        tr.chrg.cpMax = end;
+        tr.lpstrText = buf;
+        int got = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+        if (got <= 0) break;
+
+        for (int i = 0; i < got; i++) {
+            WCHAR c = buf[i];
+            if (prevCR && c == L'\n') {
+                // \r\n pair: the tentative line start (pushed after \r) must be after the \n
+                g_lineStarts.back() = (LONG)(pos + i + 1);
+                prevCR = false;
+            } else if (c == L'\r') {
+                g_lineStarts.push_back((LONG)(pos + i + 1));
+                prevCR = true;
+            } else if (c == L'\n') {
+                g_lineStarts.push_back((LONG)(pos + i + 1));
+                prevCR = false;
+            } else {
+                prevCR = false;
+            }
+        }
+        pos = end;
+    }
+    free(buf);
+    g_bLineIndexDirty = false;
+}
+
+//============================================================================
 // UpdateStatusBar - Update status bar with current position and info
 //============================================================================
 void UpdateStatusBar()
@@ -4947,90 +5009,35 @@ void UpdateStatusBar()
     int physicalLine, physicalCol;
 
     auto getPhysicalLineAndCol = [&](int charPos, int* outLine, int* outCol) {
-        if (g_pTextDoc) {
-            // Fast path: TOM O(1)/O(log N) — no full-document text fetch
-            ITextRange* pRange = NULL;
-            if (SUCCEEDED(g_pTextDoc->Range(charPos, charPos, &pRange)) && pRange) {
-                LONG paraIndex = 0;
-                pRange->GetIndex(tomParagraph, &paraIndex);
-                // Collapse range start to beginning of this paragraph (tomMove = 0)
-                LONG delta = 0;
-                pRange->StartOf(tomParagraph, 0, &delta);
-                LONG lineStart = 0;
-                pRange->GetStart(&lineStart);
-                pRange->Release();
+        // Use the pre-built line-starts index for O(log N) lookup.
+        // RebuildLineIndex() is O(N) but runs at most once per content change,
+        // not on every cursor movement.
+        if (g_bLineIndexDirty) RebuildLineIndex();
 
-                *outLine = (int)paraIndex;
-                int charCount = charPos - (int)lineStart;
-                if (charCount > 0) {
-                    LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
-                    if (lineText) {
-                        TEXTRANGE tr;
-                        tr.chrg.cpMin = lineStart;
-                        tr.chrg.cpMax = (LONG)charPos;
-                        tr.lpstrText = lineText;
-                        int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
-                        *outCol = (retrieved > 0) ? CalculateTabAwareColumn(lineText, charCount) : 1;
-                        free(lineText);
-                    } else {
-                        *outCol = charCount + 1;
-                    }
-                } else {
-                    *outCol = 1;
-                }
-                return;
-            }
-        }
+        // Binary search: find the last entry whose value is <= charPos.
+        auto it = std::upper_bound(g_lineStarts.begin(), g_lineStarts.end(), (LONG)charPos);
+        if (it != g_lineStarts.begin()) --it;
 
-        // Slow fallback: scan full prefix (TOM unavailable)
-        int line = 1;
-        int col = 1;
-        int lineStart = 0;
+        *outLine   = (int)(it - g_lineStarts.begin()) + 1;  // 1-based line number
+        int lineStart = (int)*it;
 
-        if (charPos > 0) {
-            LPWSTR buffer = (LPWSTR)malloc((charPos + 1) * sizeof(WCHAR));
-            if (buffer) {
+        int charCount = charPos - lineStart;
+        if (charCount > 0) {
+            LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
+            if (lineText) {
                 TEXTRANGE tr;
-                tr.chrg.cpMin = 0;
+                tr.chrg.cpMin = lineStart;
                 tr.chrg.cpMax = charPos;
-                tr.lpstrText = buffer;
-
+                tr.lpstrText = lineText;
                 int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
-                if (retrieved > 0) {
-                    int bufferPos = 0;
-
-                    while (bufferPos < retrieved) {
-                        if (buffer[bufferPos] == L'\r') {
-                            if (bufferPos + 1 < retrieved && buffer[bufferPos + 1] == L'\n') {
-                                bufferPos += 2;
-                            } else {
-                                bufferPos++;
-                            }
-                            line++;
-                            lineStart = bufferPos;
-                        } else if (buffer[bufferPos] == L'\n') {
-                            bufferPos++;
-                            line++;
-                            lineStart = bufferPos;
-                        } else {
-                            bufferPos++;
-                        }
-                    }
-
-                    int lineCharCount = bufferPos - lineStart;
-                    if (lineCharCount > 0) {
-                        col = CalculateTabAwareColumn(buffer + lineStart, lineCharCount);
-                    } else {
-                        col = 1;
-                    }
-                }
-
-                free(buffer);
+                *outCol = (retrieved > 0) ? CalculateTabAwareColumn(lineText, charCount) : 1;
+                free(lineText);
+            } else {
+                *outCol = charCount + 1;
             }
+        } else {
+            *outCol = 1;
         }
-
-        *outLine = line;
-        *outCol = col;
     };
     
     if (g_bWordWrap) {
@@ -5499,6 +5506,7 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, pszUTF16);
     g_bSettingText = FALSE;
+    g_bLineIndexDirty = true;  // new file content; EN_CHANGE was suppressed
     free(pszUTF16);
     
     // Apply read-only mode if set
@@ -7102,6 +7110,7 @@ void FileNew()
     g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, L"");
     g_bSettingText = FALSE;
+    g_bLineIndexDirty = true;  // cleared document; EN_CHANGE was suppressed
     
     // Reset state
     g_szFileName[0] = L'\0';
@@ -7157,6 +7166,7 @@ void FileNewFromTemplate(int nTemplateIndex)
     g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, pszExpanded);
     g_bSettingText = FALSE;
+    g_bLineIndexDirty = true;  // template content loaded; EN_CHANGE was suppressed
     
     free(pszExpanded);
     
