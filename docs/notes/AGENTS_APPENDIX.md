@@ -31,6 +31,35 @@ This file holds extended design notes, historical context, and larger implementa
 - Only write resume entry in `WM_ENDSESSION` when shutdown is confirmed.
 - Clear resume entry immediately after reading on startup (multi-instance safe).
 
+## TOM (Text Object Model) Usage for Status Bar Performance
+
+`UpdateStatusBar` uses the TOM `ITextDocument` interface to avoid O(N) or full-layout costs on RichEdit 8.0.
+
+### Why TOM
+
+- `EM_EXLINEFROMCHAR` on RichEdit 8 with word wrap ON triggers a full D2D layout pass of all lines on every call — 2–30+ seconds on a 70K-line file.
+- `EM_LINEINDEX` in an `O(N)` scan (used before commit `b5c329f`) was similarly slow.
+- `GetWindowTextLength` on RichEdit 8 is O(N); replaced with cached `g_nLastTextLen`.
+- TOM `ITextRange::GetIndex(tomLine/tomParagraph)` uses RichEdit's internal line table and does not trigger layout; near-instant even at end of file.
+
+### Initialization
+
+- `OleInitialize(NULL)` must be called before `WM_CREATE`. `EM_GETOLEINTERFACE` requires COM/OLE initialized; without it `g_pTextDoc` is always `NULL`.
+- `ITextDocument*` is acquired once in `WM_CREATE` via `EM_GETOLEINTERFACE` → `QueryInterface(IID_ITextDocument_)`.
+- `IID_ITextDocument` is not in MinGW static import libs; it is defined manually as `IID_ITextDocument_` in `src/main.cpp`.
+- `g_pTextDoc->Release()` is called in `WM_DESTROY`; `OleUninitialize()` at end of `wWinMain`.
+
+### Patterns Used
+
+- **Physical line** (`getPhysicalLineAndCol` lambda): `Range(pos,pos)` → `GetIndex(tomParagraph, &line)` → `StartOf(tomParagraph, 0, &delta)` → `GetStart(&lineStart)` → fetch only current line text for tab-aware column. Falls back to O(N) `EM_LINEINDEX` scan if `g_pTextDoc` is NULL.
+- **Visual (wrapped) line** (word-wrap ON path): `Range(pos,pos)` → `GetIndex(tomLine, &visLine)` → `StartOf(tomLine, 0, &delta)` → `GetStart(&visLineStart)`. Falls back to `EM_EXLINEFROMCHAR` + `EM_LINEINDEX` if `g_pTextDoc` is NULL or `Range` fails.
+- `tomLine` (= 5) = visual display line (respects soft wraps); `tomParagraph` (= 4) = hard-break paragraph line.
+
+### Autosave Flash Timer
+
+- `DoAutosave` previously called `Sleep(1000)` on the UI thread, blocking the message pump during large-file saves.
+- Replaced with `SetTimer(IDT_AUTOSAVE_FLASH, 1000)` + `WM_TIMER` handler that restores the previous status text via `g_szAutosaveFlashPrevStatus`.
+
 ## Template System
 
 - Templates are filtered by file extension.
