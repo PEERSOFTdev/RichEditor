@@ -52,7 +52,6 @@ BEGIN
     POPUP "&View"
     BEGIN
         MENUITEM "&Word Wrap\tCtrl+W", ID_VIEW_WORDWRAP
-        MENUITEM "Detect URLs in &Large Files", ID_VIEW_AUTOURL
     END
     POPUP "&Tools"
     BEGIN
@@ -358,7 +357,6 @@ BEGIN
     POPUP "&Zobrazit"
     BEGIN
         MENUITEM "&Zalamování řádků\tCtrl+W", ID_VIEW_WORDWRAP
-        MENUITEM "Detekovat URL ve &velkých souborech", ID_VIEW_AUTOURL
     END
     POPUP "&Nástroje"
     BEGIN

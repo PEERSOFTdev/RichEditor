@@ -41,8 +41,7 @@ WCHAR g_szFileName[EXTENDED_PATH_MAX];     // Current file path
 WCHAR g_szFileTitle[MAX_PATH];    // Current file name only
 BOOL g_bModified = FALSE;         // Document modified flag
 BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowText
-BOOL g_bAutoURLEnabled = FALSE;   // Current AURL_ENABLEURL state (set by ApplyAutoURLPolicy)
-BOOL g_bAutoURLUserOverride = FALSE; // User chose to ignore the large-file threshold
+BOOL g_bAutoURLEnabled = FALSE;   // TRUE if AURL_ENABLEURL was enabled at startup (from DetectURLs INI setting)
 BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
 BOOL g_bReadOnly = FALSE;         // Read-only mode (can be set via /readonly or File menu)
 BOOL g_bSaveInProgress = FALSE;   // Prevent concurrent saves/autosave reentrancy
@@ -426,7 +425,6 @@ void UpdateTitle(HWND hwnd = NULL);
 void UpdateMenuUndoRedo(HMENU hMenu);
 int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition);
 BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange);
-static void ApplyAutoURLPolicy();
 void OpenURL(HWND hwnd, LPCWSTR pszURL);
 INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL);
@@ -3028,7 +3026,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Set initial word wrap menu checkmark
             HMENU hMenu = GetMenu(hwnd);
             CheckMenuItem(hMenu, ID_VIEW_WORDWRAP, g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
-            CheckMenuItem(hMenu, ID_VIEW_AUTOURL, MF_UNCHECKED);  // override starts off
             
             // Start autosave timer if enabled
             StartAutosaveTimer(hwnd);
@@ -3124,10 +3121,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     g_nLastTextLen = currentLen;
                     g_bLineIndexDirty = true;  // text changed; rebuild line index before next query
 
-                    // Re-evaluate AURL policy: if the document has grown past the threshold
-                    // (or shrunk back below it), enable/disable AURL_ENABLEURL accordingly.
-                    ApplyAutoURLPolicy();
-
                     if (!g_bModified) {
                         g_bModified = TRUE;
                         g_lastURLRange.cpMin = -1;  // Invalidate cached URL range
@@ -3189,14 +3182,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // View menu
                 case ID_VIEW_WORDWRAP:
                     ViewWordWrap();
-                    break;
-                
-                case ID_VIEW_AUTOURL:
-                    // Toggle the user override that bypasses the large-file threshold.
-                    g_bAutoURLUserOverride = !g_bAutoURLUserOverride;
-                    CheckMenuItem(GetMenu(hwnd), ID_VIEW_AUTOURL,
-                                  g_bAutoURLUserOverride ? MF_CHECKED : MF_UNCHECKED);
-                    ApplyAutoURLPolicy();   // enable/disable AURL based on new override + doc size
                     break;
                 
                 // Search menu (Phase 2.9)
@@ -3521,8 +3506,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 HMENU hMenu = (HMENU)wParam;
                 CheckMenuItem(hMenu, ID_VIEW_WORDWRAP,
                               g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
-                CheckMenuItem(hMenu, ID_VIEW_AUTOURL,
-                              g_bAutoURLUserOverride ? MF_CHECKED : MF_UNCHECKED);
             }
             return 0;
             
@@ -4864,14 +4847,15 @@ HWND CreateRichEditControl(HWND hwndParent)
         // Set undo limit
         SendMessage(hwndEdit, EM_SETUNDOLIMIT, 100, 0);
         
-        // Enable automatic URL detection BEFORE setting plain text mode.
-        // AURL_ENABLEURL provides native accessibility: screen reader link roles
-        // (IAccessible/UIA), context menu "Open URL", and EN_LINK click/hover.
-        // For very large files the O(cursor-position) scan on EN_SELCHANGE becomes
-        // slow; ApplyAutoURLPolicy() disables it automatically above the threshold
-        // and re-enables it on demand via View > "Detect URLs in Large Files".
-        SendMessage(hwndEdit, EM_AUTOURLDETECT, AURL_ENABLEURL, 0);
-        g_bAutoURLEnabled = TRUE;  // mirrors the state just set
+        // Enable automatic URL detection only if the DetectURLs INI setting is on.
+        // AURL_ENABLEURL provides native accessibility (screen reader link roles via
+        // IAccessible/UIA, context menu "Open URL", EN_LINK click/hover), but does
+        // O(cursor-position) internal work on every EN_SELCHANGE — unusably slow on
+        // large files. Users with large files should set DetectURLs=0 in the INI.
+        // AURL_ENABLEURL must be sent BEFORE TM_PLAINTEXT on some RichEdit versions.
+        if (g_bAutoURLEnabled) {
+            SendMessage(hwndEdit, EM_AUTOURLDETECT, AURL_ENABLEURL, 0);
+        }
         
         // Set plain text mode (must follow AURL_ENABLEURL on some RichEdit versions)
         SendMessage(hwndEdit, EM_SETTEXTMODE, TM_PLAINTEXT, 0);
@@ -4973,35 +4957,6 @@ int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition)
 // Called lazily before any physical-line query; O(N) once per content change.
 // Cursor-movement queries then use std::upper_bound: O(log N), no RichEdit API call.
 //============================================================================
-//============================================================================
-// ApplyAutoURLPolicy - Enable or disable AURL_ENABLEURL based on document size.
-//
-// AURL_ENABLEURL provides native accessibility: screen reader link roles via
-// IAccessible/UIA, context menu "Open URL", and EN_LINK click/hover events.
-// However it does O(cursor-position) internal work on every EN_SELCHANGE, making
-// large files unusably slow (proportional to chars from start to cursor).
-//
-// Policy: AURL is auto-disabled when the document exceeds AURL_THRESHOLD chars
-// AND the user has not explicitly overridden via View > "Detect URLs in Large Files".
-// When the user toggles the override, the change takes effect immediately.
-//
-// g_bAutoURLEnabled mirrors the live AURL state so callers (UpdateStatusBar)
-// can show a status indicator without querying the control.
-//============================================================================
-#define AURL_THRESHOLD (512 * 1024)  // 512 K chars ≈ 1 MB; above this AURL auto-disables
-
-static void ApplyAutoURLPolicy()
-{
-    if (!g_hWndEdit) return;
-    GETTEXTLENGTHEX gtl = { GTL_DEFAULT, 1200 };
-    LONG docLen = (LONG)SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-    BOOL bShouldEnable = g_bAutoURLUserOverride || (docLen <= AURL_THRESHOLD);
-    if (bShouldEnable == g_bAutoURLEnabled) return;  // already in the right state
-    g_bAutoURLEnabled = bShouldEnable;
-    SendMessage(g_hWndEdit, EM_AUTOURLDETECT, bShouldEnable ? AURL_ENABLEURL : 0, 0);
-    UpdateStatusBar();  // refresh the "URL: off" indicator
-}
-
 static void RebuildLineIndex()
 {
     g_lineStarts.clear();
@@ -5607,10 +5562,6 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     
     UpdateTitle();
     UpdateStatusBar();
-
-    // Apply AURL size policy: disable AURL_ENABLEURL for documents above the threshold
-    // to prevent O(cursor-position) lag.  The user can override via View menu.
-    ApplyAutoURLPolicy();
 
     // Add to MRU list (only for explicit opens, not resume loads)
     if (bClearResumeState) {
@@ -7275,7 +7226,6 @@ void FileNewFromTemplate(int nTemplateIndex)
     
     UpdateTitle();
     UpdateStatusBar();
-    ApplyAutoURLPolicy();
     SetFocus(g_hWndEdit);
 }
 
@@ -8530,6 +8480,10 @@ void CreateDefaultINI()
         "SelectAfterPaste=0            ; 1=select pasted text, 0=cursor after paste (default: 0)\r\n"
         "AutoSaveUntitledOnClose=0     ; 1=auto-save untitled files on close (no prompt), 0=prompt as usual (default: 0)\r\n"
         "\r\n"
+        "; URL detection (accessibility: screen reader link roles, context menu 'Open URL', click-to-open)\r\n"
+        "; Set DetectURLs=0 if cursor movement is slow on very large files (RichEdit scans per keystroke when enabled)\r\n"
+        "DetectURLs=1                  ; 1=detect URLs (default), 0=disable for large-file performance\r\n"
+        "\r\n"
         "; Display settings\r\n"
         "TabSize=8                     ; Tab size in spaces for column calculation (default: 8)\r\n"
         "\r\n"
@@ -8973,6 +8927,16 @@ void LoadSettings()
         g_bAutoSaveUntitledOnClose = FALSE;
     } else {
         g_bAutoSaveUntitledOnClose = ReadINIInt(szIniPath, L"Settings", L"AutoSaveUntitledOnClose", 0);
+    }
+
+    // DetectURLs - enable AURL_ENABLEURL for URL highlighting and accessibility.
+    // Set to 0 for large-file sessions where cursor-movement lag is a problem.
+    ReadINIValue(szIniPath, L"Settings", L"DetectURLs", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"DetectURLs", L"1");
+        g_bAutoURLEnabled = TRUE;
+    } else {
+        g_bAutoURLEnabled = ReadINIInt(szIniPath, L"Settings", L"DetectURLs", 1);
     }
     
     // TabSize

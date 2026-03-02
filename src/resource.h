@@ -32,7 +32,6 @@
 
 // View menu
 #define ID_VIEW_WORDWRAP                1110
-#define ID_VIEW_AUTOURL                 1111  // "Detect URLs in Large Files" override toggle
 
 // Search menu (Phase 2.9)
 #define ID_SEARCH_FIND                  1300
@@ -245,8 +244,7 @@
 #define IDS_ELEVATE_SAVE_PROMPT          2167
 #define IDS_ERROR_ELEVATED_SAVE          2168
 
-// URL auto-detection override (size-threshold policy)
-#define IDS_STATUS_AUTOURL_OFF          2169  // Status bar indicator when AURL disabled for large file
-#define IDS_MENU_VIEW_AUTOURL           2170  // View menu item text (English/Czech loaded at runtime)
+// URL auto-detection status (DetectURLs INI setting)
+#define IDS_STATUS_AUTOURL_OFF          2169  // Status bar indicator when AURL disabled (DetectURLs=0)
 
 #endif // RESOURCE_H
