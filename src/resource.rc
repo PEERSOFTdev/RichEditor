@@ -52,6 +52,7 @@ BEGIN
     POPUP "&View"
     BEGIN
         MENUITEM "&Word Wrap\tCtrl+W", ID_VIEW_WORDWRAP
+        MENUITEM "Detect URLs in &Large Files", ID_VIEW_AUTOURL
     END
     POPUP "&Tools"
     BEGIN
@@ -307,10 +308,8 @@ BEGIN
     IDS_NO_BOOKMARKS                "No bookmarks are set."
     IDS_ELEVATE_SAVE_PROMPT          "Access denied while saving.\n\nSave with administrator permissions?"
     IDS_ERROR_ELEVATED_SAVE          "Could not save with administrator permissions"
+    IDS_STATUS_AUTOURL_OFF          "URL: off"
 END
-
-// ============================================================================
-// Czech (Czech Republic) resources
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
 
@@ -359,6 +358,7 @@ BEGIN
     POPUP "&Zobrazit"
     BEGIN
         MENUITEM "&Zalamování řádků\tCtrl+W", ID_VIEW_WORDWRAP
+        MENUITEM "Detekovat URL ve &velkých souborech", ID_VIEW_AUTOURL
     END
     POPUP "&Nástroje"
     BEGIN
@@ -567,4 +567,5 @@ BEGIN
     IDS_NO_BOOKMARKS                "Nejsou nastavené žádné záložky."
     IDS_ELEVATE_SAVE_PROMPT          "Při ukládání byl odepřen přístup.\n\nUložit s oprávněními správce?"
     IDS_ERROR_ELEVATED_SAVE          "Nepodařilo se uložit s oprávněními správce"
+    IDS_STATUS_AUTOURL_OFF          "URL: vypnuto"
 END
