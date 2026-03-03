@@ -95,7 +95,7 @@ Advanced: templates are editable in `RichEditor.ini`. You can localize template 
 
 ## URL Handling
 
-URLs are detected automatically. Press Enter on a URL to open it, or right-click to open/copy.
+URLs are detected automatically. Press Enter on a URL to open it, or right-click to open/copy. If cursor movement feels slow on a very large file, set `DetectURLs=0` in `[Settings]` and restart.
 
 ## Configuration (INI)
 
@@ -114,6 +114,7 @@ Editor behavior and defaults.
 - `ShowMenuDescriptions` (default `1`): show filter descriptions in menus (accessibility).
 - `SelectAfterPaste` (default `0`): select pasted text automatically.
 - `AutoSaveUntitledOnClose` (default `0`): save untitled work on close without prompting.
+- `DetectURLs` (default `1`): 1 = detect and highlight URLs (blue underline, click/Enter to open, screen reader announces as link). Set to 0 if cursor movement is slow on very large files — RichEdit scans the document on every keystroke when URL detection is on. Requires restart. Status bar shows "URL: off" when disabled.
 - `TabSize` (default `8`): tab width in spaces for column calculation (valid range 1–32).
 - `SelectAfterFind` (default `1`): keep found text selected after a successful find.
 - `FindMatchCase` (default `0`): match case by default in Find/Replace.

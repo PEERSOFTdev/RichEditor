@@ -95,7 +95,7 @@ Pokročilé: šablony lze upravovat v `RichEditor.ini` (konfigurační soubor). 
 
 ## Adresy URL
 
-Adresy URL (webové odkazy) se detekují automaticky. Enter na adresu URL ji otevře, pravým tlačítkem lze adresu URL otevřít nebo zkopírovat.
+Adresy URL (webové odkazy) se detekují automaticky. Enter na adresu URL ji otevře, pravým tlačítkem lze adresu URL otevřít nebo zkopírovat. Pokud je pohyb kurzoru pomalý ve velmi velkém souboru, nastavte `DetectURLs=0` v sekci `[Settings]` a restartujte editor.
 
 ## Konfigurace (INI – konfigurační soubor)
 
@@ -114,6 +114,7 @@ Chování editoru a výchozí volby.
 - `ShowMenuDescriptions` (výchozí `1`): popisy filtrů v nabídce (přístupnost).
 - `SelectAfterPaste` (výchozí `0`): automaticky vybere vložený text.
 - `AutoSaveUntitledOnClose` (výchozí `0`): uloží nepojmenované soubory při zavření bez dotazu.
+- `DetectURLs` (výchozí `1`): 1 = detekuje a zvýrazňuje adresy URL (modrý podtržený text, otevření kliknutím nebo Enter, odečítač obrazovky oznámí jako odkaz). Nastavte na 0, pokud je pohyb kurzoru pomalý v velmi velkých souborech – RichEdit prohledává dokument při každém stisku klávesy, je-li detekce URL zapnutá. Vyžaduje restart. Stavový řádek zobrazí „URL: vypnuto" při zakázání.
 - `TabSize` (výchozí `8`): šířka tabulátoru v počtu mezer (1–32).
 - `SelectAfterFind` (výchozí `1`): nechá nalezený text vybraný.
 - `FindMatchCase` (výchozí `0`): výchozí hledání rozlišuje velikost písmen.

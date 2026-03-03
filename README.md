@@ -85,6 +85,7 @@ AutosaveOnFocusLoss=1
 SelectAfterPaste=0
 ShowMenuDescriptions=1
 AutoSaveUntitledOnClose=0
+DetectURLs=1
 ```
 
 ### Find/Replace History

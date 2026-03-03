@@ -60,15 +60,23 @@ This file holds extended design notes, historical context, and larger implementa
 - `DoAutosave` previously called `Sleep(1000)` on the UI thread, blocking the message pump during large-file saves.
 - Replaced with `SetTimer(IDT_AUTOSAVE_FLASH, 1000)` + `WM_TIMER` handler that restores the previous status text via `g_szAutosaveFlashPrevStatus`.
 
-## AURL Size-Threshold Policy (Performance fix for large files)
+## AURL Performance (large-file cursor lag)
 
 ### Problem
 
 `AURL_ENABLEURL` (RichEdit automatic URL detection) does O(cursor-position) work on every `EN_SELCHANGE` notification. On a 13 MB / ~70,000-line file this causes 2–30+ second freezes on every cursor movement.
 
-### Solution
+### Solution (current)
 
-`ApplyAutoURLPolicy()` automatically disables `AURL_ENABLEURL` when the document exceeds `AURL_THRESHOLD` (512 × 1024 characters ≈ 1 MB), and re-enables it when the document shrinks back below the threshold. The user can override via **View > Detect URLs in Large Files**.
+Read the `DetectURLs` INI setting once in `LoadSettings()`. If `DetectURLs=0`, `EM_AUTOURLDETECT` is never called; RichEdit never builds its internal URL state and there is no per-keystroke overhead. If `DetectURLs=1` (the default), `AURL_ENABLEURL` is sent in `CreateRichEditControl` before `TM_PLAINTEXT`.
+
+Users with large files should add `DetectURLs=0` to `[Settings]` in `RichEditor.ini` and restart.
+
+`g_bAutoURLEnabled` reflects the startup decision and is read by `UpdateStatusBar` to show "URL: off" / "URL: vypnuto" when detection is disabled.
+
+### Why the enable-then-disable approach failed
+
+An earlier attempt enabled `AURL_ENABLEURL` at startup, then sent `EM_AUTOURLDETECT 0` after loading a large file. This was unreliable: RichEdit had already scanned the entire document and built internal URL structures during loading. Disabling AURL afterward did not clear that state, so per-cursor overhead persisted. The correct fix is to never enable AURL in the first place when the user does not want it.
 
 ### Why `AURL_ENABLEURL` cannot be replaced by manual `CFE_LINK`
 
@@ -76,24 +84,12 @@ This file holds extended design notes, historical context, and larger implementa
 - Screen readers never see manually-set `CFE_LINK` as a link (no IAccessible/UIA role).
 - Context menu "Open URL" does not appear for manual `CFE_LINK`.
 - Keyboard/Enter-to-open URL does not work for manual `CFE_LINK`.
-- Therefore `AURL_ENABLEURL` is the only correct approach; disabling it for large files is the trade-off.
-
-### Key globals and call sites
-
-- `g_bAutoURLEnabled` — current effective AURL state (set by `ApplyAutoURLPolicy`).
-- `g_bAutoURLUserOverride` — TRUE if user explicitly toggled via View menu; suppresses automatic threshold switching.
-- `ApplyAutoURLPolicy()` is called from `EN_CHANGE`, `LoadTextFile`, and `FileNewFromTemplate`.
-- `WM_COMMAND / ID_VIEW_AUTOURL`: toggles `g_bAutoURLUserOverride`, updates checkmark, calls `ApplyAutoURLPolicy()`.
-- `WM_INITMENUPOPUP` (View menu, position 3): updates checkmark for `ID_VIEW_AUTOURL`.
-- `UpdateStatusBar`: appends "URL: off" / "URL: vypnuto" to status text when `!g_bAutoURLEnabled`.
+- `EM_SETCHARFORMAT` with `CFM_LINK` is blocked in `TM_PLAINTEXT` mode.
+- Therefore `AURL_ENABLEURL` is the only correct approach; the trade-off is disabling it for large-file sessions via the INI setting.
 
 ### Ordering requirement
 
-`AURL_ENABLEURL` must be enabled **before** `EM_SETTEXTMODE TM_PLAINTEXT` in `CreateRichEditControl`. Some RichEdit versions ignore `AURL_ENABLEURL` if sent after `TM_PLAINTEXT`.
-
-### `EM_SETCHARFORMAT` and `TM_PLAINTEXT`
-
-`EM_SETCHARFORMAT` with `CFM_LINK` is blocked in `TM_PLAINTEXT` mode — confirmed by user testing. `TM_PLAINTEXT` must remain for correct plain-text paste behavior; it is restored intentionally.
+`AURL_ENABLEURL` must be sent **before** `EM_SETTEXTMODE TM_PLAINTEXT` in `CreateRichEditControl`. Some RichEdit versions ignore `AURL_ENABLEURL` if sent after `TM_PLAINTEXT`.
 
 ## Template System
 

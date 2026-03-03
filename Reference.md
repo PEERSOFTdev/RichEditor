@@ -146,7 +146,9 @@ Last updated: 2026‑02‑19.
 - Silent operation (no status bar messages)
 - Opens URLs with Windows default application via ShellExecute
 - Full accessibility: URLs announced as "link" by NVDA, JAWS, Narrator
-- Always enabled (no configuration needed)
+- Enabled by default; set `DetectURLs=0` in `[Settings]` and restart to disable (see performance note below)
+- When disabled, status bar shows "URL: off" and no URL features are available
+- **Performance note:** RichEdit's URL scanner runs on every cursor movement. On very large files (13 MB+) this causes multi-second freezes. Add `DetectURLs=0` to the INI for large-file sessions.
 
 
 
