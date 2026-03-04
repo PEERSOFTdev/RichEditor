@@ -71,22 +71,27 @@ BEGIN
 END
 
 // About Dialog
-IDD_ABOUT DIALOGEX 0, 0, 240, 140
+IDD_ABOUT DIALOGEX 0, 0, 240, 178
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "About RichEditor"
 FONT 8, "MS Shell Dlg", 400, 0
 BEGIN
     ICON IDI_APPLICATION, IDC_STATIC, 10, 10, 20, 20
     LTEXT "RichEditor v2.8.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
-    LTEXT "A lightweight, accessible text editor", IDC_STATIC, 40, 25, 190, 10
-    LTEXT "Built with MinGW-w64", IDC_STATIC, 40, 38, 190, 10
-    LTEXT "", IDC_RICHEDIT_VERSION, 40, 50, 190, 10  // RichEdit version+class (filled at runtime)
-    LTEXT "", IDC_RICHEDIT_VERSION_PATH, 40, 62, 190, 10  // RichEdit DLL path (filled at runtime)
+    LTEXT "Lightweight, accessible Win32 plain-text editor", IDC_STATIC, 40, 25, 190, 10
+    LTEXT "Copyright (C) 2025-2026 PEERSOFT", IDC_STATIC, 40, 37, 190, 10
+    LTEXT "", IDC_STATIC, 10, 49, 220, 1, SS_ETCHEDHORZ
+    LTEXT "", IDC_RICHEDIT_VERSION, 40, 53, 190, 10  // RichEdit version+class (filled at runtime)
+    LTEXT "", IDC_RICHEDIT_VERSION_PATH, 40, 65, 190, 10  // RichEdit DLL path (filled at runtime)
     LTEXT "", IDC_STATIC, 10, 77, 220, 1, SS_ETCHEDHORZ
-    LTEXT "Features:", IDC_STATIC, 10, 84, 220, 10
-    LTEXT "• UTF-8 text editing with autosave", IDC_STATIC, 20, 97, 210, 10
-    LTEXT "• Word wrap with position tracking", IDC_STATIC, 20, 109, 210, 10
-    DEFPUSHBUTTON "OK", IDOK, 95, 120, 50, 14
+    LTEXT "Key features:", IDC_STATIC, 10, 83, 220, 10
+    LTEXT "• UTF-8 plain text (no BOM) · autosave on timer and focus loss", IDC_STATIC, 20, 95, 210, 10
+    LTEXT "• Word wrap · visual Ln/Col status · Go to Line", IDC_STATIC, 20, 106, 210, 10
+    LTEXT "• Find/Replace with history, undo, and escape sequences", IDC_STATIC, 20, 117, 210, 10
+    LTEXT "• External filter/pipe system · template insertion (F5)", IDC_STATIC, 20, 128, 210, 10
+    LTEXT "• Elevated save (UAC) · optional session resume", IDC_STATIC, 20, 139, 210, 10
+    LTEXT "• English + Czech UI · screen reader accessible", IDC_STATIC, 20, 150, 210, 10
+    DEFPUSHBUTTON "OK", IDOK, 95, 162, 50, 14
 END
 
 // Find dialog (Phase 2.9)
@@ -123,8 +128,8 @@ END
 
 // Version Information
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     2,7,0,0
-PRODUCTVERSION  2,7,0,0
+FILEVERSION     2,8,0,0
+PRODUCTVERSION  2,8,0,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
     FILEFLAGS   VS_FF_DEBUG
@@ -141,25 +146,25 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lightweight Text Editor"
-            VALUE "FileVersion",      "2.7.0.0"
+            VALUE "FileVersion",      "2.8.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025-2026 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "2.7.0 (Template System)"
-            VALUE "Comments",         "Accessible text editor with RichEdit 4.1 control, autosave, word wrap, filter support, and templates. Built with MinGW-w64."
+            VALUE "ProductVersion",   "2.8.0"
+            VALUE "Comments",         "Accessible plain-text editor with UTF-8, autosave, word wrap, find/replace, filters, elevated save, and English+Czech UI. Built with MinGW-w64 or MSVC."
         END
         BLOCK "040504B0"  // Czech, Unicode
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lehký textový editor"
-            VALUE "FileVersion",      "2.7.0.0"
+            VALUE "FileVersion",      "2.8.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025-2026 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "2.7.0 (Systém šablon)"
-            VALUE "Comments",         "Přístupný textový editor s ovládacím prvkem RichEdit 4.1, automatickým ukládáním, zalamováním řádků, podporou filtrů a šablonami. Vytvořeno pomocí MinGW-w64."
+            VALUE "ProductVersion",   "2.8.0"
+            VALUE "Comments",         "Přístupný editor prostého textu s UTF-8, automatickým ukládáním, zalamováním řádků, hledáním/nahrazením, filtry, ukládáním se zvýšenými právy a anglickým+českým UI."
         END
     END
     BLOCK "VarFileInfo"
@@ -376,22 +381,27 @@ BEGIN
 END
 
 // About Dialog
-IDD_ABOUT DIALOGEX 0, 0, 240, 140
+IDD_ABOUT DIALOGEX 0, 0, 240, 178
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "O programu RichEditor"
 FONT 8, "MS Shell Dlg", 400, 0
 BEGIN
     ICON IDI_APPLICATION, IDC_STATIC, 10, 10, 20, 20
     LTEXT "RichEditor v2.8.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
-    LTEXT "Lehký a přístupný textový editor", IDC_STATIC, 40, 25, 190, 10
-    LTEXT "Vytvořeno s MinGW-w64", IDC_STATIC, 40, 38, 190, 10
-    LTEXT "", IDC_RICHEDIT_VERSION, 40, 50, 190, 10  // Verze+třída RichEdit (vyplněno při běhu)
-    LTEXT "", IDC_RICHEDIT_VERSION_PATH, 40, 62, 190, 10  // Cesta k DLL RichEdit (vyplněno při běhu)
+    LTEXT "Lehký, přístupný editor prostého textu Win32", IDC_STATIC, 40, 25, 190, 10
+    LTEXT "Copyright (C) 2025-2026 PEERSOFT", IDC_STATIC, 40, 37, 190, 10
+    LTEXT "", IDC_STATIC, 10, 49, 220, 1, SS_ETCHEDHORZ
+    LTEXT "", IDC_RICHEDIT_VERSION, 40, 53, 190, 10  // Verze+třída RichEdit (vyplněno při běhu)
+    LTEXT "", IDC_RICHEDIT_VERSION_PATH, 40, 65, 190, 10  // Cesta k DLL RichEdit (vyplněno při běhu)
     LTEXT "", IDC_STATIC, 10, 77, 220, 1, SS_ETCHEDHORZ
-    LTEXT "Vlastnosti:", IDC_STATIC, 10, 84, 220, 10
-    LTEXT "• Editace textu v UTF-8 s automatickým ukládáním", IDC_STATIC, 20, 97, 210, 10
-    LTEXT "• Zalamování řádků se sledováním pozice", IDC_STATIC, 20, 109, 210, 10
-    DEFPUSHBUTTON "OK", IDOK, 95, 120, 50, 14
+    LTEXT "Hlavní vlastnosti:", IDC_STATIC, 10, 83, 220, 10
+    LTEXT "• UTF-8 prostý text (bez BOM) · automatické ukládání", IDC_STATIC, 20, 95, 210, 10
+    LTEXT "• Zalamování řádků · vizuální Ř/Sl · přejít na řádek", IDC_STATIC, 20, 106, 210, 10
+    LTEXT "• Hledání/Nahrazení s historií, zpět a escape sekvencemi", IDC_STATIC, 20, 117, 210, 10
+    LTEXT "• Filtry a příkazy roury · vkládání šablon (F5)", IDC_STATIC, 20, 128, 210, 10
+    LTEXT "• Uložení se zvýšenými právy (UAC) · obnovení relace", IDC_STATIC, 20, 139, 210, 10
+    LTEXT "• Anglické + české UI · přístupné pro čtečky obrazovky", IDC_STATIC, 20, 150, 210, 10
+    DEFPUSHBUTTON "OK", IDOK, 95, 162, 50, 14
 END
 
 // Find dialog (Phase 2.9)

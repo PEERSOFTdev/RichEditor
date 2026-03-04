@@ -47,3 +47,12 @@ Use this checklist after code changes. It is meant to keep docs and behavior in 
 
 * Do not commit generated files (ini, exe, obj).
 * Keep docs in docs/ and notes in docs/notes/.
+
+## Version Bump (human-initiated only)
+
+* Only bump the version when a human developer explicitly instructs it.
+* Update all locations in the same commit (see Version Number Management in `AGENTS.md`):
+  * `FILEVERSION` and `PRODUCTVERSION` quads in `src/resource.rc`
+  * `VALUE "FileVersion"` and `VALUE "ProductVersion"` in both language blocks
+  * `LTEXT "RichEditor vX.Y.Z"` in both `IDD_ABOUT` dialog definitions (EN + CS)
+  * `README.md`, `Reference.md`, and both user manuals if they reference the version

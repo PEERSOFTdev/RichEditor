@@ -19,6 +19,22 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - **UNC paths:** avoid Win32 INI APIs (no `GetPrivateProfileString`).
 - **Small binary size:** prefer refactors over new code; report old/new sizes for feature changes.
 
+## Version Number Management
+
+- **Only a human developer may bump the version number or create Git tags.** Agents must never change a version number without an explicit human instruction to do so.
+- When a human developer explicitly instructs a version change, update **all** of the following locations in the same commit:
+
+  | File | What to update |
+  |------|----------------|
+  | `src/resource.rc` | `FILEVERSION` and `PRODUCTVERSION` quads (e.g. `2,8,0,0`) |
+  | `src/resource.rc` | `VALUE "FileVersion"` in both language blocks (`040904B0` EN, `040504B0` CS) |
+  | `src/resource.rc` | `VALUE "ProductVersion"` in both language blocks |
+  | `src/resource.rc` | `LTEXT "RichEditor vX.Y.Z"` in both `IDD_ABOUT` dialog definitions (English + Czech) |
+  | `README.md` | Any version references |
+  | `Reference.md` | Any version references |
+  | `docs/USER_MANUAL_EN.md` | If it contains version references |
+  | `docs/USER_MANUAL_CS.md` | If it contains version references |
+
 ## INI System (Current Behavior)
 
 - INI content is cached in memory (`g_IniCache`).
