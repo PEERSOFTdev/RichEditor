@@ -1,0 +1,79 @@
+name: Build
+
+on:
+  push:
+    branches: ["master"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["master"]
+
+jobs:
+  build-mingw:
+    name: MinGW cross-compile (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64
+
+      - name: Build (stripped)
+        run: make CROSS=x86_64-w64-mingw32- strip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RichEditor-mingw
+          path: RichEditor.exe
+
+  build-msvc:
+    name: MSVC (Windows)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build MSVC release
+        run: build_msvc.bat
+        shell: cmd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RichEditor-msvc
+          path: msvc\RichEditor.exe
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-mingw, build-msvc]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download MinGW artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RichEditor-mingw
+          path: dist/mingw
+
+      - name: Download MSVC artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RichEditor-msvc
+          path: dist/msvc
+
+      - name: Rename release assets
+        run: |
+          mv dist/mingw/RichEditor.exe dist/RichEditor-mingw.exe
+          mv dist/msvc/RichEditor.exe dist/RichEditor-msvc.exe
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/RichEditor-mingw.exe
+            dist/RichEditor-msvc.exe
+          generate_release_notes: true

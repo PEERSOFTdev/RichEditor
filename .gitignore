@@ -6,7 +6,9 @@
 
 # Build artifacts
 RichEditor.exe
-main.o
+
+# Local DLL helpers and private scripts
+lib/
 
 # Auto-generated configuration files
 *.ini
