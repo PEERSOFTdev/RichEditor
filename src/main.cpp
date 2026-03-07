@@ -3954,13 +3954,20 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         }
     }
 
-    // Ctrl+mouse wheel: RichEdit handles the zoom internally; react by fixing word wrap layout
-    if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
-        LRESULT lResult = CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
-        ApplyWordWrap(hwnd);
-        UpdateStatusBar();
-        return lResult;
-    }
+// Ctrl+mouse wheel: RichEdit handles the zoom internally; react by fixing word wrap layout
+if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
+    LRESULT lResult = CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+    // Keep g_nZoomPercent in sync so file-load can restore zoom correctly.
+    // EM_GETZOOM returns FALSE (leaves params 0) when zoom is exactly 100%.
+    WPARAM nNum = 0; LPARAM nDen = 0;
+    if (SendMessage(hwnd, EM_GETZOOM, (WPARAM)&nNum, (LPARAM)&nDen) && nNum > 0 && nDen > 0)
+        g_nZoomPercent = (int)MulDiv((int)nNum, 100, (int)nDen);
+    else
+        g_nZoomPercent = 100;
+    ApplyWordWrap(hwnd);
+    UpdateStatusBar();
+    return lResult;
+}
     
     // Call original window procedure for all other messages
     return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
@@ -5580,6 +5587,9 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, pszUTF16);
     g_bSettingText = FALSE;
+    // RichEdit resets zoom on WM_SETTEXT; restore the user's zoom level
+    if (g_nZoomPercent != 100)
+        SendMessage(g_hWndEdit, EM_SETZOOM, (WPARAM)g_nZoomPercent, (LPARAM)100);
     g_bLineIndexDirty = true;  // new file content; EN_CHANGE was suppressed
     free(pszUTF16);
     
@@ -7184,6 +7194,9 @@ void FileNew()
     g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, L"");
     g_bSettingText = FALSE;
+    // RichEdit resets zoom on WM_SETTEXT; restore the user's zoom level
+    if (g_nZoomPercent != 100)
+        SendMessage(g_hWndEdit, EM_SETZOOM, (WPARAM)g_nZoomPercent, (LPARAM)100);
     g_bLineIndexDirty = true;  // cleared document; EN_CHANGE was suppressed
     
     // Reset state
@@ -7240,6 +7253,9 @@ void FileNewFromTemplate(int nTemplateIndex)
     g_bSettingText = TRUE;
     SetWindowText(g_hWndEdit, pszExpanded);
     g_bSettingText = FALSE;
+    // RichEdit resets zoom on WM_SETTEXT; restore the user's zoom level
+    if (g_nZoomPercent != 100)
+        SendMessage(g_hWndEdit, EM_SETZOOM, (WPARAM)g_nZoomPercent, (LPARAM)100);
     g_bLineIndexDirty = true;  // template content loaded; EN_CHANGE was suppressed
     
     free(pszExpanded);
@@ -8013,6 +8029,7 @@ void ViewZoomReset()
 {
     // EM_SETZOOM(0,0) resets to default (100%)
     SendMessage(g_hWndEdit, EM_SETZOOM, 0, 0);
+    g_nZoomPercent = 100;
     ApplyWordWrap(g_hWndEdit);
     UpdateStatusBar();
     SetFocus(g_hWndEdit);
