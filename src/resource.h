@@ -32,6 +32,7 @@
 
 // View menu
 #define ID_VIEW_WORDWRAP                1110
+#define ID_VIEW_ZOOM_RESET              1111
 
 // Search menu (Phase 2.9)
 #define ID_SEARCH_FIND                  1300

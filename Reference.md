@@ -970,6 +970,7 @@ RichEditor.exe /readonly source.cpp
 | `Ctrl+V` | Paste |
 | `Ctrl+A` | Select all |
 | `Ctrl+W` | Toggle word wrap |
+| `Ctrl+0` | Reset zoom to 100% |
 | `F5` | Insert time/date |
 | `Ctrl+Enter` | Execute current filter |
 | `Ctrl+G` | Go to Line |
@@ -1024,6 +1025,7 @@ On first launch, RichEditor automatically creates a default `RichEditor.ini` fil
 ; Editor settings
 WordWrap=1                    ; 1=enabled, 0=disabled (default: 1)
 TabSize=8                     ; Tab size in spaces for column calculation (default: 8, range: 1-32)
+Zoom=100                      ; Zoom percentage (default: 100, range: 1-6400)
 
 ; Editor behavior settings
 SelectAfterPaste=0            ; 1=select pasted text, 0=cursor after paste (default: 0)
@@ -1188,7 +1190,8 @@ The status bar displays (from left to right):
    - Emoji (surrogate pairs): `Char: '😀' (Dec: 128512, U+1F600)`
    - Control characters: `Char: (Dec: 10, U+000A)`
    - End of file: `Char: EOF`
-3. **Filter:** Current active filter name (e.g., `[Filter: Calculator]` or `[Filter: None]`)
+3. **Zoom:** Appended to part 1 when zoom is not 100%, e.g. `    200%`
+4. **Filter:** Current active filter name (e.g., `[Filter: Calculator]` or `[Filter: None]`)
 
 ### Insert/Overtype Mode
 
@@ -1217,6 +1220,18 @@ When word wrap is enabled:
   - Physical: Line 11 (actual file), Column 204
 
 **RichEdit 8+ Note:** Word wrap uses Notepad-like internal segmentation (~1000-character visual chunks). This does not change the underlying file content; it only affects display and the visual line count.
+
+### Zoom
+
+RichEditor supports zooming the editor text in and out:
+
+- **Ctrl+mouse wheel** — zoom in/out; word wrap layout is recalculated automatically after each step
+- **View → Reset Zoom (Ctrl+0)** — returns to 100%; grayed out when already at 100%
+- **Status bar** — shows the current zoom percentage (e.g. `200%`) appended to the position info whenever zoom is not 100%
+- **Persisted** — zoom level is saved to `RichEditor.ini` as `Zoom=NNN` on exit and restored on the next launch
+- **INI setting:** `Zoom=100` (integer percentage, default 100, range 1–6400)
+
+**Word wrap interaction:** At zoom levels above 100%, RichEditor compensates the wrap point so text wraps at the visible window edge rather than overflowing it.
 
 ## Date/Time Formatting
 

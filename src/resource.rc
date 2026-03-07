@@ -52,6 +52,7 @@ BEGIN
     POPUP "&View"
     BEGIN
         MENUITEM "&Word Wrap\tCtrl+W", ID_VIEW_WORDWRAP
+        MENUITEM "&Reset Zoom\tCtrl+0", ID_VIEW_ZOOM_RESET
     END
     POPUP "&Tools"
     BEGIN
@@ -362,6 +363,7 @@ BEGIN
     POPUP "&Zobrazit"
     BEGIN
         MENUITEM "&Zalamování řádků\tCtrl+W", ID_VIEW_WORDWRAP
+        MENUITEM "&Obnovit přiblížení\tCtrl+0", ID_VIEW_ZOOM_RESET
     END
     POPUP "&Nástroje"
     BEGIN

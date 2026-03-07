@@ -44,6 +44,7 @@ BOOL g_bSettingText = FALSE;      // Flag to prevent EN_CHANGE during SetWindowT
 BOOL g_bAutoURLEnabled = FALSE;   // TRUE if AURL_ENABLEURL was enabled at startup (from DetectURLs INI setting)
 BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
 BOOL g_bReadOnly = FALSE;         // Read-only mode (can be set via /readonly or File menu)
+int  g_nZoomPercent = 100;        // Current zoom level in percent (100 = default)
 BOOL g_bSaveInProgress = FALSE;   // Prevent concurrent saves/autosave reentrancy
 
 //============================================================================
@@ -494,6 +495,7 @@ BOOL ParseShortcut(LPCWSTR pszShortcut, WORD* pVirtualKey, BYTE* pModifiers);
 BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers);
 void LoadTemplates();
 HACCEL BuildAcceleratorTable();
+void ViewZoomReset();
 void ExtractFileExtension(LPCWSTR pszFilePath, LPWSTR pszExt, DWORD dwExtSize);
 void UpdateFileExtension(LPCWSTR pszFilePath);
 LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset);
@@ -1143,7 +1145,7 @@ void LoadTemplates()
 HACCEL BuildAcceleratorTable()
 {
     // Count total accelerators needed
-    const int BUILTIN_COUNT = 23;  // Built-in shortcuts (including search shortcuts - Phase 2.9.3)
+    const int BUILTIN_COUNT = 24;  // Built-in shortcuts (including search shortcuts - Phase 2.9.3)
     int nTemplateShortcuts = 0;
     
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1171,6 +1173,7 @@ HACCEL BuildAcceleratorTable()
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'V'; pAccel[idx++].cmd = ID_EDIT_PASTE;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'A'; pAccel[idx++].cmd = ID_EDIT_SELECTALL;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'W'; pAccel[idx++].cmd = ID_VIEW_WORDWRAP;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = '0'; pAccel[idx++].cmd = ID_VIEW_ZOOM_RESET;
     pAccel[idx].fVirt = FVIRTKEY; pAccel[idx].key = VK_F5; pAccel[idx++].cmd = ID_EDIT_TIMEDATE;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = VK_RETURN; pAccel[idx++].cmd = ID_TOOLS_EXECUTEFILTER;
     pAccel[idx].fVirt = FCONTROL | FSHIFT | FVIRTKEY; pAccel[idx].key = 'I'; pAccel[idx++].cmd = ID_TOOLS_START_INTERACTIVE;
@@ -3183,6 +3186,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case ID_VIEW_WORDWRAP:
                     ViewWordWrap();
                     break;
+                case ID_VIEW_ZOOM_RESET:
+                    ViewZoomReset();
+                    break;
                 
                 // Search menu (Phase 2.9)
                 case ID_SEARCH_FIND:
@@ -3506,6 +3512,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 HMENU hMenu = (HMENU)wParam;
                 CheckMenuItem(hMenu, ID_VIEW_WORDWRAP,
                               g_bWordWrap ? MF_CHECKED : MF_UNCHECKED);
+                // Gray Reset Zoom when already at 100%
+                DWORD nNum = 0, nDen = 0;
+                BOOL bZoomed = (BOOL)SendMessage(g_hWndEdit, EM_GETZOOM, (WPARAM)&nNum, (LPARAM)&nDen);
+                BOOL bAtDefault = (!bZoomed || nNum == 0 || nDen == 0 || nNum == nDen);
+                EnableMenuItem(hMenu, ID_VIEW_ZOOM_RESET,
+                               bAtDefault ? MF_GRAYED : MF_ENABLED);
             }
             return 0;
             
@@ -3807,6 +3819,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             KillTimer(hwnd, IDT_AUTOSAVE_FLASH);
             // Release TOM interface
             if (g_pTextDoc) { g_pTextDoc->Release(); g_pTextDoc = NULL; }
+            // Save current zoom level before flushing INI
+            {
+                WCHAR szIniPath[EXTENDED_PATH_MAX];
+                GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+                DWORD nNum = 0, nDen = 0;
+                BOOL bZoomed = (BOOL)SendMessage(g_hWndEdit, EM_GETZOOM, (WPARAM)&nNum, (LPARAM)&nDen);
+                int zoomPct = 100;
+                if (bZoomed && nNum > 0 && nDen > 0)
+                    zoomPct = MulDiv((int)nNum, 100, (int)nDen);
+                WCHAR szZoom[16];
+                _snwprintf(szZoom, 16, L"%d", zoomPct);
+                WriteINIValue(szIniPath, L"Settings", L"Zoom", szZoom);
+            }
             FlushIniCache();
             PostQuitMessage(0);
             return 0;
@@ -3923,6 +3948,18 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
             return 0; // Block the character from being inserted
         }
+        // Guard: drop NUL char (some keyboard layouts emit it for Ctrl+digit combinations)
+        if (wParam == 0 && (GetKeyState(VK_CONTROL) & 0x8000)) {
+            return 0;
+        }
+    }
+
+    // Ctrl+mouse wheel: RichEdit handles the zoom internally; react by fixing word wrap layout
+    if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
+        LRESULT lResult = CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+        ApplyWordWrap(hwnd);
+        UpdateStatusBar();
+        return lResult;
     }
     
     // Call original window procedure for all other messages
@@ -4872,6 +4909,11 @@ HWND CreateRichEditControl(HWND hwndParent)
             SendMessage(hwndEdit, EM_SETREADONLY, TRUE, 0);
         }
 
+        // Apply saved zoom level before word wrap so the first layout is zoom-aware
+        if (g_nZoomPercent != 100) {
+            SendMessage(hwndEdit, EM_SETZOOM, (WPARAM)g_nZoomPercent, (LPARAM)100);
+        }
+
         ApplyWordWrap(hwndEdit);
         
         // Subclass the RichEdit control to intercept WM_KEYDOWN
@@ -5252,12 +5294,24 @@ void UpdateStatusBar()
     } else {
         // Format status text (without filename - it's already in title bar)
         WCHAR szStatus[512];
+
+        // Build optional zoom suffix
+        WCHAR szZoom[16] = L"";
+        {
+            DWORD nNum = 0, nDen = 0;
+            BOOL bZoomed = (BOOL)SendMessage(g_hWndEdit, EM_GETZOOM, (WPARAM)&nNum, (LPARAM)&nDen);
+            if (bZoomed && nNum > 0 && nDen > 0 && nNum != nDen) {
+                int pct = MulDiv((int)nNum, 100, (int)nDen);
+                _snwprintf(szZoom, 16, L"    %d%%", pct);
+            }
+        }
+
         if (!g_bAutoURLEnabled) {
             WCHAR szURLOff[32];
             LoadStringResource(IDS_STATUS_AUTOURL_OFF, szURLOff, 32);
-            _snwprintf(szStatus, 512, L"%s    %s    %s", posInfo, charInfo, szURLOff);
+            _snwprintf(szStatus, 512, L"%s    %s    %s%s", posInfo, charInfo, szURLOff, szZoom);
         } else {
-            _snwprintf(szStatus, 512, L"%s    %s", posInfo, charInfo);
+            _snwprintf(szStatus, 512, L"%s    %s%s", posInfo, charInfo, szZoom);
         }
         
         SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
@@ -7911,6 +7965,13 @@ void ApplyWordWrap(HWND hEdit)
             RECT rcClient;
             GetClientRect(hEdit, &rcClient);
             LONG widthTwips = GetTwipsForPixels(hEdit, rcClient.right - rcClient.left);
+            // Adjust for zoom: EM_GETZOOM returns FALSE (and leaves params 0) at 100%.
+            // When zoomed, the same twip count occupies more screen pixels, so we divide.
+            DWORD nNum = 0, nDen = 0;
+            BOOL bZoomed = (BOOL)SendMessage(hEdit, EM_GETZOOM, (WPARAM)&nNum, (LPARAM)&nDen);
+            if (bZoomed && nNum > 0 && nDen > 0 && nNum != nDen) {
+                widthTwips = MulDiv(widthTwips, nDen, nNum);
+            }
             SetRichEditWordWrap(hEdit, widthTwips);
         }
     } else {
@@ -7943,6 +8004,18 @@ void ViewWordWrap()
     SetFocus(g_hWndEdit);
 
     g_bBookmarksDirty = TRUE;
+}
+
+//============================================================================
+// ViewZoomReset - Reset zoom to 100% (Ctrl+0 / View → Reset Zoom)
+//============================================================================
+void ViewZoomReset()
+{
+    // EM_SETZOOM(0,0) resets to default (100%)
+    SendMessage(g_hWndEdit, EM_SETZOOM, 0, 0);
+    ApplyWordWrap(g_hWndEdit);
+    UpdateStatusBar();
+    SetFocus(g_hWndEdit);
 }
 
 //============================================================================
@@ -8486,6 +8559,7 @@ void CreateDefaultINI()
         "\r\n"
         "; Display settings\r\n"
         "TabSize=8                     ; Tab size in spaces for column calculation (default: 8)\r\n"
+        "Zoom=100                      ; Zoom percentage (100 = default, range 1-6400)\r\n"
         "\r\n"
         "; Date/Time formatting (Phase 2.10, ToDo #3)\r\n"
         "; DateTimeTemplate: Format for F5 key and Edit→Insert Time/Date menu (default: %date% %time%)\r\n"
@@ -8954,6 +9028,19 @@ void LoadSettings()
         g_nTabSize = tabSize;
     }
     
+    // Zoom (UR-001) - persist zoom level as integer percentage
+    ReadINIValue(szIniPath, L"Settings", L"Zoom", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"Zoom", L"100");
+        g_nZoomPercent = 100;
+    } else {
+        int z = ReadINIInt(szIniPath, L"Settings", L"Zoom", 100);
+        // Clamp to RichEdit supported range (1%-6400%)
+        if (z < 1)    z = 1;
+        if (z > 6400) z = 6400;
+        g_nZoomPercent = z;
+    }
+
     // SelectAfterFind (Phase 2.9.1)
     ReadINIValue(szIniPath, L"Settings", L"SelectAfterFind", szValue, 256, L"");
     if (szValue[0] == L'\0') {
