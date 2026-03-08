@@ -34,6 +34,11 @@
 #define WM_REPL_OUTPUT  (WM_USER + 100)  // wParam: unused, lParam: LPWSTR (output text to insert)
 #define WM_REPL_EXITED  (WM_USER + 101)  // wParam: unused, lParam: unused (filter process exited)
 
+// Deferred file-load message: allows the menu to fully close before the blocking
+// LoadTextFile call starts, preventing accessibility tree confusion on slow RichEdit.
+// lParam: malloc'd LPWSTR file path; handler must call LoadTextFile then free it.
+#define WM_APP_LOAD_FILE  (WM_APP + 1)
+
 HWND g_hWndMain = NULL;           // Main window handle
 HWND g_hWndEdit = NULL;           // RichEdit control handle (to be added)
 HWND g_hWndStatus = NULL;         // Status bar handle (to be added)
@@ -98,6 +103,7 @@ BOOL g_bAutosaveOnFocusLoss = TRUE;          // Autosave when window loses focus
 const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar display
 const UINT_PTR IDT_AUTOSAVE_FLASH = 3;       // Timer ID for "[Autosaved]" status bar flash
+const UINT_PTR IDT_FOCUS_RESTORE = 4;        // Timer ID for deferred focus restore after MRU load
 
 // Accessibility settings
 BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menus (for accessibility)
@@ -3103,6 +3109,27 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 g_bFilterStatusBarActive = FALSE;
                 UpdateStatusBar();  // Revert to normal display
             }
+            // Deferred focus restore after MRU load: old RichEdit reports
+            // STATE_SYSTEM_UNAVAILABLE briefly after a large SetWindowText.
+            // Re-firing SetFocus 200 ms later gives the control time to settle
+            // so the Braille display / screen reader sees the correct state.
+            else if (wParam == IDT_FOCUS_RESTORE) {
+                KillTimer(hwnd, IDT_FOCUS_RESTORE);
+                if (g_hWndEdit && g_hWndMain) {
+                    // SetFocus(g_hWndEdit) is a no-op when focus is already
+                    // there — Windows does not fire EVENT_OBJECT_FOCUS and
+                    // NVDA has no reason to re-query, so the Braille display
+                    // stays stuck on "unavailable".
+                    // Fix: briefly hand focus to the frame window. The
+                    // WM_SETFOCUS handler for g_hWndMain immediately calls
+                    // SetFocus(g_hWndEdit), which IS a focus change and
+                    // fires EVENT_OBJECT_FOCUS — causing NVDA to re-query
+                    // the edit control (which is now settled and available).
+                    SetFocus(g_hWndMain);
+                    SendMessage(g_hWndEdit, EM_SETSEL, 0, 0);
+                    SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+                }
+            }
             return 0;
             
         case WM_COMMAND:
@@ -3295,18 +3322,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         if (wmId >= ID_FILE_MRU_BASE && wmId < ID_FILE_MRU_BASE + MAX_MRU) {
                             int mruIdx = wmId - ID_FILE_MRU_BASE;
                             if (mruIdx >= 0 && mruIdx < g_nMRUCount) {
-                                // Check for unsaved changes
+                                // Check for unsaved changes (synchronous — must happen before
+                                // the menu closes so the user's intent is still clear)
                                 if (!PromptSaveChanges()) {
                                     break;
                                 }
                                 
-                                // Make a copy of the path before loading
-                                // (LoadTextFile->AddToMRU will modify the g_MRU array)
-                                WCHAR szMRUPath[EXTENDED_PATH_MAX];
-                                wcscpy_s(szMRUPath, EXTENDED_PATH_MAX, g_MRU[mruIdx]);
-                                
-                                // Load the MRU file (LoadTextFile handles everything)
-                                LoadTextFile(szMRUPath);
+                                // Defer the actual file load via PostMessage so the menu has
+                                // time to fully close before the blocking LoadTextFile starts.
+                                // This prevents accessibility tree confusion on slow RichEdit.
+                                LPWSTR pszDeferred = (LPWSTR)malloc(EXTENDED_PATH_MAX * sizeof(WCHAR));
+                                if (pszDeferred) {
+                                    wcscpy_s(pszDeferred, EXTENDED_PATH_MAX, g_MRU[mruIdx]);
+                                    PostMessage(hwnd, WM_APP_LOAD_FILE, 0, (LPARAM)pszDeferred);
+                                }
                             }
                         }
                         // Handle URL actions from context menu
@@ -3796,6 +3825,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Reset flag for next REPL session
             g_bREPLIntentionalExit = FALSE;
             
+            return 0;
+        }
+
+        case WM_APP_LOAD_FILE:
+        {
+            // Deferred MRU file load: the menu is now fully closed, so the
+            // accessibility tree is clean before the blocking load begins.
+            LPWSTR pszPath = (LPWSTR)lParam;
+            if (pszPath) {
+                LoadTextFile(pszPath);
+                free(pszPath);
+            }
+            // Old RichEdit briefly reports STATE_SYSTEM_UNAVAILABLE after a
+            // large SetWindowText while it finishes internal layout. Fire a
+            // second focus notification after a short delay so the Braille
+            // display / screen reader sees the correct state once settled.
+            SetTimer(hwnd, IDT_FOCUS_RESTORE, 200, NULL);
             return 0;
         }
         
@@ -5631,7 +5677,14 @@ BOOL LoadTextFile(LPCWSTR pszFileName, BOOL bClearResumeState)
     if (bClearResumeState) {
         AddToMRU(pszFileName);
     }
-    
+
+    // Ensure the editor has keyboard focus and the caret is visible at position 0.
+    // This is especially important after a slow load (old RichEdit) where focus may
+    // not have been explicitly handed to the edit control by the caller.
+    SetFocus(g_hWndEdit);
+    SendMessage(g_hWndEdit, EM_SETSEL, 0, 0);
+    SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+
     return TRUE;
 }
 
