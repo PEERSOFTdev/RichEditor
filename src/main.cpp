@@ -2622,9 +2622,18 @@ void DoReplace()
     CHARRANGE cr;
     SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
     
-    // If no selection, find first occurrence
+    // If no selection, find first occurrence then replace it immediately.
+    // Without this, the first press would only locate the match and the
+    // second press would replace — requiring two presses for one replace.
     if (cr.cpMax - cr.cpMin <= 0) {
-        DoFind(TRUE);  // Search down
+        DoFind(TRUE);  // Search down — selects the match if found
+        // If DoFind found and selected a match, replace it right away so
+        // that a single button press both replaces and advances to next.
+        CHARRANGE crFound;
+        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crFound);
+        if (crFound.cpMax - crFound.cpMin > 0) {
+            DoReplace();  // Selection now matches; replaces + finds next
+        }
         return;
     }
     
