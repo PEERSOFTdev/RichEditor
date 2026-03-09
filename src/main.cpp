@@ -520,7 +520,7 @@ void FormatTimeByString(SYSTEMTIME* pst, LPCWSTR pszFormat, WCHAR* pszOutput, si
 // Search functions (Phase 2.9)
 LPWSTR ParseEscapeSequences(LPCWSTR pszInput);
 LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord, BOOL bSearchDown, LONG nStartPos);
-BOOL DoFind(BOOL bSearchDown);
+BOOL DoFind(BOOL bSearchDown, BOOL bSilent = FALSE);
 INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void LoadFindHistory();
 void SaveFindHistory();
@@ -2152,7 +2152,7 @@ LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord,
 // Called by Find Next/Previous buttons and F3/Shift+F3 shortcuts
 // Returns: TRUE if found, FALSE if not found
 //============================================================================
-BOOL DoFind(BOOL bSearchDown)
+BOOL DoFind(BOOL bSearchDown, BOOL bSilent)
 {
     // Update search direction
     g_bSearchDown = bSearchDown;
@@ -2194,20 +2194,22 @@ BOOL DoFind(BOOL bSearchDown)
     free(pszSearchText);
     
     if (nPos == -1) {
-        // Not found - show message
-        // Note: Don't use swprintf() with user-provided Unicode text
-        // Use wcscpy/wcscat pattern to avoid UTF-16 issues
-        WCHAR szMsg[512], szTitle[64];
-        WCHAR szPrefix[256];
-        LoadStringResource(IDS_FIND_NOTFOUND_PREFIX, szPrefix, 256);  // "Cannot find \""
-        LoadStringResource(IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
-        
-        wcscpy(szMsg, szPrefix);
-        wcscat(szMsg, g_szFindWhat);
-        wcscat(szMsg, L"\"");
-        
-        MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, 
-                  MB_ICONINFORMATION);
+        // Not found - show message (unless caller requested silent mode)
+        if (!bSilent) {
+            // Note: Don't use swprintf() with user-provided Unicode text
+            // Use wcscpy/wcscat pattern to avoid UTF-16 issues
+            WCHAR szMsg[512], szTitle[64];
+            WCHAR szPrefix[256];
+            LoadStringResource(IDS_FIND_NOTFOUND_PREFIX, szPrefix, 256);  // "Cannot find \""
+            LoadStringResource(IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
+            
+            wcscpy(szMsg, szPrefix);
+            wcscat(szMsg, g_szFindWhat);
+            wcscat(szMsg, L"\"");
+            
+            MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, 
+                      MB_ICONINFORMATION);
+        }
         return FALSE;
     }
     
@@ -2713,8 +2715,10 @@ void DoReplace()
     AddToReplaceHistory(g_szReplaceWith);
     SaveReplaceHistory();
     
-    // Find next occurrence
-    DoFind(TRUE);  // Search down
+    // Find next occurrence; silent if nothing remains — the replacement already
+    // succeeded and announcing "Cannot find" in the same press is misleading.
+    // The user can press Replace once more to be told there is no next match.
+    DoFind(TRUE, TRUE);  // Search down, suppress not-found notification
 }
 
 //============================================================================
@@ -2923,6 +2927,15 @@ void DoReplaceAll()
         LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
         
         MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
+    } else {
+        // No matches — show the same "Cannot find" message as plain Find/Replace
+        WCHAR szMsg[512], szTitle[64], szPrefix[256];
+        LoadStringResource(IDS_FIND_NOTFOUND_PREFIX, szPrefix, 256);
+        LoadStringResource(IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
+        wcscpy(szMsg, szPrefix);
+        wcscat(szMsg, g_szFindWhat);
+        wcscat(szMsg, L"\"");
+        MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
     }
     
     // Cleanup
