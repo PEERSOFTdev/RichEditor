@@ -4661,6 +4661,11 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
         }
     }
     
+    // Suppress redraws while we move the selection for character-format probing.
+    // Each EM_EXSETSEL call would otherwise repaint the selection highlight,
+    // causing a visible ~1 s delay for a typical URL length.
+    SendMessage(hWndEdit, WM_SETREDRAW, FALSE, 0);
+    
     // Quick check: is cursor in a URL? (single check, minimal cost)
     CHARFORMAT2 cf;
     ZeroMemory(&cf, sizeof(CHARFORMAT2));
@@ -4675,89 +4680,55 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     
     if (!(cf.dwEffects & CFE_LINK)) {
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+        SendMessage(hWndEdit, WM_SETREDRAW, TRUE, 0);
         return FALSE;  // Not in URL
     }
     
-    // Use EM_FINDWORDBREAK to quickly narrow down search area (optimization for large documents)
-    LONG wordLeft = SendMessage(hWndEdit, EM_FINDWORDBREAK, WB_LEFT, cursorPos);
-    LONG wordRight = SendMessage(hWndEdit, EM_FINDWORDBREAK, WB_RIGHT, cursorPos);
+    // Scan outward from cursorPos using CFE_LINK character formatting to find URL boundaries.
+    // EM_FINDWORDBREAK is NOT used: URLs span multiple word-break units (e.g. two adjacent URLs
+    // separated only by punctuation have no spaces, so the entire run is one "word"), which
+    // causes boundary-bounded scans to include characters from a neighbouring URL.
+    // Character-by-character CFE_LINK scanning is authoritative: RichEdit sets CFE_LINK
+    // exactly on each URL's characters, and non-URL separator characters (quotes, colons, etc.)
+    // are not CFE_LINK even when adjacent to a URL.
     
-    // Find actual URL boundaries within the word break range
-    // Word breaks may not align with CFE_LINK boundaries (URLs with = and & are often broken)
-    LONG urlStart = wordLeft;
-    LONG urlEnd = wordRight;
-    
-    // Scan forward from wordLeft to find where CFE_LINK actually starts
-    BOOL foundStart = FALSE;
-    for (LONG pos = wordLeft; pos <= cursorPos; pos++) {
+    // Scan backward from cursorPos to find URL start
+    LONG wordLeft = cursorPos;
+    for (LONG pos = cursorPos - 1; pos >= 0; pos--) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
-            urlStart = pos;
-            foundStart = TRUE;
+            wordLeft = pos;
+        } else {
             break;
         }
     }
     
-    // Scan backward from wordRight-1 to find where CFE_LINK actually ends
-    BOOL foundEnd = FALSE;
-    for (LONG pos = wordRight - 1; pos >= cursorPos; pos--) {
+    // Scan forward from cursorPos to find URL end
+    GETTEXTLENGTHEX gtl;
+    gtl.flags = GTL_DEFAULT;
+    gtl.codepage = 1200;
+    LONG docLen = SendMessage(hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    LONG wordRight = cursorPos;
+    for (LONG pos = cursorPos; pos < docLen; pos++) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
-            urlEnd = pos + 1;
-            foundEnd = TRUE;
+            wordRight = pos + 1;
+        } else {
             break;
         }
     }
-    
-    // If we didn't find boundaries in the word break range, the URL might span beyond word breaks
-    // Fall back to scanning from cursor position outward
-    if (!foundStart || !foundEnd) {
-        // Scan backward from cursor to find start
-        urlStart = cursorPos;
-        for (LONG pos = cursorPos - 1; pos >= 0; pos--) {
-            cr.cpMin = pos;
-            cr.cpMax = pos + 1;
-            SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-            SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-            if (cf.dwEffects & CFE_LINK) {
-                urlStart = pos;
-            } else {
-                break;
-            }
-        }
-        
-        // Scan forward from cursor to find end
-        urlEnd = cursorPos;
-        GETTEXTLENGTHEX gtl;
-        gtl.flags = GTL_DEFAULT;
-        gtl.codepage = 1200;
-        LONG docLen = SendMessage(hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-        for (LONG pos = cursorPos; pos < docLen; pos++) {
-            cr.cpMin = pos;
-            cr.cpMax = pos + 1;
-            SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
-            SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-            if (cf.dwEffects & CFE_LINK) {
-                urlEnd = pos + 1;
-            } else {
-                break;
-            }
-        }
-    }
-    
-    wordLeft = urlStart;
-    wordRight = urlEnd;
     
     // Extract URL text
     int urlLen = wordRight - wordLeft;
     if (urlLen <= 0 || urlLen >= cchMax) {
         SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+        SendMessage(hWndEdit, WM_SETREDRAW, TRUE, 0);
         return FALSE;
     }
     
@@ -4778,6 +4749,8 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     
     // Restore selection (single restore at end)
     SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+    SendMessage(hWndEdit, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hWndEdit, NULL, FALSE);
     
     return TRUE;
 }
