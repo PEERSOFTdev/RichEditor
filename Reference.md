@@ -663,7 +663,7 @@ Shortcut=Ctrl+Shift+F
 ### Phase 2.9.1 (Complete)
 
 **Find Dialog:**
-- Find dialog with escape sequences and history
+- Find dialog with escape sequences and history; when Use Escapes is enabled: `\n` (newline), `\r` (carriage return), `\t` (tab), `\\` (literal backslash), `\xNN` (hex byte), `\uNNNN` (Unicode code point)
 - Forward and backward searching (Find Next / Find Previous)
 - F3 = Find Next, Shift+F3 = Find Previous
 - Options persisted: Match case, Whole word, Use escapes, Select after find
@@ -678,7 +678,7 @@ Shortcut=Ctrl+Shift+F
 - Replace and Replace All with undo support
 - Optimized Replace All path with custom word-boundary logic
 - Replace history stored in `[ReplaceHistory]` (Item1 is newest)
-- Replace supports escape sequences when enabled (same rules as Find)
+- Replace supports escape sequences when enabled (same rules as Find); replacement string placeholders: `%0` inserts the matched text, `%%` inserts a literal `%`
 
 ### Phase 2.9.3 (Complete)
 
