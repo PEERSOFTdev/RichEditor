@@ -3856,14 +3856,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // accessibility tree is clean before the blocking load begins.
             LPWSTR pszPath = (LPWSTR)lParam;
             if (pszPath) {
-                LoadTextFile(pszPath);
+                BOOL bLoaded = LoadTextFile(pszPath);
                 free(pszPath);
+                // Only fire the deferred focus/caret restore when the load
+                // succeeded.  On failure (e.g. file no longer exists) the
+                // document is untouched and the caret must stay in place;
+                // firing the timer would reset it to position 0.
+                if (bLoaded) {
+                    SetTimer(hwnd, IDT_FOCUS_RESTORE, 200, NULL);
+                }
             }
-            // Old RichEdit briefly reports STATE_SYSTEM_UNAVAILABLE after a
-            // large SetWindowText while it finishes internal layout. Fire a
-            // second focus notification after a short delay so the Braille
-            // display / screen reader sees the correct state once settled.
-            SetTimer(hwnd, IDT_FOCUS_RESTORE, 200, NULL);
             return 0;
         }
         
