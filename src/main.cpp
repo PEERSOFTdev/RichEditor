@@ -7617,8 +7617,10 @@ BOOL FileSave()
                                MB_YESNOCANCEL | MB_ICONQUESTION);
         
         if (result == IDCANCEL) {
+            g_bSaveInProgress = FALSE;
             return FALSE;
         } else if (result == IDNO) {
+            g_bSaveInProgress = FALSE;
             return FileSaveAs();  // User wants to choose new location
         } else {
             // IDYES - save to original location
@@ -7863,9 +7865,14 @@ BOOL PromptSaveChanges()
                 g_szResumeFilePath[0] = L'\0';
                 g_szOriginalFilePath[0] = L'\0';
             }
-            // Prevent any further save attempts during shutdown and clear modified flag
+            // Clear modified flag so the caller does not re-prompt.
+            // Do NOT set g_bSaveInProgress here: PromptSaveChanges is called
+            // from FileNew/FileOpen/MRU as well as WM_CLOSE, and setting the
+            // flag here permanently blocks saves in any session that survives
+            // past this call (e.g. user presses No then cancels the Open dialog).
+            // WM_CLOSE kills the autosave timer before reaching here, so no
+            // stray autosave can fire in the shutdown path.
             g_bModified = FALSE;
-            g_bSaveInProgress = TRUE;
             return TRUE; // Don't save, but continue
         case IDCANCEL:
         default:
