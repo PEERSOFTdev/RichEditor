@@ -7584,9 +7584,8 @@ BOOL FileSave()
 
     // If this is a resumed untitled file, force "Save As" dialog
     if (g_bIsResumedFile && g_szOriginalFilePath[0] == L'\0') {
-        BOOL bResult = FileSaveAs();
-        g_bSaveInProgress = FALSE;
-        return bResult;
+        g_bSaveInProgress = FALSE;  // FileSaveAs owns the guard for its own execution
+        return FileSaveAs();
     }
     
     // If this is a resumed saved file, ask user where to save
@@ -7629,9 +7628,8 @@ BOOL FileSave()
     }
     
     if (g_szFileName[0] == L'\0') {
-        BOOL bResult = FileSaveAs();
-        g_bSaveInProgress = FALSE;
-        return bResult;
+        g_bSaveInProgress = FALSE;  // FileSaveAs owns the guard for its own execution
+        return FileSaveAs();
     }
     
     DWORD dwLastError = 0;
