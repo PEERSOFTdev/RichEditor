@@ -5253,13 +5253,31 @@ void UpdateStatusBar()
     // Get character at cursor (handle surrogate pairs for characters > U+FFFF)
     WCHAR charInfo[128] = L"";
     int textLen = g_nLastTextLen;  // Use cached length; updated by EN_CHANGE, avoids O(N) call per keystroke
-    
-    if (cr.cpMin < textLen) {
+
+    // Determine which end of the selection the caret is at.
+    // EM_EXGETSEL always returns cpMin <= cpMax regardless of selection direction.
+    // TOM ITextSelection::GetFlags() exposes tomSelStartActive (0x1): when set,
+    // Start (cpMin) is the active/caret end (backward selection); when clear,
+    // End (cpMax) is active (forward selection).  Falls back to cpMin when TOM
+    // is unavailable or there is no selection.
+    int caretPos = cr.cpMin;
+    if (cr.cpMax > cr.cpMin && g_pTextDoc) {
+        ITextSelection* pSel = NULL;
+        if (SUCCEEDED(g_pTextDoc->GetSelection(&pSel)) && pSel) {
+            LONG selFlags = 0;
+            pSel->GetFlags(&selFlags);
+            if (!(selFlags & tomSelStartActive))
+                caretPos = cr.cpMax;  // forward selection: caret is at the end
+            pSel->Release();
+        }
+    }
+
+    if (caretPos < textLen) {
         // Get up to 2 WCHARs to handle surrogate pairs
         TEXTRANGE tr;
         WCHAR buffer[3] = {0};
-        tr.chrg.cpMin = cr.cpMin;
-        tr.chrg.cpMax = cr.cpMin + 2;
+        tr.chrg.cpMin = caretPos;
+        tr.chrg.cpMax = caretPos + 2;
         tr.lpstrText = buffer;
         int charsRead = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
         
@@ -5321,20 +5339,89 @@ void UpdateStatusBar()
     
     // Format position string
     WCHAR posInfo[128];
-    WCHAR szLn[32], szCol[32];
-    LoadStringResource(IDS_STATUS_LINE, szLn, 32);
-    LoadStringResource(IDS_STATUS_COLUMN, szCol, 32);
-    
-    if (g_bWordWrap) {
-        // When word wrap is on, always show both visual and physical positions
-        // visualLine/visualCol: includes soft wraps (displayed lines)
-        // physicalLine/physicalCol: count only hard line breaks
-        _snwprintf(posInfo, 128, L"%s %d, %s %d / %d,%d",
-                   szLn, visualLine, szCol, visualCol, physicalLine, physicalCol);
+    bool bHasSelection = (cr.cpMax > cr.cpMin);
+
+    if (bHasSelection) {
+        // --- Selection mode: show visual line span + char count + total ---
+        int selChars = cr.cpMax - cr.cpMin;  // UTF-16 code units
+        int selLines = 1;
+
+        if (g_bWordWrap) {
+            // Visual lines via TOM (same approach used above for cursor position)
+            if (g_pTextDoc) {
+                LONG lineAtStart = 1, lineAtEnd = 1;
+                ITextRange* pR1 = NULL;
+                if (SUCCEEDED(g_pTextDoc->Range(cr.cpMin, cr.cpMin, &pR1)) && pR1) {
+                    pR1->GetIndex(tomLine, &lineAtStart);
+                    pR1->Release();
+                }
+                ITextRange* pR2 = NULL;
+                if (SUCCEEDED(g_pTextDoc->Range(cr.cpMax, cr.cpMax, &pR2)) && pR2) {
+                    pR2->GetIndex(tomLine, &lineAtEnd);
+                    // If cpMax is exactly at the start of a visual line (and further
+                    // along than cpMin's line), don't count that trailing line —
+                    // matches Shift+Down-to-start-of-next-line = N lines, not N+1.
+                    LONG delta = 0;
+                    pR2->StartOf(tomLine, 0, &delta);
+                    LONG visLineStart = 0;
+                    pR2->GetStart(&visLineStart);
+                    if (visLineStart == (LONG)cr.cpMax && lineAtEnd > lineAtStart)
+                        lineAtEnd--;
+                    pR2->Release();
+                }
+                selLines = (int)(lineAtEnd - lineAtStart) + 1;
+            } else {
+                // TOM unavailable — message-based fallback
+                int lineOfStart = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
+                int lineOfEnd   = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMax);
+                int lineStartPos = (int)SendMessage(g_hWndEdit, EM_LINEINDEX, lineOfEnd, 0);
+                if (lineStartPos == cr.cpMax && lineOfEnd > lineOfStart)
+                    lineOfEnd--;
+                selLines = lineOfEnd - lineOfStart + 1;
+            }
+        } else {
+            // Word wrap OFF: use physical line index (visual = physical here)
+            if (g_bLineIndexDirty) RebuildLineIndex();
+            auto it1 = std::upper_bound(g_lineStarts.begin(), g_lineStarts.end(), (LONG)cr.cpMin);
+            if (it1 != g_lineStarts.begin()) --it1;
+            int lineOfStart = (int)(it1 - g_lineStarts.begin());
+
+            auto it2 = std::upper_bound(g_lineStarts.begin(), g_lineStarts.end(), (LONG)cr.cpMax);
+            if (it2 != g_lineStarts.begin()) --it2;
+            int lineOfEnd = (int)(it2 - g_lineStarts.begin());
+
+            // If cpMax lands exactly at a line start, don't count that trailing line
+            if (lineOfEnd > lineOfStart && (LONG)cr.cpMax == g_lineStarts[lineOfEnd])
+                lineOfEnd--;
+            selLines = lineOfEnd - lineOfStart + 1;
+        }
+        if (selLines < 1) selLines = 1;
+
+        WCHAR szSel[16], szLns[16], szChs[16], szTot[16];
+        LoadStringResource(IDS_STATUS_SEL,   szSel, 16);
+        LoadStringResource(IDS_STATUS_LINES, szLns, 16);
+        LoadStringResource(IDS_STATUS_CHARS, szChs, 16);
+        LoadStringResource(IDS_STATUS_TOTAL, szTot, 16);
+        _snwprintf(posInfo, 128, L"%s: %d %s, %d %s    %s: %d",
+                   szSel, selLines, szLns, selChars, szChs, szTot, textLen);
+
     } else {
-        // When word wrap is off, show only one position
-        _snwprintf(posInfo, 128, L"%s %d, %s %d",
-                   szLn, visualLine, szCol, visualCol);
+        // --- No selection: existing Ln/Col display ---
+        WCHAR szLn[32], szCol[32];
+        LoadStringResource(IDS_STATUS_LINE,   szLn,  32);
+        LoadStringResource(IDS_STATUS_COLUMN, szCol, 32);
+
+        if (g_bWordWrap) {
+            // When word wrap is on, always show both visual and physical positions
+            // visualLine/visualCol: includes soft wraps (displayed lines)
+            // physicalLine/physicalCol: count only hard line breaks
+            _snwprintf(posInfo, 128, L"%s %d, %s %d / %d,%d",
+                       szLn, visualLine, szCol, visualCol, physicalLine, physicalCol);
+        } else {
+            // When word wrap is off, show only one position
+            _snwprintf(posInfo, 128, L"%s %d, %s %d",
+                       szLn, visualLine, szCol, visualCol);
+        }
     }
     
     // Check if filter status bar is active

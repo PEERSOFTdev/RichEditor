@@ -248,4 +248,10 @@
 // URL auto-detection status (DetectURLs INI setting)
 #define IDS_STATUS_AUTOURL_OFF          2169  // Status bar indicator when AURL disabled (DetectURLs=0)
 
+// Selection display strings (status bar, 2170-2173)
+#define IDS_STATUS_SEL                  2170  // "Sel"    / "Výb"
+#define IDS_STATUS_LINES                2171  // "ln"     / "ř"
+#define IDS_STATUS_CHARS                2172  // "ch"     / "zn"
+#define IDS_STATUS_TOTAL                2173  // "Total"  / "Celkem"
+
 #endif // RESOURCE_H

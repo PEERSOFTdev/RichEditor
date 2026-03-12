@@ -95,6 +95,22 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - `Reference.md`: full phase-by-phase feature reference and usage details; update for every user-facing or architectural change
 - `docs/notes/AGENTS_APPENDIX.md`: historical deep dives and patterns
 - `docs/CHANGE_CHECKLIST.md`: post-change documentation checklist
+- `docs/requests/`: user-requested features tracked as individual `UR-NNN_*.md` files
+
+## User Request Workflow
+
+When a user reports a desired feature or behaviour change that does not belong to an
+existing planned phase:
+
+1. **Check `docs/requests/`** — a `UR-NNN_*.md` file may already describe the request.
+   The `docs/requests/README.md` index lists all requests and their current status.
+2. **If the request is new**, create `docs/requests/UR-NNN_short_description.md`
+   following the format of existing files (Background, Scope, Changes with code
+   snippets, File summary, Testing notes). Set status to `Planned`.
+3. **While implementing**, set status to `In Progress`.
+4. **When done and building cleanly**, set status to `Done`.
+5. After implementation, also update `docs/requests/README.md` index and follow
+   `docs/CHANGE_CHECKLIST.md` for any other required doc updates.
 
 ## Quick Build
 

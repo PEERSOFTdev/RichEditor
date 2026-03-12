@@ -17,6 +17,11 @@ Use this checklist after code changes. It is meant to keep docs and behavior in 
   * docs/notes/AGENTS\_APPENDIX.md (if deeper context is needed)
   * commit message guidance if process expectations were updated
 
+* If implementing a user request (from `docs/requests/`):
+
+  * Set the `UR-NNN_*.md` status to `Done`
+  * Update the index in `docs/requests/README.md`
+
 * If INI settings/defaults changed, update:
 
   * README.md (configuration section)
