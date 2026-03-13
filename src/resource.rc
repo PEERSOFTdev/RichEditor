@@ -314,10 +314,11 @@ BEGIN
     IDS_ELEVATE_SAVE_PROMPT          "Access denied while saving.\n\nSave with administrator permissions?"
     IDS_ERROR_ELEVATED_SAVE          "Could not save with administrator permissions"
     IDS_STATUS_AUTOURL_OFF          "URL: off"
-    IDS_STATUS_SEL                  "Sel"
-    IDS_STATUS_LINES                "ln"
-    IDS_STATUS_CHARS                "ch"
-    IDS_STATUS_TOTAL                "Total"
+     IDS_STATUS_SEL                  "Sel"
+     IDS_STATUS_LINES                "ln"
+     IDS_STATUS_CHARS                "ch"
+     IDS_STATUS_TOTAL                "Total"
+     IDS_SCRIPT_ERROR                "Script Error"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -582,8 +583,9 @@ BEGIN
     IDS_ELEVATE_SAVE_PROMPT          "Při ukládání byl odepřen přístup.\n\nUložit s oprávněními správce?"
     IDS_ERROR_ELEVATED_SAVE          "Nepodařilo se uložit s oprávněními správce"
     IDS_STATUS_AUTOURL_OFF          "URL: vypnuto"
-    IDS_STATUS_SEL                  "Výb"
-    IDS_STATUS_LINES                "ř"
-    IDS_STATUS_CHARS                "zn"
-    IDS_STATUS_TOTAL                "Celkem"
+     IDS_STATUS_SEL                  "Výb"
+     IDS_STATUS_LINES                "ř"
+     IDS_STATUS_CHARS                "zn"
+     IDS_STATUS_TOTAL                "Celkem"
+     IDS_SCRIPT_ERROR                "Chyba skriptu"
 END

@@ -722,6 +722,27 @@ Shortcut=Ctrl+Shift+F
 
 - Wrap ruler (twips/column-based wrap) plan in `docs/notes/PHASE_2.11_WRAP_RULER_PLAN.md`
 
+### Phase 2.12 (Complete)
+
+**Embedded JScript filter engine (`script:` prefix):**
+
+- Adds a `script:` prefix for filter `Command` values that runs a JScript expression in-process via the Windows `IActiveScript` / `IActiveScriptParse` COM interfaces (no external process spawned).
+- The special variable `INPUT` holds the selected text (or current line). The expression result replaces the selection.
+- Fixes the Unicode/diacritics corruption bug in the built-in PowerShell filters: PowerShell read stdin using the system ANSI code page (e.g. CP1250 on Czech Windows) rather than UTF-8, so characters like `á é í ó ú ů ž š č` were mangled before `.ToUpper()` / `.ToLower()` ran.
+- The three built-in filters are migrated from PowerShell to `script:` automatically on startup via `MigrateBuiltinFilters()` (updates any filter whose `Command` still contains the old PowerShell commands).
+- Script errors are reported in a message box with line and column number.
+- JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
+
+**Built-in filter commands after migration:**
+
+| Filter | Command |
+|--------|---------|
+| Uppercase | `script:INPUT.toLocaleUpperCase()` |
+| Lowercase | `script:INPUT.toLocaleLowerCase()` |
+| Sort Lines | `script:INPUT.split('\n').sort(function(a,b){return a.localeCompare(b);}).join('\n')` |
+
+**Binary size delta (MinGW stripped):** 347 648 → 351 744 bytes (+4 096 bytes, +1.2%)
+
 ## Building
 
 RichEditor can be built using either **MinGW-w64** or **MSVC** (Microsoft Visual C++).

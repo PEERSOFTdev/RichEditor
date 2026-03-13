@@ -18,6 +18,7 @@ This project is organized into phases. The list below reflects completed work an
 - **Phase 2.9.4** - Go to Line dialog (Ctrl+G).
 - **Phase 2.9.5** - Elevated save (UAC retry on access denied for Save and Save As).
 - **Phase 2.10** - Configurable date/time formatting (DateFormat/TimeFormat/DateTimeTemplate).
+- **Phase 2.12** - Embedded JScript filter engine (`script:` prefix via IActiveScript COM; fixes Unicode filter bugs; migrates built-in Uppercase/Lowercase/Sort Lines filters).
 
 ## Planned / Open Phases
 

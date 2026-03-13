@@ -61,6 +61,10 @@ Filters run external commands and operate on selected text (or current line). Ac
 - **Clipboard**: copy / append
 - **None**: side-effect only
 
+The `Command` field also accepts a `script:` prefix to run a JScript expression in-process without spawning an external process. The special variable `INPUT` holds the selected text (or current line). Example: `script:INPUT.toLocaleUpperCase()`. This avoids the code-page issues that affect PowerShell-based external filters with non-ASCII characters.
+
+JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
+
 Filters are configured in `RichEditor.ini` (auto-generated on first run).
 
 ### Accessibility

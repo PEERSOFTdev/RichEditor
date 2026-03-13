@@ -76,6 +76,8 @@ Příklady: Velká písmena, Malá písmena, Seřadit řádky, Počet řádků, 
 
 Pokročilé: filtry a kategorie se definují v `RichEditor.ini`. Kategorie jsou plně uživatelské a lze je přejmenovat nebo vytvořit nové. Lze také nastavit, zda se filtr objeví v kontextové nabídce.
 
+Pole `Command` přijímá předponu `script:` pro spuštění výrazu JScript přímo v procesu editoru (bez spouštění externího procesu). Speciální proměnná `INPUT` obsahuje vybraný text. Příklad: `script:INPUT.toLocaleUpperCase()`. Tento způsob správně zpracovává všechny znaky Unicode včetně diakritiky. Referenční dokumentace JScript: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
+
 ## Šablony
 
 Šablony vkládají textové bloky s proměnnými. Můžete je vložit z `Nástroje -> Vložit šablonu`, použít výběr šablon (`Ctrl+Shift+T`), nebo vytvořit nový dokument ze šablony v `Soubor -> Nový`.

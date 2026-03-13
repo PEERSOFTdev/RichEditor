@@ -76,6 +76,8 @@ Examples include Uppercase/Lowercase, Sort Lines, Line Count, and Word Count. Th
 
 Advanced: filters and categories are defined in `RichEditor.ini`. Categories are user-defined and can be renamed or replaced. You can also control whether a filter appears in the context menu.
 
+The `Command` field accepts a `script:` prefix to run a JScript expression in-process (no external process spawned). The special variable `INPUT` holds the selected text. Example: `script:INPUT.toLocaleUpperCase()`. This correctly handles all Unicode characters including diacritics. JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
+
 ## Templates
 
 Templates insert snippets with variables. You can insert them from `Tools -> Insert Template`, use the template picker (`Ctrl+Shift+T`), or create new documents from templates under `File -> New`.

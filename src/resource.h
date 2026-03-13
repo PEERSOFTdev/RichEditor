@@ -254,4 +254,7 @@
 #define IDS_STATUS_CHARS                2172  // "ch"     / "zn"
 #define IDS_STATUS_TOTAL                2173  // "Total"  / "Celkem"
 
+// Script filter strings (Phase 2.12: 2174)
+#define IDS_SCRIPT_ERROR                2174  // "Script Error" / "Chyba skriptu"
+
 #endif // RESOURCE_H

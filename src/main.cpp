@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <activscp.h>
 #include "resource.h"
 
 //============================================================================
@@ -91,6 +92,30 @@ ITextDocument* g_pTextDoc = NULL;                   // TOM interface for O(1) ph
 // {8CC497C0-A1DF-11CE-8098-00AA0047BE5D}
 static const GUID IID_ITextDocument_ =
     {0x8CC497C0,0xA1DF,0x11CE,{0x80,0x98,0x00,0xAA,0x00,0x47,0xBE,0x5D}};
+// CLSID_JScript — not in MinGW-w64 headers; define it here.
+// {F414C260-6AC0-11CF-B6D1-00AA00BBBB58}
+static const CLSID CLSID_JScript_ =
+    {0xF414C260,0x6AC0,0x11CF,{0xB6,0xD1,0x00,0xAA,0x00,0xBB,0xBB,0x58}};
+// IIDs for IActiveScript COM interfaces — not exported from MXE static libs.
+// {00000000-0000-0000-C000-000000000046}
+static const IID IID_IUnknown_ =
+    {0x00000000,0x0000,0x0000,{0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}};
+// {BB1A2AE1-A4F9-11CF-8F20-00805F2CD064}
+static const IID IID_IActiveScript_ =
+    {0xBB1A2AE1,0xA4F9,0x11CF,{0x8F,0x20,0x00,0x80,0x5F,0x2C,0xD0,0x64}};
+// {DB01A1E3-A42B-11CF-8F20-00805F2CD064}
+static const IID IID_IActiveScriptSite_ =
+    {0xDB01A1E3,0xA42B,0x11CF,{0x8F,0x20,0x00,0x80,0x5F,0x2C,0xD0,0x64}};
+// IActiveScriptParse has different IIDs on 32-bit and 64-bit Windows.
+#ifdef _WIN64
+// {C7EF7658-E1EE-480E-97EA-D52CB4D76D17}
+static const IID IID_IActiveScriptParse_ =
+    {0xC7EF7658,0xE1EE,0x480E,{0x97,0xEA,0xD5,0x2C,0xB4,0xD7,0x6D,0x17}};
+#else
+// {BB1A2AE2-A4F9-11CF-8F20-00805F2CD064}
+static const IID IID_IActiveScriptParse_ =
+    {0xBB1A2AE2,0xA4F9,0x11CF,{0x8F,0x20,0x00,0x80,0x5F,0x2C,0xD0,0x64}};
+#endif
 WCHAR g_szRichEditLibPath[MAX_PATH] = L"";          // Full path to loaded DLL
 WCHAR g_szRichEditLibPathINI[MAX_PATH] = L"";       // User preference from INI
 WCHAR g_szRichEditClassName[64] = L"RICHEDIT50W";  // Window class to use
@@ -476,6 +501,7 @@ void ExecuteFilter();
 void CreateDefaultINI();
 void LoadSettings();
 void LoadFilters();
+void MigrateBuiltinFilters();
 BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize);
 void SaveCurrentFilter();
 void SaveCurrentREPLFilter();
@@ -3040,6 +3066,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Load filters and templates (settings already loaded in wWinMain)
             LoadFilters();
+            MigrateBuiltinFilters();  // Update legacy PowerShell filters to script: (Phase 2.12)
             LoadTemplates();  // Load templates with keyboard shortcuts
             BuildFilterMenu(hwnd);
             BuildTemplateMenu(hwnd);  // Build template submenu
@@ -8524,6 +8551,157 @@ void ExecuteFilterClipboard(const std::string& outputData)
 }
 
 //============================================================================
+// EscapeJSString - Escape a wide string for embedding in a JS double-quoted
+// string literal (used to inject INPUT into the script engine).
+//============================================================================
+static std::wstring EscapeJSString(const WCHAR* s)
+{
+    std::wstring r;
+    for (; *s; ++s) {
+        switch (*s) {
+        case L'\\':   r += L"\\\\";    break;
+        case L'"':    r += L"\\\"";    break;
+        case L'\r':   r += L"\\r";     break;
+        case L'\n':   r += L"\\n";     break;
+        case L'\t':   r += L"\\t";     break;
+        case L'\0':   r += L"\\0";     break;
+        case 0x2028:  r += L"\\u2028"; break;  // JS line separator
+        case 0x2029:  r += L"\\u2029"; break;  // JS paragraph separator
+        default:      r += *s;         break;
+        }
+    }
+    return r;
+}
+
+//============================================================================
+// CScriptSite - Minimal IActiveScriptSite stub (Phase 2.12).
+// Only OnScriptError is substantive; all other methods are no-ops.
+//============================================================================
+struct CScriptSite : public IActiveScriptSite
+{
+    WCHAR szError[512];
+
+    CScriptSite() { szError[0] = L'\0'; }
+
+    // IUnknown
+    ULONG   STDMETHODCALLTYPE AddRef()  override { return 1; }
+    ULONG   STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (IsEqualIID(riid, IID_IUnknown_) ||
+            IsEqualIID(riid, IID_IActiveScriptSite_))
+        {
+            *ppv = this; return S_OK;
+        }
+        *ppv = nullptr; return E_NOINTERFACE;
+    }
+
+    // IActiveScriptSite — stubs
+    HRESULT STDMETHODCALLTYPE GetLCID(LCID*) override
+        { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetItemInfo(LPCOLESTR, DWORD, IUnknown**, ITypeInfo**) override
+        { return TYPE_E_ELEMENTNOTFOUND; }
+    HRESULT STDMETHODCALLTYPE GetDocVersionString(BSTR*) override
+        { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE OnScriptTerminate(const VARIANT*, const EXCEPINFO*) override
+        { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnStateChange(SCRIPTSTATE) override
+        { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnEnterScript() override
+        { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnLeaveScript() override
+        { return S_OK; }
+
+    // IActiveScriptSite — error capture
+    HRESULT STDMETHODCALLTYPE OnScriptError(IActiveScriptError* pError) override
+    {
+        EXCEPINFO ei = {};
+        pError->GetExceptionInfo(&ei);
+        DWORD ctx = 0; ULONG ulLine = 0; LONG lCol = 0;
+        pError->GetSourcePosition(&ctx, &ulLine, &lCol);
+        _snwprintf(szError, 512, L"%s (line %lu, col %ld)",
+                   ei.bstrDescription ? ei.bstrDescription : L"Script error",
+                   ulLine + 1, lCol + 1);
+        if (ei.bstrDescription) SysFreeString(ei.bstrDescription);
+        if (ei.bstrSource)      SysFreeString(ei.bstrSource);
+        if (ei.bstrHelpFile)    SysFreeString(ei.bstrHelpFile);
+        return S_OK;
+    }
+};
+
+//============================================================================
+// ExecuteScriptFilter - Run a script: filter via the embedded JScript engine.
+// szScript : JScript expression (everything after the "script:" prefix)
+// pszInput : selected text in UTF-16
+// result   : receives the string result on success
+// Returns TRUE on success; on error shows a MessageBox and returns FALSE.
+//============================================================================
+static BOOL ExecuteScriptFilter(const WCHAR* szScript, const WCHAR* pszInput,
+                                 std::wstring& result)
+{
+    IActiveScript*      pAS  = nullptr;
+    IActiveScriptParse* pASP = nullptr;
+    BOOL bOk = FALSE;
+
+    if (FAILED(CoCreateInstance(CLSID_JScript_, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_IActiveScript_, (void**)&pAS)))
+    {
+        WCHAR szTitle[64];
+        LoadStringResource(IDS_SCRIPT_ERROR, szTitle, 64);
+        MessageBox(g_hWndMain, L"JScript engine unavailable (jscript.dll).",
+                   szTitle, MB_ICONERROR);
+        return FALSE;
+    }
+
+    CScriptSite site;
+    pAS->SetScriptSite(&site);
+    pAS->QueryInterface(IID_IActiveScriptParse_, (void**)&pASP);
+    pASP->InitNew();
+
+    // Inject INPUT variable: var INPUT="<escaped text>";
+    std::wstring wsInject = L"var INPUT=\"" + EscapeJSString(pszInput) + L"\";";
+    EXCEPINFO ei1 = {};
+    pASP->ParseScriptText(wsInject.c_str(), nullptr, nullptr, nullptr, 0, 0,
+                          SCRIPTTEXT_ISVISIBLE, nullptr, &ei1);
+
+    // Evaluate the user expression
+    VARIANT varResult;
+    VariantInit(&varResult);
+    EXCEPINFO ei2 = {};
+    HRESULT hr = pASP->ParseScriptText(szScript, nullptr, nullptr, nullptr, 0, 0,
+                                       SCRIPTTEXT_ISEXPRESSION, &varResult, &ei2);
+
+    if (SUCCEEDED(hr) && site.szError[0] == L'\0') {
+        // Coerce result to BSTR
+        VARIANT varStr;
+        VariantInit(&varStr);
+        if (SUCCEEDED(VariantChangeType(&varStr, &varResult, 0, VT_BSTR))
+            && varStr.bstrVal)
+        {
+            result = varStr.bstrVal;
+            bOk = TRUE;
+        }
+        VariantClear(&varStr);
+    } else {
+        WCHAR szTitle[64];
+        LoadStringResource(IDS_SCRIPT_ERROR, szTitle, 64);
+        const WCHAR* pMsg = site.szError[0] ? site.szError
+            : (ei2.bstrDescription ? ei2.bstrDescription
+                                   : L"Script execution failed.");
+        MessageBox(g_hWndMain, pMsg, szTitle, MB_ICONERROR);
+        if (ei2.bstrDescription) SysFreeString(ei2.bstrDescription);
+        if (ei2.bstrSource)      SysFreeString(ei2.bstrSource);
+        if (ei2.bstrHelpFile)    SysFreeString(ei2.bstrHelpFile);
+    }
+
+    VariantClear(&varResult);
+    pASP->Release();
+    pAS->Close();
+    pAS->Release();
+    return bOk;
+}
+
+//============================================================================
 // ExecuteFilter - Execute current filter on selected text or current line
 //============================================================================
 void ExecuteFilter()
@@ -8579,7 +8757,33 @@ void ExecuteFilter()
     tr.lpstrText = pszInput;
     SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
     pszInput[textLen] = L'\0';
-    
+
+    // script: prefix — run via embedded JScript engine (Phase 2.12)
+    if (wcsncmp(g_Filters[g_nCurrentFilter].szCommand, L"script:", 7) == 0) {
+        const WCHAR* szExpr = g_Filters[g_nCurrentFilter].szCommand + 7;
+        std::wstring wsResult;
+        BOOL bOk = ExecuteScriptFilter(szExpr, pszInput, wsResult);
+        free(pszInput);
+        if (bOk) {
+            LPSTR pszOut = UTF16ToUTF8(wsResult.c_str());
+            if (pszOut) {
+                std::string sResult(pszOut);
+                free(pszOut);
+                FilterAction action = g_Filters[g_nCurrentFilter].action;
+                switch (action) {
+                    case FILTER_ACTION_INSERT:
+                        ExecuteFilterInsert(sResult, crSel); break;
+                    case FILTER_ACTION_DISPLAY:
+                        ExecuteFilterDisplay(sResult); break;
+                    case FILTER_ACTION_CLIPBOARD:
+                        ExecuteFilterClipboard(sResult); break;
+                    default: break;
+                }
+            }
+        }
+        return;
+    }
+
     // Convert to UTF-8 for pipe
     LPSTR pszInputUTF8 = UTF16ToUTF8(pszInput);
     free(pszInput);
@@ -8751,12 +8955,15 @@ void CreateDefaultINI()
         "TimeFormat=HH:mm\r\n"
         "\r\n"
         "; Filter System\r\n"
-        "; Filters transform text using external commands\r\n"
+        "; Filters transform text using external commands or the built-in script engine\r\n"
         "; Action types: insert, display, clipboard, none, repl\r\n"
         "; Insert modes: replace, below, append\r\n"
         "; Display modes: statusbar, messagebox\r\n"
         "; Clipboard modes: copy, append\r\n"
         "; Lines starting with ';' or '#' are comments\r\n"
+        "; script: prefix — runs a JScript expression in-process; INPUT holds the selected text\r\n"
+        ";   Example: script:INPUT.toLocaleUpperCase()\r\n"
+        ";   JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)\r\n"
         "; REPL settings: PromptEnd, EOLDetection (auto/crlf/lf/cr), ExitNotification\r\n"
         ";   EOLDetection: auto=detect from output (defaults to LF), lf=Unix/Linux, crlf=Windows, cr=old Mac\r\n"
         ";   Use 'lf' for WSL/bash/python/node, 'auto' for PowerShell\r\n"
@@ -8774,7 +8981,7 @@ void CreateDefaultINI()
         "[Filter1]\r\n"
         "Name=Uppercase\r\n"
         "Name.cs=Velká písmena\r\n"
-        "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToUpper() }\"\r\n"
+        "Command=script:INPUT.toLocaleUpperCase()\r\n"
         "Description=Converts selected text to UPPERCASE letters\r\n"
         "Description.cs=Převede vybraný text na VELKÁ PÍSMENA\r\n"
         "Category=Transform\r\n"
@@ -8786,7 +8993,7 @@ void CreateDefaultINI()
         "[Filter2]\r\n"
         "Name=Lowercase\r\n"
         "Name.cs=Malá písmena\r\n"
-        "Command=powershell -NoProfile -Command \"$input | ForEach-Object { $_.ToLower() }\"\r\n"
+        "Command=script:INPUT.toLocaleLowerCase()\r\n"
         "Description=Converts selected text to lowercase letters\r\n"
         "Description.cs=Převede vybraný text na malá písmena\r\n"
         "Category=Transform\r\n"
@@ -8798,7 +9005,7 @@ void CreateDefaultINI()
         "[Filter3]\r\n"
         "Name=Sort Lines\r\n"
         "Name.cs=Seřadit řádky\r\n"
-        "Command=powershell -NoProfile -Command \"$input -split '\\r?\\n' | Sort-Object | Out-String\"\r\n"
+        "Command=script:INPUT.split('\\n').sort(function(a,b){return a.localeCompare(b);}).join('\\n')\r\n"
         "Description=Sorts selected lines alphabetically\r\n"
         "Description.cs=Seřadí vybrané řádky abecedně\r\n"
         "Category=Transform\r\n"
@@ -9505,6 +9712,45 @@ void LoadFilters()
             }
         }
     }
+}
+
+//============================================================================
+// MigrateBuiltinFilters - Replace legacy PowerShell built-in filter commands
+// with script: equivalents (Phase 2.12). Called once on startup after
+// LoadFilters(). Writes updated Command= values back to INI when changed.
+//============================================================================
+void MigrateBuiltinFilters()
+{
+    WCHAR szIniPath[EXTENDED_PATH_MAX];
+    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+
+    // New script: commands, keyed by the old PowerShell substring they replace
+    struct { const WCHAR* pszOldSubstr; const WCHAR* pszNewCmd; } map[] = {
+        { L"$_.ToUpper()",
+          L"script:INPUT.toLocaleUpperCase()" },
+        { L"$_.ToLower()",
+          L"script:INPUT.toLocaleLowerCase()" },
+        { L"Sort-Object | Out-String",
+          L"script:INPUT.split('\\n').sort(function(a,b){return a.localeCompare(b);}).join('\\n')" },
+    };
+
+    bool bMigrated = false;
+    for (int i = 0; i < g_nFilterCount; i++) {
+        for (int j = 0; j < 3; j++) {
+            if (wcsstr(g_Filters[i].szCommand, map[j].pszOldSubstr)) {
+                wcsncpy(g_Filters[i].szCommand, map[j].pszNewCmd, MAX_FILTER_COMMAND - 1);
+                g_Filters[i].szCommand[MAX_FILTER_COMMAND - 1] = L'\0';
+                WCHAR szSection[32];
+                swprintf(szSection, 32, L"Filter%d", i + 1);
+                WriteINIValue(szIniPath, szSection, L"Command", map[j].pszNewCmd);
+                bMigrated = true;
+                break;
+            }
+        }
+    }
+
+    if (bMigrated)
+        FlushIniCache();
 }
 
 //============================================================================
