@@ -739,7 +739,7 @@ Shortcut=Ctrl+Shift+F
 |--------|---------|
 | Uppercase | `script:INPUT.toLocaleUpperCase()` |
 | Lowercase | `script:INPUT.toLocaleLowerCase()` |
-| Sort Lines | `script:INPUT.split('\n').sort(function(a,b){return a.localeCompare(b);}).join('\n')` |
+| Sort Lines | `script:INPUT.split('\r').sort(function(a,b){return a.localeCompare(b)}).join('\r')` |
 
 **Binary size delta (MinGW stripped):** 347 648 → 351 744 bytes (+4 096 bytes, +1.2%)
 

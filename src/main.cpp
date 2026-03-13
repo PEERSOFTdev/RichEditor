@@ -6980,7 +6980,7 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
                 pszLine++;
                 while (*pszLine == L' ' || *pszLine == L'\t') pszLine++;
                 
-                // Copy value until end of line or comment
+                // Copy value until end of line or inline comment
                 DWORD i = 0;
                 while (i < cchValue - 1 && *pszLine && *pszLine != L'\r' && *pszLine != L'\n' && *pszLine != L';') {
                     pszValue[i++] = *pszLine++;
@@ -9006,7 +9006,7 @@ void CreateDefaultINI()
         "[Filter3]\r\n"
         "Name=Sort Lines\r\n"
         "Name.cs=Seřadit řádky\r\n"
-        "Command=script:INPUT.split('\\n').sort(function(a,b){return a.localeCompare(b);}).join('\\n')\r\n"
+        "Command=script:INPUT.split('\\r').sort(function(a,b){return a.localeCompare(b)}).join('\\r')\r\n"
         "Description=Sorts selected lines alphabetically\r\n"
         "Description.cs=Seřadí vybrané řádky abecedně\r\n"
         "Category=Transform\r\n"
@@ -9732,7 +9732,7 @@ void MigrateBuiltinFilters()
         { L"$_.ToLower()",
           L"script:INPUT.toLocaleLowerCase()" },
         { L"Sort-Object | Out-String",
-          L"script:INPUT.split('\\n').sort(function(a,b){return a.localeCompare(b);}).join('\\n')" },
+          L"script:INPUT.split('\\r').sort(function(a,b){return a.localeCompare(b)}).join('\\r')" },
     };
 
     bool bMigrated = false;
