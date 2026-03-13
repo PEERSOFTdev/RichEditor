@@ -41,6 +41,7 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - `ReadINIValue` / `WriteINIValue` / `ReplaceINISection` operate on the cache.
 - Disk writes only happen via `FlushIniCache()` (on exit and critical paths).
 - External edits are **not** detected during runtime by design.
+- **Inline comment convention:** a `;` is treated as an inline comment delimiter only when it is preceded by a space or tab (e.g. `Key=Value   ; comment`). A bare `;` not preceded by whitespace is kept as part of the value. This allows JScript `Command=` values to contain semicolons freely. The one residual limitation: a JScript string or regex that literally contains ` ;` (space + semicolon) would still be truncated there.
 
 ## Find / Replace Rules (Current)
 

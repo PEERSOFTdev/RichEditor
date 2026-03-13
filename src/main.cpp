@@ -6978,9 +6978,14 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
                 pszLine++;
                 while (*pszLine == L' ' || *pszLine == L'\t') pszLine++;
                 
-                // Copy value until end of line or inline comment
+                // Copy value until end of line or inline comment.
+                // Inline comment: ';' is a comment delimiter only when preceded by
+                // whitespace (e.g. "Value   ; comment").  A bare ';' inside a value
+                // (e.g. in a JScript command) is kept as-is.
                 DWORD i = 0;
-                while (i < cchValue - 1 && *pszLine && *pszLine != L'\r' && *pszLine != L'\n' && *pszLine != L';') {
+                while (i < cchValue - 1 && *pszLine && *pszLine != L'\r' && *pszLine != L'\n') {
+                    if (*pszLine == L';' && i > 0 && (pszValue[i-1] == L' ' || pszValue[i-1] == L'\t'))
+                        break;
                     pszValue[i++] = *pszLine++;
                 }
                 pszValue[i] = L'\0';
