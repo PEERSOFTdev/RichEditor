@@ -501,7 +501,6 @@ void ExecuteFilter();
 void CreateDefaultINI();
 void LoadSettings();
 void LoadFilters();
-void MigrateBuiltinFilters();
 BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize);
 void SaveCurrentFilter();
 void SaveCurrentREPLFilter();
@@ -3066,7 +3065,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Load filters and templates (settings already loaded in wWinMain)
             LoadFilters();
-            MigrateBuiltinFilters();  // Update legacy PowerShell filters to script: (Phase 2.12)
             LoadTemplates();  // Load templates with keyboard shortcuts
             BuildFilterMenu(hwnd);
             BuildTemplateMenu(hwnd);  // Build template submenu
@@ -9715,44 +9713,6 @@ void LoadFilters()
     }
 }
 
-//============================================================================
-// MigrateBuiltinFilters - Replace legacy PowerShell built-in filter commands
-// with script: equivalents (Phase 2.12). Called once on startup after
-// LoadFilters(). Writes updated Command= values back to INI when changed.
-//============================================================================
-void MigrateBuiltinFilters()
-{
-    WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
-
-    // New script: commands, keyed by the old PowerShell substring they replace
-    struct { const WCHAR* pszOldSubstr; const WCHAR* pszNewCmd; } map[] = {
-        { L"$_.ToUpper()",
-          L"script:INPUT.toLocaleUpperCase()" },
-        { L"$_.ToLower()",
-          L"script:INPUT.toLocaleLowerCase()" },
-        { L"Sort-Object | Out-String",
-          L"script:INPUT.split('\\r').sort(function(a,b){return a.localeCompare(b)}).join('\\r')" },
-    };
-
-    bool bMigrated = false;
-    for (int i = 0; i < g_nFilterCount; i++) {
-        for (int j = 0; j < 3; j++) {
-            if (wcsstr(g_Filters[i].szCommand, map[j].pszOldSubstr)) {
-                wcsncpy(g_Filters[i].szCommand, map[j].pszNewCmd, MAX_FILTER_COMMAND - 1);
-                g_Filters[i].szCommand[MAX_FILTER_COMMAND - 1] = L'\0';
-                WCHAR szSection[32];
-                swprintf(szSection, 32, L"Filter%d", i + 1);
-                WriteINIValue(szIniPath, szSection, L"Command", map[j].pszNewCmd);
-                bMigrated = true;
-                break;
-            }
-        }
-    }
-
-    if (bMigrated)
-        FlushIniCache();
-}
 
 //============================================================================
 // ValidateFilter - Validates a filter configuration and returns error message

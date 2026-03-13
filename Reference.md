@@ -729,7 +729,7 @@ Shortcut=Ctrl+Shift+F
 - Adds a `script:` prefix for filter `Command` values that runs a JScript expression in-process via the Windows `IActiveScript` / `IActiveScriptParse` COM interfaces (no external process spawned).
 - The special variable `INPUT` holds the selected text (or current line). The expression result is treated as filter output and is subject to the same `Action` / `Insert` / `Display` / `Clipboard` settings as any other filter.
 - Fixes the Unicode/diacritics corruption bug in the built-in PowerShell filters: PowerShell read stdin using the system ANSI code page (e.g. CP1250 on Czech Windows) rather than UTF-8, so characters like `á é í ó ú ů ž š č` were mangled before `.ToUpper()` / `.ToLower()` ran.
-- The three built-in filters are migrated from PowerShell to `script:` automatically on startup via `MigrateBuiltinFilters()` (updates any filter whose `Command` still contains the old PowerShell commands).
+- The built-in filter commands are not migrated automatically. Users with an existing INI should delete it and let RichEditor recreate it (or update the `Command=` values manually) to get the `script:` equivalents.
 - Script errors are reported in a message box with line and column number.
 - JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
 
