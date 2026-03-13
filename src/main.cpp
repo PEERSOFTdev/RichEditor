@@ -8657,6 +8657,7 @@ static BOOL ExecuteScriptFilter(const WCHAR* szScript, const WCHAR* pszInput,
     pAS->SetScriptSite(&site);
     pAS->QueryInterface(IID_IActiveScriptParse_, (void**)&pASP);
     pASP->InitNew();
+    pAS->SetScriptState(SCRIPTSTATE_STARTED);  // Run pending script; required before ISEXPRESSION eval
 
     // Inject INPUT variable: var INPUT="<escaped text>";
     std::wstring wsInject = L"var INPUT=\"" + EscapeJSString(pszInput) + L"\";";
