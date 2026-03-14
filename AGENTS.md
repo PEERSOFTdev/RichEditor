@@ -113,6 +113,81 @@ existing planned phase:
 5. After implementation, also update `docs/requests/README.md` index and follow
    `docs/CHANGE_CHECKLIST.md` for any other required doc updates.
 
+## Changelog Maintenance
+
+`docs/CHANGELOG.md` is the user-facing changelog. After any batch of commits that adds
+user-facing or architectural changes, prepend the new entries under `## Unreleased`.
+
+### Structure rules
+
+- **Sections:** newest first — `## Unreleased` at the top, then versions descending.
+- **Entries within a section:** chronological, oldest-to-newest commit order.
+- **Entry format:** `- <commit subject verbatim>` — one line per commit, no hash, no date.
+- **Version header format:** `## vX.Y.Z (YYYY-MM-DD)` where the date is the date of the
+  first commit that belongs to that version.
+- **Unreleased header:** `## Unreleased` with no date.
+- **Only a human developer may release a version** (rename `## Unreleased` to
+  `## vX.Y.Z (YYYY-MM-DD)` and open a fresh `## Unreleased` above it). Same rule as
+  version number bumps.
+
+### How version boundaries are identified
+
+There are no git tags in this repository. Version boundaries are found by inspecting
+`FILEVERSION` in `src/resource.rc` across the commit history:
+
+```bash
+git log --oneline                                        # list all commits
+git show <hash>:src/resource.rc | grep FILEVERSION       # check version at a commit
+```
+
+The first commit where `FILEVERSION` changes to `X,Y,0,0` is the start of that version's
+section; its commit date becomes the section date.
+
+Known boundaries (as of 2026-03-14):
+
+| Section    | Boundary commit | Date       | FILEVERSION |
+|------------|----------------|------------|-------------|
+| Unreleased | `e7e09b4`      | 2026-03-13 | 2,8,0,0 (unreleased work) |
+| v2.8.0     | `fbde613`      | 2026-03-05 | 2,8,0,0 |
+| v2.7.0     | `359d682`      | 2026-01-14 | 2,7,0,0 |
+| v2.6.0     | `8eb21ba`      | 2026-01-09 | 2,6,0,0 |
+| v2.1.0     | `4ae175c`      | 2025-12-19 | 2,1,0,0 |
+| v1.0.0     | `1d06689`      | 2025-12-04 | (initial) |
+
+Note: versions 2.2–2.5 were development phases shipped under the `2,1,0,0` FILEVERSION
+label; they are folded into the v2.1.0 section.
+
+To list commits in a version range:
+
+```bash
+git log --oneline fbde613..e7e09b4    # example: all v2.8.0 commits
+```
+
+### What to include and what to skip
+
+**Keep** commits that are user-facing or architecturally significant:
+- New features, behaviour changes, bug fixes visible to the user
+- Changes to INI keys, defaults, keyboard shortcuts, menu items
+- New build targets or significant toolchain changes
+- Refactors that change observable behaviour (e.g. save pipeline rewrites)
+
+**Drop** commits that are purely internal with no user impact:
+- Debug output added or removed
+- GCC / compiler warning fixes with no behaviour change
+- AGENTS.md-only updates
+- CI / build-system-only tweaks (unless they introduce a new build target)
+- Pure README/doc reformats that only reorganise without adding content
+- Internal refactors with zero user-visible effect
+
+When in doubt, include the entry — it is easier to prune later than to reconstruct.
+
+### Adding entries for new work
+
+1. Run `git log --oneline <last-recorded-hash>..HEAD` to list new commits.
+2. Filter using the keep/drop rules above.
+3. Prepend the kept subjects (oldest-to-newest) under `## Unreleased` in
+   `docs/CHANGELOG.md`.
+
 ## Quick Build
 
 ```bash
