@@ -12,6 +12,8 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Fix Sort Lines script: split/join on CR, drop semicolon
 - Remove MigrateBuiltinFilters: migration too aggressive, no auto-migration policy
 - Change INI inline comment delimiter from bare ; to whitespace-preceded ;
+- Add localized category display names to filter and template menus
+- Remove redundant Category.cs from Filter10 default configuration
 
 ---
 

@@ -320,6 +320,7 @@ struct FilterInfo {
     // Localized display strings (for UI only, not for identification)
     WCHAR szLocalizedName[MAX_FILTER_NAME];
     WCHAR szLocalizedDescription[MAX_FILTER_DESC];
+    WCHAR szLocalizedCategory[MAX_FILTER_CATEGORY];
     
     FilterAction action;
     FilterInsertMode insertMode;
@@ -354,6 +355,7 @@ struct TemplateInfo {
     // Localized display strings (for UI only)
     WCHAR szLocalizedName[MAX_TEMPLATE_NAME];
     WCHAR szLocalizedDescription[MAX_TEMPLATE_DESC];
+    WCHAR szLocalizedCategory[MAX_TEMPLATE_CATEGORY];
     
     // Keyboard shortcuts
     WORD wVirtualKey;      // 0 = no shortcut, VK_F1-VK_F12, '0'-'9', 'A'-'Z', etc.
@@ -1139,6 +1141,23 @@ void LoadTemplates()
             wcscpy(g_Templates[i].szLocalizedDescription, g_Templates[i].szDescription);
         }
         
+        // Try to load localized category (e.g., "Category.cs_CZ", then "Category.cs")
+        _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangCode);
+        szLocalizedKey[63] = L'\0';
+        ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                     g_Templates[i].szLocalizedCategory, MAX_TEMPLATE_CATEGORY, L"");
+
+        if (g_Templates[i].szLocalizedCategory[0] == L'\0') {
+            WCHAR szLangOnlyCat[8];
+            wcscpy(szLangOnlyCat, szLangCode);
+            WCHAR* pUnderscoreCat = wcschr(szLangOnlyCat, L'_');
+            if (pUnderscoreCat) *pUnderscoreCat = L'\0';
+            _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangOnlyCat);
+            szLocalizedKey[63] = L'\0';
+            ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                         g_Templates[i].szLocalizedCategory, MAX_TEMPLATE_CATEGORY, L"");
+        }
+
         // Parse Shortcut field (optional)
         WCHAR szShortcut[64];
         ReadINIValue(szIniPath, szSection, L"Shortcut", szShortcut, 64, L"");
@@ -1690,7 +1709,8 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu)
     
     // Build category map
     struct TemplateCategoryInfo {
-        WCHAR szName[MAX_TEMPLATE_CATEGORY];
+        WCHAR szName[MAX_TEMPLATE_CATEGORY];         // canonical grouping key
+        WCHAR szDisplayName[MAX_TEMPLATE_CATEGORY];  // localized display label
         int templateIndices[MAX_TEMPLATES];
         int count;
     };
@@ -1727,7 +1747,14 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu)
         if (catIndex == -1) {
             catIndex = categoryCount++;
             wcscpy(categories[catIndex].szName, g_Templates[i].szCategory);
+            wcscpy(categories[catIndex].szDisplayName,
+                   g_Templates[i].szLocalizedCategory[0] != L'\0'
+                       ? g_Templates[i].szLocalizedCategory
+                       : g_Templates[i].szCategory);
             categories[catIndex].count = 0;
+        } else if (g_Templates[i].szLocalizedCategory[0] != L'\0') {
+            // Last entry with a localized name wins — allows user overrides
+            wcscpy(categories[catIndex].szDisplayName, g_Templates[i].szLocalizedCategory);
         }
         
         categories[catIndex].templateIndices[categories[catIndex].count++] = i;
@@ -1767,12 +1794,12 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu)
             }
             
             // Add category submenu
-            AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szName);
+            AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, categories[c].szDisplayName);
         } else {
             // Ctrl+Shift+T popup: Flatten menu with category headers for quick access
             
             // Add category name as disabled header (visual grouping)
-            AppendMenu(hMenu, MF_STRING | MF_GRAYED, 0, categories[c].szName);
+            AppendMenu(hMenu, MF_STRING | MF_GRAYED, 0, categories[c].szDisplayName);
             
             // Add templates in this category directly to root menu
             for (int t = 0; t < categories[c].count; t++) {
@@ -8988,11 +9015,12 @@ void CreateDefaultINI()
         "Command=script:INPUT.toLocaleUpperCase()\r\n"
         "Description=Converts selected text to UPPERCASE letters\r\n"
         "Description.cs=Převede vybraný text na VELKÁ PÍSMENA\r\n"
-        "Category=Transform\r\n"
-        "Action=insert\r\n"
-        "Insert=replace\r\n"
-        "ContextMenu=1\r\n"
-        "ContextMenuOrder=1\r\n"
+         "Category=Transform\r\n"
+         "Category.cs=Transformace\r\n"
+         "Action=insert\r\n"
+         "Insert=replace\r\n"
+         "ContextMenu=1\r\n"
+         "ContextMenuOrder=1\r\n"
         "\r\n"
         "[Filter2]\r\n"
         "Name=Lowercase\r\n"
@@ -9039,11 +9067,12 @@ void CreateDefaultINI()
         "Command=powershell -NoProfile -Command \"($input | Measure-Object -Line).Lines\"\r\n"
         "Description=Displays the number of lines in selected text\r\n"
         "Description.cs=Zobrazí počet řádků ve vybraném textu\r\n"
-        "Category=Statistics\r\n"
-        "Action=display\r\n"
-        "Display=messagebox\r\n"
-        "ContextMenu=0\r\n"
-        "ContextMenuOrder=999\r\n"
+         "Category=Statistics\r\n"
+         "Category.cs=Statistiky\r\n"
+         "Action=display\r\n"
+         "Display=messagebox\r\n"
+         "ContextMenu=0\r\n"
+         "ContextMenuOrder=999\r\n"
         "\r\n"
         "[Filter6]\r\n"
         "Name=Word Count\r\n"
@@ -9066,8 +9095,9 @@ void CreateDefaultINI()
         "Command=powershell -NoProfile -Command \"-join (($input -join [Environment]::NewLine).ToCharArray() | Sort-Object {Get-Random})\"\r\n"
         "Description=Reverses text and copies result to clipboard\r\n"
         "Description.cs=Obrátí text a zkopíruje výsledek do schránky\r\n"
-        "Category=Clipboard\r\n"
-        "Action=clipboard\r\n"
+         "Category=Clipboard\r\n"
+         "Category.cs=Schránka\r\n"
+         "Action=clipboard\r\n"
         "Clipboard=copy\r\n"
         "ContextMenu=0\r\n"
         "ContextMenuOrder=999\r\n"
@@ -9078,8 +9108,9 @@ void CreateDefaultINI()
         "Command=powershell.exe -NoProfile -Command \"([Console]::InputEncoding=[Text.Encoding]::UTF8),([Console]::OutputEncoding=[Text.Encoding]::UTF8),([Environment]::NewLine + [regex]::Match([Console]::In.ReadToEnd(), '\\A[ \\t]*').Value) | Select-Object -Last 1\"\r\n"
         "Description=Appends a newline with the same leading whitespace as the selection start\r\n"
         "Description.cs=Přidá nový řádek se stejným odsazením jako začátek výběru\r\n"
-        "Category=Utility\r\n"
-        "Action=insert\r\n"
+         "Category=Utility\r\n"
+         "Category.cs=Utility\r\n"
+         "Action=insert\r\n"
         "Insert=replace\r\n"
         "ContextMenu=1\r\n"
         "ContextMenuOrder=5\r\n"
@@ -9109,7 +9140,6 @@ void CreateDefaultINI()
         "Description=WSL Bash shell (script creates pseudo-TTY for prompts)\r\n"
         "Description.cs=WSL Bash shell (script vytvoří pseudo-TTY pro výzvy)\r\n"
         "Category=Interactive\r\n"
-        "Category.cs=Interaktivní\r\n"
         "Action=repl\r\n"
         "PromptEnd=$ \r\n"
         "EOLDetection=lf\r\n"
@@ -9513,9 +9543,24 @@ void LoadFilters()
         // Get system language code for localized strings
         WCHAR szLangCode[16];
         GetSystemLanguageCode(szLangCode, 16);
+        WCHAR szLocalizedKey[64];
+
+        // Try to load localized category (e.g., "Category.cs_CZ")
+        _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangCode);
+        ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                     g_Filters[i].szLocalizedCategory, MAX_FILTER_CATEGORY, L"");
+        
+        // If not found, try just language code without country (e.g., "Category.cs")
+        if (g_Filters[i].szLocalizedCategory[0] == L'\0') {
+            WCHAR szLangOnly[4] = L"";
+            wcsncpy(szLangOnly, szLangCode, 2);
+            szLangOnly[2] = L'\0';
+            _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangOnly);
+            ReadINIValue(szIniPath, szSection, szLocalizedKey,
+                         g_Filters[i].szLocalizedCategory, MAX_FILTER_CATEGORY, L"");
+        }
         
         // Try to load localized name (e.g., "Name.cs_CZ")
-        WCHAR szLocalizedKey[64];
         _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
         ReadINIValue(szIniPath, szSection, szLocalizedKey,
                      g_Filters[i].szLocalizedName, MAX_FILTER_NAME, L"");
@@ -10190,7 +10235,8 @@ void BuildFilterMenu(HWND hwnd)
     } else {
         // Build category map: category name -> list of filter indices
         struct CategoryInfo {
-            WCHAR szName[MAX_FILTER_CATEGORY];
+            WCHAR szName[MAX_FILTER_CATEGORY];         // plain name, used for grouping
+            WCHAR szDisplayName[MAX_FILTER_CATEGORY];  // localized name, used for display
             int filterIndices[MAX_FILTERS];
             int count;
         };
@@ -10221,7 +10267,14 @@ void BuildFilterMenu(HWND hwnd)
             if (catIndex == -1) {
                 catIndex = categoryCount++;
                 wcscpy(categories[catIndex].szName, g_Filters[i].szCategory);
+                wcscpy(categories[catIndex].szDisplayName,
+                       g_Filters[i].szLocalizedCategory[0] != L'\0'
+                           ? g_Filters[i].szLocalizedCategory
+                           : g_Filters[i].szCategory);
                 categories[catIndex].count = 0;
+            } else if (g_Filters[i].szLocalizedCategory[0] != L'\0') {
+                // Last localized category name seen for this group wins
+                wcscpy(categories[catIndex].szDisplayName, g_Filters[i].szLocalizedCategory);
             }
             
             // Add filter index to category
@@ -10277,7 +10330,7 @@ void BuildFilterMenu(HWND hwnd)
             
             // Add category submenu to main filter menu
             AppendMenu(hFilterMenu, MF_STRING | MF_POPUP, (UINT_PTR)hCategoryMenu, 
-                       categories[c].szName);
+                       categories[c].szDisplayName);
         }
         
         // Add separator if we have both categorized and uncategorized filters

@@ -549,6 +549,7 @@ Name.cs_CZ=Nadpis 1
 Description=Insert a level 1 heading
 Description.cs_CZ=Vložit nadpis úrovně 1
 Category=Markdown
+Category.cs=Markdown
 FileExtension=md
 Template=# %cursor%
 Shortcut=Ctrl+1
@@ -581,6 +582,8 @@ Shortcut=Ctrl+Shift+F
 - `Description.cs=` - Czech description (optional)
 - `Description.cs_CZ=` - Czech description (optional, full locale)
 - `Category=` - Category for menu grouping (empty = uncategorized at root)
+- `Category.cs=` - Czech category display name (optional)
+- `Category.cs_CZ=` - Czech category display name, full locale (optional)
 - `FileExtension=` - File type filter (e.g., "md", "txt", "html")
   - Leave empty for universal templates (available in all file types)
 - `Template=` - Template text with variables (required)
@@ -1122,6 +1125,7 @@ Description=Converts selected text to UPPERCASE letters
 Description.cs=Převede vybraný text na VELKÁ písmena
 Description.cs_CZ=Převede vybraný text na VELKÁ písmena
 Category=Transform
+Category.cs=Transformace
 Action=insert
 Insert=replace
 ContextMenu=1
@@ -1178,11 +1182,13 @@ Filters use an action-based architecture. The `Action=` setting determines what 
 
 Filters are automatically organized into submenus based on their `Category=` setting:
 
-- **Transform** - Text manipulation
-- **Statistics** - Analysis tools
-- **Clipboard** - Clipboard operations
-- **Utility** - Miscellaneous utilities
-- **Interactive** - REPL filters
+- **Transform** (Czech: Transformace) - Text manipulation
+- **Statistics** (Czech: Statistiky) - Analysis tools
+- **Clipboard** (Czech: Schránka) - Clipboard operations
+- **Utility** (Czech: Utility) - Miscellaneous utilities
+- **Interactive** (Czech: Interaktivní) - REPL filters
+
+Category display names are localized via `Category.cs=` (or `Category.cs_CZ=`). Only the first filter in a category needs the localized key; subsequent filters in the same category may omit it. User-defined filters can override the display name by providing their own `Category.cs=` for that category.
 
 **Filter Usage:**
 1. On first run, RichEditor creates `RichEditor.ini` with example filters demonstrating all action types
