@@ -78,6 +78,12 @@ Advanced: filters and categories are defined in `RichEditor.ini`. Categories are
 
 The `Command` field accepts a `script:` prefix to run a JScript expression in-process (no external process spawned). The special variable `INPUT` holds the selected text. Example: `script:INPUT.toLocaleUpperCase()`. This correctly handles all Unicode characters including diacritics. JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
 
+Three things to keep in mind when writing `script:` expressions:
+
+- The value after `script:` must be a single expression — bare statements such as `var x = 1` are not valid at the top level; for multi-step logic, use an IIFE that returns its result: `(function(){var n=INPUT.length;return String(n)})()`.
+- If the expression evaluates to `undefined`, `null`, or an empty string, the filter silently produces no output and no error — wrapping the result in `String(…)` is a safe habit.
+- A semicolon preceded by a space or tab anywhere in `Command=` is treated as the start of an INI comment and silently drops everything after it, so keep semicolons tight against their preceding token: write `return x})()` not `return x })()`.
+
 ## Templates
 
 Templates insert snippets with variables. You can insert them from `Tools -> Insert Template`, use the template picker (`Ctrl+Shift+T`), or create new documents from templates under `File -> New`.

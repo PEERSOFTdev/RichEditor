@@ -78,6 +78,12 @@ Pokročilé: filtry a kategorie se definují v `RichEditor.ini`. Kategorie jsou 
 
 Pole `Command` přijímá předponu `script:` pro spuštění výrazu JScript přímo v procesu editoru (bez spouštění externího procesu). Speciální proměnná `INPUT` obsahuje vybraný text. Příklad: `script:INPUT.toLocaleUpperCase()`. Tento způsob správně zpracovává všechny znaky Unicode včetně diakritiky. Referenční dokumentace JScript: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
 
+Při psaní výrazů `script:` je třeba mít na paměti tři věci:
+
+- Hodnota za `script:` musí být jediný výraz — samostatné příkazy jako `var x = 1` na nejvyšší úrovni nejsou platné; pro víceřádkovou logiku použijte IIFE s návratovou hodnotou: `(function(){var n=INPUT.length;return String(n)})()`.
+- Pokud se výraz vyhodnotí na `undefined`, `null` nebo prázdný řetězec, filtr tiše neprodukuje žádný výstup ani chybové hlášení — bezpečným zvykem je obalit výsledek do `String(…)`.
+- Středník, před nímž je mezera nebo tabulátor kdekoliv v řádku `Command=`, je považován za začátek komentáře INI a vše za ním je tiše zahozeno — středníky proto pište bez předcházející mezery: `return x})()`, nikoli `return x })()`.
+
 ## Šablony
 
 Šablony vkládají textové bloky s proměnnými. Můžete je vložit z `Nástroje -> Vložit šablonu`, použít výběr šablon (`Ctrl+Shift+T`), nebo vytvořit nový dokument ze šablony v `Soubor -> Nový`.

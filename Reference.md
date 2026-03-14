@@ -733,6 +733,12 @@ Shortcut=Ctrl+Shift+F
 - Script errors are reported in a message box with line and column number.
 - JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
 
+**`script:` gotchas:**
+
+- **Top-level must be an expression.** `ParseScriptText` is called with `SCRIPTTEXT_ISEXPRESSION`; bare statements (`var x = 1`, `if (…) …`) at the top level are a syntax error. For multi-step logic use an IIFE that `return`s the result: `(function(){var n=INPUT.length;return String(n)})()`.
+- **`undefined`, `null`, or empty result → silent no output, no error.** `ExecuteFilterDisplay` returns immediately on an empty string (`src/main.cpp`: `if (outputData.empty()) return`). An IIFE without `return`, or any expression that evaluates to `undefined`/`null`, coerces to an empty BSTR and falls through this guard silently. Wrap in `String(…)` to be safe.
+- **Space or tab before `;` in `Command=` is an INI comment delimiter.** The INI parser treats ` ;` (space or tab followed by semicolon) as the start of an inline comment and discards the rest of the line. Code such as `return x; })()` (space before `;`) is silently truncated. Keep semicolons tight: `return x})()`.
+
 **Built-in filter commands after migration:**
 
 | Filter | Command |
