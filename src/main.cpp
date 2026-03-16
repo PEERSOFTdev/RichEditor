@@ -11,6 +11,7 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <shlwapi.h>    // Path functions (PathIsRelative, PathCombine, etc.)
+#include <oleacc.h>     // IAccPropServices — accessible name annotation
 #include <stdio.h>
 #include <string>
 #include <vector>
@@ -122,6 +123,18 @@ static const IID IID_IActiveScriptParse_ =
 static const IID IID_IActiveScriptParse_ =
     {0xBB1A2AE2,0xA4F9,0x11CF,{0x8F,0x20,0x00,0x80,0x5F,0x2C,0xD0,0x64}};
 #endif
+// Accessible name annotation GUIDs — DEFINE_GUID in oleacc.h only produces
+// extern declarations without INITGUID; define storage here instead.
+// CLSID_AccPropServices {B5F8350B-0548-48B1-A6EE-88BD00B4A5E7}
+static const CLSID CLSID_AccPropServices_ =
+    {0xB5F8350B,0x0548,0x48B1,{0xA6,0xEE,0x88,0xBD,0x00,0xB4,0xA5,0xE7}};
+// IID_IAccPropServices {6E26E776-04F0-495D-80E4-3330352E3169}
+static const IID IID_IAccPropServices_ =
+    {0x6E26E776,0x04F0,0x495D,{0x80,0xE4,0x33,0x30,0x35,0x2E,0x31,0x69}};
+// PROPID_ACC_NAME {608D3DF8-8128-4AA7-A428-F55E49267291}
+static const MSAAPROPID PROPID_ACC_NAME_ =
+    {0x608D3DF8,0x8128,0x4AA7,{0xA4,0x28,0xF5,0x5E,0x49,0x26,0x72,0x91}};
+
 WCHAR g_szRichEditLibPath[MAX_PATH] = L"";          // Full path to loaded DLL
 WCHAR g_szRichEditLibPathINI[MAX_PATH] = L"";       // User preference from INI
 WCHAR g_szRichEditClassName[64] = L"RICHEDIT50W";  // Window class to use
@@ -465,8 +478,9 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
 HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
-void CreateOutputPane(HWND hwndParent);
 void UpdateStatusBar();
+void CreateOutputPane(HWND hwndParent);
+void CreateUiaLabel(HWND hwndParent, UINT uStringID);
 void UpdateTitle(HWND hwnd = NULL);
 void UpdateMenuUndoRedo(HMENU hMenu);
 int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition);
@@ -3077,7 +3091,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             g_bModified = FALSE;
             wcscpy(g_szCurrentFileExtension, L"txt");  // Default to txt for Untitled files
             
-            // Create RichEdit control
+            // Create RichEdit control (label first for UIA name association)
+            CreateUiaLabel(hwnd, IDS_ACCNAME_EDITOR);
             g_hWndEdit = CreateRichEditControl(hwnd);
             if (!g_hWndEdit) {
                 // Show detailed error with INI guidance (Phase 2.8.5)
@@ -5030,6 +5045,50 @@ void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL)
 }
 
 //============================================================================
+// CreateUiaLabel - Create a 1x1 invisible STATIC label immediately before
+// a RichEdit in the parent's Z-order.  The Win32 UIA HWND composition layer
+// resolves UIA_NamePropertyId from the text of the immediately-preceding
+// STATIC sibling when the control's native UIA provider returns VT_EMPTY for
+// Name.  This covers the modern RichEdit (Office/Notepad DLL) path where
+// IAccPropServices (MSAA-only) is not consulted by UIA-mode screen readers.
+//============================================================================
+void CreateUiaLabel(HWND hwndParent, UINT uStringID)
+{
+    WCHAR szName[128];
+    LoadStringResource(uStringID, szName, 128);
+    if (szName[0] == L'\0') return;
+    CreateWindowEx(0, L"STATIC", szName,
+        WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP | SS_NOPREFIX,
+        0, 0, 1, 1, hwndParent, NULL,
+        GetModuleHandle(NULL), NULL);
+}
+
+//============================================================================
+// SetAccessibleName - Annotate a window with an accessible name via
+// IAccPropServices (Dynamic Annotation API).  Effective for MSAA-based screen
+// readers (NVDA/JAWS/Narrator) with the default RichEdit library.  UIA-mode
+// screen readers on modern RichEdit (native UIA provider) require the
+// preceding STATIC label approach in CreateUiaLabel above.
+//============================================================================
+static void SetAccessibleName(HWND hwnd, UINT uStringID)
+{
+    if (!hwnd) return;
+    WCHAR szName[128];
+    LoadStringResource(uStringID, szName, 128);
+    if (szName[0] == L'\0') return;
+
+    IAccPropServices* pAccProp = NULL;
+    if (SUCCEEDED(CoCreateInstance(CLSID_AccPropServices_, NULL,
+                                   CLSCTX_INPROC_SERVER,
+                                   IID_IAccPropServices_,
+                                   (void**)&pAccProp))) {
+        pAccProp->SetHwndPropStr(hwnd, OBJID_CLIENT, CHILDID_SELF,
+                                 PROPID_ACC_NAME_, szName);
+        pAccProp->Release();
+    }
+}
+
+//============================================================================
 // CreateRichEditControl - Create and configure RichEdit control
 //============================================================================
 HWND CreateRichEditControl(HWND hwndParent)
@@ -5156,7 +5215,10 @@ HWND CreateRichEditControl(HWND hwndParent)
         
         // Subclass the RichEdit control to intercept WM_KEYDOWN
         g_pfnOriginalEditProc = (WNDPROC)SetWindowLongPtr(hwndEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
-        
+
+        // Set accessible name so screen readers can identify this control
+        SetAccessibleName(hwndEdit, IDS_ACCNAME_EDITOR);
+
         // Set focus to editor
         SetFocus(hwndEdit);
     }
@@ -5207,6 +5269,9 @@ void CreateOutputPane(HWND hwndParent)
     if (g_bOutputPaneReadOnly)
         dwStyle |= ES_READONLY;
 
+    // Create invisible label for UIA name association (preceding STATIC → Name)
+    CreateUiaLabel(hwndParent, IDS_ACCNAME_OUTPUTPANE);
+
     g_hWndOutputPane = CreateWindowEx(
         WS_EX_CLIENTEDGE,
         g_szRichEditClassName,
@@ -5229,6 +5294,9 @@ void CreateOutputPane(HWND hwndParent)
         // Subclass
         g_pfnOriginalOutputPaneProc = (WNDPROC)SetWindowLongPtr(
             g_hWndOutputPane, GWLP_WNDPROC, (LONG_PTR)OutputPaneSubclassProc);
+
+        // Set accessible name so screen readers can identify this control
+        SetAccessibleName(g_hWndOutputPane, IDS_ACCNAME_OUTPUTPANE);
     }
 }
 

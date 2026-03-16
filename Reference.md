@@ -1,4 +1,4 @@
-# RichEditor
+|# RichEditor
 
 A lightweight, accessible Win32 text editor built around the RichEdit control (default MSFTEDIT.DLL) with optional library overrides. This reference keeps the original phase narrative and stays in sync with current behavior; the user manuals focus on end‑user workflows.
 
@@ -784,11 +784,16 @@ Pane=append,focus    ; optional comma-separated values
 - Word wrap disabled in the pane; horizontal and vertical scroll bars shown.
 - Czech UI label: **panel výstupu**
 
-**Binary size delta:** 1 035 771 → 1 043 680 bytes (+7 909 bytes)
+**Accessible names (MSAA Dynamic Annotation + UIA label):**
+
+- The main edit area is annotated as **"Text Editor"** (CS: "Textový editor") and the output pane as **"Output Pane"** (CS: "Panel výstupu").
+- **MSAA path** (`IAccPropServices::SetHwndPropStr`): effective for MSAA-based screen readers with the default RichEdit library (`MSFTEDIT.DLL` / `RICHEDIT50W`).
+- **UIA path** (1×1 `WS_VISIBLE` STATIC label preceding each RichEdit in Z-order): the Win32 UIA HWND composition layer resolves `UIA_NamePropertyId` from the text of the immediately-preceding STATIC sibling when the native provider returns `VT_EMPTY`. Covers modern RichEdit DLLs (Windows 11 Notepad, Office) whose native UIA provider does not consult MSAA annotations. The label appears as an extra navigation stop in AT object trees; annotating it with `STATE_SYSTEM_INVISIBLE` via `IAccPropServices::SetHwndProp` has no effect on UIA-mode screen readers.
+- Linked with `oleacc.lib`; GUIDs (`CLSID_AccPropServices_`, `IID_IAccPropServices_`, `PROPID_ACC_NAME_`) defined as static constants in `main.cpp` (MXE sysroot does not export them from `liboleacc.a`).
+
+**Binary size delta:** 1 035 771 → 1 044 437 bytes (+8 666 bytes total for this phase)
 
 ## Building
-
-RichEditor can be built using either **MinGW-w64** or **MSVC** (Microsoft Visual C++).
 
 ### Option 1: MSVC Build (Recommended for Windows) ✅
 

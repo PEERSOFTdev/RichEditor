@@ -233,6 +233,15 @@ Autosave recovery data:
 
 Resume files are stored in `%TEMP%\RichEditor\` by default.
 
+## Screen Reader Support
+
+RichEditor annotates its controls with accessible names using the MSAA Dynamic Annotation API (`IAccPropServices`). NVDA, JAWS, and Windows Narrator announce:
+
+- **"Text Editor"** for the main editing area.
+- **"Output Pane"** for the secondary output pane (when present).
+
+Both MSAA and UI Automation clients receive these names as the control's Name property.
+
 ## RichEdit Library (Advanced)
 
 RichEditor can load newer RichEdit DLLs for better accessibility and rendering. Windows 11 Notepad ships with a modern RichEdit build that improves plain-text caret/selection behavior (especially near line ends and trailing spaces) and uses DirectWrite and UI Automation for color emoji and screen reader support.

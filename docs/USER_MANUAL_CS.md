@@ -235,6 +235,15 @@ Data obnovy autosave:
 
 Soubory obnovení jsou standardně v `%TEMP%\RichEditor\` (dočasná složka systému).
 
+## Podpora čteček obrazovky
+
+RichEditor opatřuje ovládací prvky přístupnými názvy pomocí MSAA Dynamic Annotation API (`IAccPropServices`). NVDA, JAWS a Předčítání Windows oznamují:
+
+- **„Textový editor"** pro hlavní editační oblast.
+- **„Panel výstupu"** pro sekundární panel výstupu (je-li zobrazený).
+
+Tyto názvy přebírají klienti MSAA i UI Automation jako vlastnost Name daného ovládacího prvku.
+
 ## RichEdit knihovna (pokročilé)
 
 RichEditor umí načítat novější knihovny RichEdit (DLL) pro lepší přístupnost a vykreslování. Windows 11 Poznámkový blok používá moderní RichEdit s lepším chováním kurzoru a výběru v prostém textu (zejména u konců řádků a koncových mezer) a s podporou DirectWrite a UI Automation pro barevná emoji a čtečky obrazovky.

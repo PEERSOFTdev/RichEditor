@@ -321,6 +321,8 @@ BEGIN
      IDS_SCRIPT_ERROR                "Script Error"
      IDS_OUTPUTPANE_COPYALL          "Copy All"
      IDS_OUTPUTPANE_CLEAR            "Clear"
+     IDS_ACCNAME_EDITOR              "Text Editor"
+     IDS_ACCNAME_OUTPUTPANE          "Output Pane"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -590,6 +592,9 @@ BEGIN
      IDS_STATUS_CHARS                "zn"
      IDS_STATUS_TOTAL                "Celkem"
      IDS_SCRIPT_ERROR                "Chyba skriptu"
+
      IDS_OUTPUTPANE_COPYALL          "Kopírovat vše"
      IDS_OUTPUTPANE_CLEAR            "Vymazat"
+     IDS_ACCNAME_EDITOR              "Textový editor"
+     IDS_ACCNAME_OUTPUTPANE          "Panel výstupu"
 END

@@ -262,4 +262,8 @@
 #define IDS_OUTPUTPANE_COPYALL          2175  // "Copy All" / "Kopírovat vše"
 #define IDS_OUTPUTPANE_CLEAR            2176  // "Clear" / "Vymazat"
 
+// Accessible names for screen readers (2177–2178)
+#define IDS_ACCNAME_EDITOR              2177  // "Text Editor" / "Textový editor"
+#define IDS_ACCNAME_OUTPUTPANE          2178  // "Output Pane" / "Panel výstupu"
+
 #endif // RESOURCE_H
