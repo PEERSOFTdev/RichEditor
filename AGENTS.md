@@ -77,6 +77,7 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - If defaults changed over time, note the change explicitly in the correct phase.
 - Do not reintroduce duplicate phase blocks after Usage.
 - Verify behavior against `src/main.cpp` before updating Reference.md.
+- **Phase numbering is a human decision.** Agents must never introduce a new `### Phase X.Y` heading in `Reference.md` without an explicit instruction from the human developer. Document new work inside the most recent accepted phase section, or as a subsection of it, until a human assigns a new phase number.
 
 ## Commit Message Guidelines
 
