@@ -14,6 +14,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Change INI inline comment delimiter from bare ; to whitespace-preceded ;
 - Add localized category display names to filter and template menus
 - Remove redundant Category.cs from Filter10 default configuration
+- Add output pane: Display=pane with Pane=append/focus, F6, Ctrl+Shift+Delete, context menu
 
 ---
 

@@ -134,6 +134,8 @@ Formát data a času.
 - `DateTimeTemplate` (výchozí `%date% %time%`): vkládá `F5` a příkaz Čas a datum. Použijte `%date%`/`%time%` pro respektování `DateFormat`/`TimeFormat`, nebo použijte `%shortdate%`, `%longdate%`, `%shorttime%`, `%longtime%` přímo.
 - `DateFormat` (výchozí `%shortdate%`): formát pro `%date%` v šablonách. Nastavte na vestavěnou proměnnou (např. `%shortdate%`) nebo vlastní formátovací řetězec.
 - `TimeFormat` (výchozí `HH:mm`): formát pro `%time%` v šablonách. Nastavte na vestavěnou proměnnou (např. `%shorttime%`) nebo vlastní formátovací řetězec.
+- `OutputPaneLines` (výchozí `5`): výška panelu výstupu. Celé číslo udává pevný počet řádků (např. `10`); hodnota s `%` udává procento dostupné plochy (např. `20%`).
+- `OutputPaneReadOnly` (výchozí `0`): `1` = panel výstupu je jen pro čtení; `0` = panel je editovatelný.
 
 Proměnné data/času a vlastní formáty (formátovací značky systému Windows).
 
@@ -184,7 +186,9 @@ Běžné volitelné položky:
 Klíče specifické pro akci:
 
 - `Insert` (výchozí `below`): `replace` (nahradit), `below` (vložit pod řádek) nebo `append` (připojit na konec).
-- `Display` (výchozí `messagebox`): `messagebox` (dialogové okno) nebo `statusbar` (stavový řádek).
+- `Display` (výchozí `messagebox`): `messagebox` (dialogové okno), `statusbar` (stavový řádek) nebo `pane` (panel výstupu).
+  - `pane` zobrazí výstup v panelu výstupu pod editorem. Panel se objeví při prvním použití a zůstane viditelný po celou dobu běhu aplikace.
+  - Volitelný klíč `Pane` (hodnoty oddělené čárkou): `append` (připojit k existujícímu obsahu místo nahrazení), `focus` (přesunout fokus na panel po zápisu). Příklad: `Pane=append,focus`.
 - `Clipboard` (výchozí `copy`): `copy` (zkopírovat) nebo `append` (připojit k již zkopírovanému).
 - `PromptEnd` (výchozí `> `): ukončení REPL výzvy (např. `> ` nebo `$ `).
 - `EOLDetection` (výchozí `auto`): rozpoznání konce řádku (EOL, konec řádku) ve výstupu REPL. `auto` se řídí prvním výstupem; `crlf` = Windows, `lf` = Unix/Linux (např. Linux a WSL – Subsystém Windows pro Linux), `cr` = klasický Mac.
@@ -279,6 +283,8 @@ Názvy kláves jsou uvedeny podle popisků na klávesnici (Ctrl, Shift, Alt, Ent
 | Ctrl+Shift+T | Výběr šablon |
 | Ctrl+Shift+I | Spustit interaktivní režim |
 | Ctrl+Shift+Q | Ukončit interaktivní režim |
+| F6 | Přepnout fokus mezi editorem a panelem výstupu (pokud je panel viditelný) |
+| Ctrl+Shift+Delete | Vymazat panel výstupu (pokud je fokus v panelu) |
 
 ### Zkratky RichEdit
 

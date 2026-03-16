@@ -134,6 +134,8 @@ Date and time formatting.
 - `DateTimeTemplate` (default `%date% %time%`): inserted by F5 and the Insert Time/Date command. Use `%date%`/`%time%` to honor `DateFormat`/`TimeFormat`, or use `%shortdate%`, `%longdate%`, `%shorttime%`, `%longtime%` directly.
 - `DateFormat` (default `%shortdate%`): format used by `%date%` in templates. Set it to a built‑in variable (like `%shortdate%`) or a custom date format string.
 - `TimeFormat` (default `HH:mm`): format used by `%time%` in templates. Set it to a built‑in variable (like `%shorttime%`) or a custom time format string.
+- `OutputPaneLines` (default `5`): height of the output pane. Use an integer for a fixed number of lines (for example, `10`) or append `%` for a percentage of the available area (for example, `20%`).
+- `OutputPaneReadOnly` (default `0`): `1` makes the output pane read‑only; `0` keeps it editable.
 
 Date/time variables and custom formats (Windows date/time picture tokens).
 
@@ -182,7 +184,9 @@ Common optional fields:
 Action‑specific fields:
 
 - `Insert` (default `below`): `replace`, `below`, or `append`.
-- `Display` (default `messagebox`): `messagebox` or `statusbar`.
+- `Display` (default `messagebox`): `messagebox`, `statusbar`, or `pane`.
+  - `pane` shows output in the output pane below the editor. The pane appears on the first use and stays visible for the session.
+  - Optional `Pane` key (comma‑separated): `append` (add to existing content instead of replacing), `focus` (move focus to pane after writing). Example: `Pane=append,focus`.
 - `Clipboard` (default `copy`): `copy` or `append`.
 - `PromptEnd` (default `> `): REPL prompt terminator string (for example, `> ` or `$ `).
 - `EOLDetection` (default `auto`): end‑of‑line (EOL) detection for REPL output. `auto` detects from the first output; `crlf` = Windows, `lf` = Unix/Linux/WSL, `cr` = classic Mac.
@@ -275,6 +279,8 @@ Note: `/elevated-save` is used internally by the editor when retrying a save wit
 | Ctrl+Shift+T | Template Picker |
 | Ctrl+Shift+I | Start Interactive Mode |
 | Ctrl+Shift+Q | Exit Interactive Mode |
+| F6 | Switch focus between editor and output pane (when pane is visible) |
+| Ctrl+Shift+Delete | Clear output pane (when focus is in the pane) |
 
 ### RichEdit Native Shortcuts
 

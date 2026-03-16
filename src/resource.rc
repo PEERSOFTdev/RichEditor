@@ -319,6 +319,8 @@ BEGIN
      IDS_STATUS_CHARS                "ch"
      IDS_STATUS_TOTAL                "Total"
      IDS_SCRIPT_ERROR                "Script Error"
+     IDS_OUTPUTPANE_COPYALL          "Copy All"
+     IDS_OUTPUTPANE_CLEAR            "Clear"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -588,4 +590,6 @@ BEGIN
      IDS_STATUS_CHARS                "zn"
      IDS_STATUS_TOTAL                "Celkem"
      IDS_SCRIPT_ERROR                "Chyba skriptu"
+     IDS_OUTPUTPANE_COPYALL          "Kopírovat vše"
+     IDS_OUTPUTPANE_CLEAR            "Vymazat"
 END

@@ -4,6 +4,7 @@
 // Control IDs
 #define IDC_RICHEDIT                    100
 #define IDC_STATUSBAR                   101
+#define IDC_OUTPUT_PANE                 104
 
 // Menu resource
 #define IDR_MENU_MAIN                   200
@@ -256,5 +257,9 @@
 
 // Script filter strings (Phase 2.12: 2174)
 #define IDS_SCRIPT_ERROR                2174  // "Script Error" / "Chyba skriptu"
+
+// Output pane strings (2175–2176)
+#define IDS_OUTPUTPANE_COPYALL          2175  // "Copy All" / "Kopírovat vše"
+#define IDS_OUTPUTPANE_CLEAR            2176  // "Clear" / "Vymazat"
 
 #endif // RESOURCE_H

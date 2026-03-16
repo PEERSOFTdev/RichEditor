@@ -43,6 +43,12 @@
 HWND g_hWndMain = NULL;           // Main window handle
 HWND g_hWndEdit = NULL;           // RichEdit control handle (to be added)
 HWND g_hWndStatus = NULL;         // Status bar handle (to be added)
+HWND g_hWndOutputPane = NULL;     // Output pane RichEdit (hidden until first use)
+WNDPROC g_pfnOriginalOutputPaneProc = NULL; // Original output pane window proc
+int  g_nOutputPaneSizeValue     = 5;    // Height: integer lines or percent value
+BOOL g_bOutputPaneSizeIsPercent = FALSE; // TRUE when OutputPaneLines uses % suffix
+BOOL g_bOutputPaneReadOnly      = FALSE; // OutputPaneReadOnly INI setting
+int  g_nOutputPaneLineHeight    = 0;    // Cached line height in pixels (lazy init)
 WCHAR g_szFileName[EXTENDED_PATH_MAX];     // Current file path
 WCHAR g_szFileTitle[MAX_PATH];    // Current file name only
 BOOL g_bModified = FALSE;         // Document modified flag
@@ -296,7 +302,8 @@ enum FilterInsertMode {
 
 enum FilterDisplayMode {
     FILTER_DISPLAY_STATUSBAR = 0,
-    FILTER_DISPLAY_MESSAGEBOX = 1
+    FILTER_DISPLAY_MESSAGEBOX = 1,
+    FILTER_DISPLAY_PANE = 2          // Output pane
 };
 
 enum FilterClipboardMode {
@@ -334,6 +341,10 @@ struct FilterInfo {
     WCHAR szPromptEnd[16];          // Prompt ending characters (e.g., "> ", "$ ")
     REPLEOLMode replEOLMode;        // EOL mode for REPL input/output
     BOOL bExitNotification;         // Show notification when REPL exits
+
+    // Output pane options (Action=display, Display=pane)
+    BOOL bPaneAppend;               // Pane=append — append to existing pane content
+    BOOL bPaneFocus;                // Pane=focus  — move focus to pane after writing
 };
 
 FilterInfo g_Filters[MAX_FILTERS];
@@ -454,6 +465,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lParam */);
 HWND CreateRichEditControl(HWND hwndParent);
 HWND CreateStatusBar(HWND hwndParent);
+void CreateOutputPane(HWND hwndParent);
 void UpdateStatusBar();
 void UpdateTitle(HWND hwnd = NULL);
 void UpdateMenuUndoRedo(HMENU hMenu);
@@ -517,6 +529,8 @@ void AddToMRU(LPCWSTR pszFilePath);
 void UpdateMRUMenu(HWND hwnd);
 void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
 void GetINIFilePath(LPWSTR pszPath, DWORD dwSize);
+void ShowOutputPane();
+void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus);
 
 // RichEdit library management functions (Phase 2.8)
 float GetRichEditVersion(HMODULE hModule, LPWSTR pszPath, DWORD cchPath);
@@ -3087,6 +3101,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Create status bar
             g_hWndStatus = CreateStatusBar(hwnd);
             
+            // Create output pane (hidden; shown on first use)
+            CreateOutputPane(hwnd);
+            
             // Update status bar
             UpdateStatusBar();
             
@@ -3131,16 +3148,49 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 SendMessage(g_hWndStatus, SB_SETPARTS, 2, (LPARAM)parts);
             }
             
-            // Resize RichEdit control to fill client area minus status bar
+            // Resize RichEdit control and output pane to fill client area minus status bar
             if (g_hWndEdit) {
                 RECT rcClient, rcStatus;
                 GetClientRect(hwnd, &rcClient);
                 GetClientRect(g_hWndStatus, &rcStatus);
                 
+                int nStatusH = rcStatus.bottom;
+                int nAvailable = rcClient.bottom - nStatusH;
+                if (nAvailable < 0) nAvailable = 0;
+
+                // Compute output pane height (only when visible)
+                int nPaneH = 0;
+                if (g_hWndOutputPane && IsWindowVisible(g_hWndOutputPane)) {
+                    if (g_bOutputPaneSizeIsPercent) {
+                        nPaneH = MulDiv(nAvailable, g_nOutputPaneSizeValue, 100);
+                    } else {
+                        // Lines path: lazy-init line height
+                        if (g_nOutputPaneLineHeight <= 0) {
+                            HDC hdc = GetDC(g_hWndOutputPane);
+                            if (hdc) {
+                                TEXTMETRIC tm;
+                                GetTextMetrics(hdc, &tm);
+                                ReleaseDC(g_hWndOutputPane, hdc);
+                                g_nOutputPaneLineHeight = tm.tmHeight + tm.tmExternalLeading;
+                            }
+                        }
+                        if (g_nOutputPaneLineHeight > 0)
+                            nPaneH = g_nOutputPaneLineHeight * g_nOutputPaneSizeValue + 15;
+                    }
+                    if (nPaneH < 20)  nPaneH = 20;
+                    if (nPaneH > nAvailable - 20) nPaneH = nAvailable - 20;
+                    if (nPaneH < 0)   nPaneH = 0;
+
+                    SetWindowPos(g_hWndOutputPane, NULL,
+                        0, nAvailable - nPaneH,
+                        rcClient.right, nPaneH,
+                        SWP_NOZORDER);
+                }
+
                 SetWindowPos(g_hWndEdit, NULL,
                     0, 0,
                     rcClient.right,
-                    rcClient.bottom - rcStatus.bottom,
+                    nAvailable - nPaneH,
                     SWP_NOZORDER);
 
                 if (g_bWordWrap) {
@@ -3963,6 +4013,86 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 //============================================================================
+// OutputPaneSubclassProc - Subclass procedure for the output pane RichEdit
+//
+// Handles: F6 → return focus to main edit, Ctrl+Shift+Delete → clear pane,
+// WM_CONTEXTMENU → "Copy All" / "Clear" popup menu.
+//============================================================================
+LRESULT CALLBACK OutputPaneSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_KEYDOWN) {
+        if (wParam == VK_F6) {
+            SetFocus(g_hWndEdit);
+            return 0;
+        }
+        // Ctrl+Shift+Delete → clear pane
+        if (wParam == VK_DELETE &&
+            (GetKeyState(VK_CONTROL) & 0x8000) &&
+            (GetKeyState(VK_SHIFT)   & 0x8000)) {
+            SetWindowText(hwnd, L"");
+            return 0;
+        }
+    }
+
+    if (msg == WM_CONTEXTMENU) {
+        WCHAR szCopyAll[64], szClear[64];
+        LoadStringResource(IDS_OUTPUTPANE_COPYALL, szCopyAll, 64);
+        LoadStringResource(IDS_OUTPUTPANE_CLEAR,   szClear,   64);
+
+        HMENU hMenu = CreatePopupMenu();
+        AppendMenu(hMenu, MF_STRING, 1, szCopyAll);
+        AppendMenu(hMenu, MF_STRING, 2, szClear);
+
+        POINT pt;
+        if (lParam == (LPARAM)-1) {
+            // Keyboard-invoked: position near top-left of pane
+            RECT rc;
+            GetWindowRect(hwnd, &rc);
+            pt.x = rc.left + 4;
+            pt.y = rc.top  + 4;
+        } else {
+            pt.x = (int)(short)LOWORD(lParam);
+            pt.y = (int)(short)HIWORD(lParam);
+        }
+
+        int nCmd = TrackPopupMenuEx(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                    pt.x, pt.y, hwnd, NULL);
+        DestroyMenu(hMenu);
+
+        if (nCmd == 1) {
+            // Copy All
+            int nLen = GetWindowTextLength(hwnd);
+            if (nLen > 0) {
+                LPWSTR pszText = (LPWSTR)malloc((nLen + 1) * sizeof(WCHAR));
+                if (pszText) {
+                    GetWindowText(hwnd, pszText, nLen + 1);
+                    if (OpenClipboard(g_hWndMain)) {
+                        EmptyClipboard();
+                        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (nLen + 1) * sizeof(WCHAR));
+                        if (hMem) {
+                            LPWSTR pDst = (LPWSTR)GlobalLock(hMem);
+                            if (pDst) {
+                                wcscpy(pDst, pszText);
+                                GlobalUnlock(hMem);
+                                SetClipboardData(CF_UNICODETEXT, hMem);
+                            }
+                        }
+                        CloseClipboard();
+                    }
+                    free(pszText);
+                }
+            }
+        } else if (nCmd == 2) {
+            // Clear
+            SetWindowText(hwnd, L"");
+        }
+        return 0;
+    }
+
+    return CallWindowProc(g_pfnOriginalOutputPaneProc, hwnd, msg, wParam, lParam);
+}
+
+//============================================================================
 // EditSubclassProc - Subclass procedure for RichEdit control
 //
 // Intercepts WM_KEYDOWN to handle Enter key for REPL mode and URLs
@@ -3970,6 +4100,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_KEYDOWN) {
+        // F6: move focus to output pane (only when pane is visible)
+        if (wParam == VK_F6 && g_hWndOutputPane && IsWindowVisible(g_hWndOutputPane)) {
+            SetFocus(g_hWndOutputPane);
+            return 0;
+        }
+
         // Handle Ctrl+Shift+I (Start Interactive Mode)
         if (wParam == 'I' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
             // Send command to main window to start interactive mode
@@ -5059,6 +5195,80 @@ HWND CreateStatusBar(HWND hwndParent)
     }
     
     return hwndStatus;
+}
+
+//============================================================================
+// CreateOutputPane - Create output pane RichEdit (hidden; shown on first use)
+//============================================================================
+void CreateOutputPane(HWND hwndParent)
+{
+    DWORD dwStyle = WS_CHILD | WS_VSCROLL | WS_HSCROLL |
+                    ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_NOHIDESEL;
+    if (g_bOutputPaneReadOnly)
+        dwStyle |= ES_READONLY;
+
+    g_hWndOutputPane = CreateWindowEx(
+        WS_EX_CLIENTEDGE,
+        g_szRichEditClassName,
+        NULL,
+        dwStyle,
+        0, 0, 0, 0,
+        hwndParent,
+        (HMENU)IDC_OUTPUT_PANE,
+        GetModuleHandle(NULL),
+        NULL
+    );
+
+    if (g_hWndOutputPane) {
+        // Disable word wrap (wide target device)
+        SetRichEditWordWrap(g_hWndOutputPane, 32000);
+
+        // Remove text limit
+        SendMessage(g_hWndOutputPane, EM_LIMITTEXT, 0, 0);
+
+        // Subclass
+        g_pfnOriginalOutputPaneProc = (WNDPROC)SetWindowLongPtr(
+            g_hWndOutputPane, GWLP_WNDPROC, (LONG_PTR)OutputPaneSubclassProc);
+    }
+}
+
+//============================================================================
+// ShowOutputPane - Make the output pane visible and retrigger layout
+//============================================================================
+void ShowOutputPane()
+{
+    if (!g_hWndOutputPane) return;
+    ShowWindow(g_hWndOutputPane, SW_SHOW);
+    SendMessage(g_hWndMain, WM_SIZE, 0, 0);
+}
+
+//============================================================================
+// ExecuteFilterDisplayPane - Write output to the output pane
+//============================================================================
+void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus)
+{
+    if (!g_hWndOutputPane) return;
+
+    if (!IsWindowVisible(g_hWndOutputPane))
+        ShowOutputPane();
+
+    if (bAppend) {
+        // Move caret to end and insert
+        GETTEXTLENGTHEX gtl;
+        gtl.flags = GTL_DEFAULT;
+        gtl.codepage = 1200;
+        LONG nLen = (LONG)SendMessage(g_hWndOutputPane, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+        CHARRANGE cr;
+        cr.cpMin = nLen;
+        cr.cpMax = nLen;
+        SendMessage(g_hWndOutputPane, EM_EXSETSEL, 0, (LPARAM)&cr);
+        SendMessage(g_hWndOutputPane, EM_REPLACESEL, FALSE, (LPARAM)pszOutput);
+    } else {
+        SetWindowText(g_hWndOutputPane, pszOutput);
+    }
+
+    if (bFocus)
+        SetFocus(g_hWndOutputPane);
 }
 
 //============================================================================
@@ -8482,6 +8692,11 @@ void ExecuteFilterDisplay(const std::string& outputData)
         // Start 30-second timer
         SetTimer(g_hWndMain, IDT_FILTER_STATUSBAR, 30000, NULL);
         
+    } else if (displayMode == FILTER_DISPLAY_PANE) {
+        BOOL bAppend = g_Filters[g_nCurrentFilter].bPaneAppend;
+        BOOL bFocus  = g_Filters[g_nCurrentFilter].bPaneFocus;
+        ExecuteFilterDisplayPane(pszOutput, bAppend, bFocus);
+
     } else {  // FILTER_DISPLAY_MESSAGEBOX
         // Show in message box
         WCHAR szTitle[MAX_FILTER_NAME + 64];
@@ -9503,6 +9718,38 @@ void LoadSettings()
     } else {
         wcscpy(g_szTimeFormat, szValue);
     }
+
+    // OutputPaneLines - output pane height as integer lines or percentage (e.g. "5" or "20%")
+    ReadINIValue(szIniPath, L"Settings", L"OutputPaneLines", szValue, 256, L"");
+    if (szValue[0] == L'\0') {
+        WriteINIValue(szIniPath, L"Settings", L"OutputPaneLines", L"5");
+        g_nOutputPaneSizeValue     = 5;
+        g_bOutputPaneSizeIsPercent = FALSE;
+    } else {
+        int nLen = (int)wcslen(szValue);
+        if (nLen > 0 && szValue[nLen - 1] == L'%') {
+            g_bOutputPaneSizeIsPercent = TRUE;
+            g_nOutputPaneSizeValue = _wtoi(szValue);
+            if (g_nOutputPaneSizeValue < 1)  g_nOutputPaneSizeValue = 1;
+            if (g_nOutputPaneSizeValue > 90) g_nOutputPaneSizeValue = 90;
+        } else {
+            g_bOutputPaneSizeIsPercent = FALSE;
+            g_nOutputPaneSizeValue = _wtoi(szValue);
+            if (g_nOutputPaneSizeValue < 1)  g_nOutputPaneSizeValue = 1;
+            if (g_nOutputPaneSizeValue > 200) g_nOutputPaneSizeValue = 200;
+        }
+    }
+
+    // OutputPaneReadOnly - 0 = editable (default), 1 = read-only
+    {
+        int nRO = ReadINIInt(szIniPath, L"Settings", L"OutputPaneReadOnly", -1);
+        if (nRO < 0) {
+            WriteINIValue(szIniPath, L"Settings", L"OutputPaneReadOnly", L"0");
+            g_bOutputPaneReadOnly = FALSE;
+        } else {
+            g_bOutputPaneReadOnly = (nRO != 0);
+        }
+    }
     
     // Load find history
     LoadFindHistory();
@@ -9618,6 +9865,34 @@ void LoadFilters()
                 g_Filters[i].displayMode = FILTER_DISPLAY_STATUSBAR;
             } else if (_wcsicmp(szDisplay, L"messagebox") == 0) {
                 g_Filters[i].displayMode = FILTER_DISPLAY_MESSAGEBOX;
+            } else if (_wcsicmp(szDisplay, L"pane") == 0) {
+                g_Filters[i].displayMode = FILTER_DISPLAY_PANE;
+                g_Filters[i].bPaneAppend = FALSE;
+                g_Filters[i].bPaneFocus  = FALSE;
+
+                // Read optional Pane= key (comma-separated: append, focus)
+                WCHAR szPane[64];
+                ReadINIValue(szIniPath, szSection, L"Pane", szPane, 64, L"");
+                if (szPane[0] != L'\0') {
+                    // Tokenise on comma
+                    WCHAR szTok[64];
+                    wcscpy(szTok, szPane);
+                    WCHAR *pCtx = NULL;
+                    WCHAR *pToken = wcstok(szTok, L",", &pCtx);
+                    while (pToken) {
+                        // Trim leading/trailing spaces
+                        while (*pToken == L' ' || *pToken == L'\t') pToken++;
+                        WCHAR *pEnd = pToken + wcslen(pToken) - 1;
+                        while (pEnd > pToken && (*pEnd == L' ' || *pEnd == L'\t')) {
+                            *pEnd-- = L'\0';
+                        }
+                        if (_wcsicmp(pToken, L"append") == 0)
+                            g_Filters[i].bPaneAppend = TRUE;
+                        else if (_wcsicmp(pToken, L"focus") == 0)
+                            g_Filters[i].bPaneFocus = TRUE;
+                        pToken = wcstok(NULL, L",", &pCtx);
+                    }
+                }
             } else {
                 // Invalid value - show warning and use default
                 WCHAR szWarning[256];

@@ -80,7 +80,7 @@ Last updated: 2026‑02‑19.
 - Process input/output via stdin/stdout pipes with UTF-8 encoding
 - INI-based filter configuration (`RichEditor.ini`)
 - Dynamic categorized menu (Transform, Statistics, Clipboard, Utility)
-- Four action types: Insert (replace/below/append), Display (statusbar/messagebox), Clipboard (copy/append), None (side effects)
+- Four action types: Insert (replace/below/append), Display (statusbar/messagebox/pane), Clipboard (copy/append), None (side effects)
 - Context menu integration (right-click to access filters)
 - Configurable context menu appearance (ContextMenu=1, ContextMenuOrder=N)
 - Error handling with stderr capture and display
@@ -752,6 +752,40 @@ Shortcut=Ctrl+Shift+F
 
 **Binary size delta (MinGW stripped):** 347 648 → 351 744 bytes (+4 096 bytes, +1.2%)
 
+### Phase 2.13 (Complete)
+
+**Output pane (`Display=pane`):**
+
+- Adds a secondary RichEdit panel that appears below the main edit area when a filter first writes to it; stays visible for the rest of the session.
+- Created at startup without `WS_VISIBLE`; shown automatically on first `Display=pane` use; not destroyed or hidden again while the app runs.
+- INI settings in `[Settings]`:
+  - `OutputPaneLines=5` — pane height as integer lines (default `5`) or percentage of available area (e.g. `20%`)
+  - `OutputPaneReadOnly=0` — `0` = editable (default), `1` = read-only
+- Per-filter INI (chained from `Action=display`):
+
+```ini
+Action=display
+Display=pane
+Pane=append,focus    ; optional comma-separated values
+```
+
+  | `Pane=` value | Meaning |
+  |---|---|
+  | *(absent)* | Replace pane content; stay in main edit |
+  | `append` | Append to existing pane content |
+  | `focus` | Move focus to pane after writing |
+  | `append,focus` | Both |
+
+- **F6**: Switches focus between the main edit area and the output pane (only when pane is visible).
+- **Output pane keyboard shortcuts:**
+  - `F6` → return focus to main edit
+  - `Ctrl+Shift+Delete` → clear pane
+- **Output pane context menu** (right-click): "Copy All" / "Clear"
+- Word wrap disabled in the pane; horizontal and vertical scroll bars shown.
+- Czech UI label: **panel výstupu**
+
+**Binary size delta:** 1 035 771 → 1 043 680 bytes (+7 909 bytes)
+
 ## Building
 
 RichEditor can be built using either **MinGW-w64** or **MSVC** (Microsoft Visual C++).
@@ -1079,6 +1113,10 @@ DateTimeTemplate=%date% %time%
 DateFormat=%shortdate%
 TimeFormat=HH:mm
 
+; Output pane settings
+OutputPaneLines=5             ; Height: integer lines (e.g. "5") or percentage of available area (e.g. "20%")
+OutputPaneReadOnly=0          ; 1=read-only pane, 0=editable (default: 0)
+
 ; Most recently used files (auto-managed)
 CurrentFilter=Calculator      ; Last selected filter (auto-saved)
 
@@ -1160,6 +1198,11 @@ Filters use an action-based architecture. The `Action=` setting determines what 
 - **`Action=display`** - Shows output without modifying document
   - `Display=messagebox` - Shows output in a message box dialog
   - `Display=statusbar` - Shows output in status bar for 30 seconds
+  - `Display=pane` - Shows output in the output pane (panel výstupu); pane appears on first use and stays visible for the session
+    - `Pane=` - Optional comma-separated modifiers:
+      - `append` - Append to existing pane content (default: replace)
+      - `focus` - Move focus to pane after writing
+      - `append,focus` - Both modifiers combined
 
 - **`Action=clipboard`** - Copies output to clipboard silently
   - `Clipboard=copy` - Replaces clipboard contents
