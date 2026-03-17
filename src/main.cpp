@@ -9942,23 +9942,27 @@ void LoadFilters()
                 WCHAR szPane[64];
                 ReadINIValue(szIniPath, szSection, L"Pane", szPane, 64, L"");
                 if (szPane[0] != L'\0') {
-                    // Tokenise on comma
+                    // Tokenise on comma (manual scan; avoids wcstok ABI mismatch
+                    // between MXE C11 3-arg and Ubuntu MinGW 2-arg forms)
                     WCHAR szTok[64];
                     wcscpy(szTok, szPane);
-                    WCHAR *pCtx = NULL;
-                    WCHAR *pToken = wcstok(szTok, L",", &pCtx);
-                    while (pToken) {
-                        // Trim leading/trailing spaces
+                    WCHAR *p = szTok;
+                    while (p && *p) {
+                        WCHAR *pComma = wcschr(p, L',');
+                        if (pComma) *pComma = L'\0';
+                        // Trim leading spaces
+                        WCHAR *pToken = p;
                         while (*pToken == L' ' || *pToken == L'\t') pToken++;
-                        WCHAR *pEnd = pToken + wcslen(pToken) - 1;
-                        while (pEnd > pToken && (*pEnd == L' ' || *pEnd == L'\t')) {
-                            *pEnd-- = L'\0';
-                        }
+                        // Trim trailing spaces
+                        WCHAR *pEnd = pToken + wcslen(pToken);
+                        while (pEnd > pToken &&
+                               (*(pEnd-1) == L' ' || *(pEnd-1) == L'\t')) pEnd--;
+                        *pEnd = L'\0';
                         if (_wcsicmp(pToken, L"append") == 0)
                             g_Filters[i].bPaneAppend = TRUE;
                         else if (_wcsicmp(pToken, L"focus") == 0)
                             g_Filters[i].bPaneFocus = TRUE;
-                        pToken = wcstok(NULL, L",", &pCtx);
+                        p = pComma ? pComma + 1 : NULL;
                     }
                 }
             } else {
