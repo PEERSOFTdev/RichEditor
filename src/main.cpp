@@ -358,6 +358,7 @@ struct FilterInfo {
     // Output pane options (Action=display, Display=pane)
     BOOL bPaneAppend;               // Pane=append — append to existing pane content
     BOOL bPaneFocus;                // Pane=focus  — move focus to pane after writing
+    BOOL bPaneStart;                // Pane=start  — place caret at start of newly written output
 };
 
 FilterInfo g_Filters[MAX_FILTERS];
@@ -544,7 +545,7 @@ void UpdateMRUMenu(HWND hwnd);
 void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode);
 void GetINIFilePath(LPWSTR pszPath, DWORD dwSize);
 void ShowOutputPane();
-void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus);
+void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus, BOOL bStart);
 
 // RichEdit library management functions (Phase 2.8)
 float GetRichEditVersion(HMODULE hModule, LPWSTR pszPath, DWORD cchPath);
@@ -5313,27 +5314,42 @@ void ShowOutputPane()
 //============================================================================
 // ExecuteFilterDisplayPane - Write output to the output pane
 //============================================================================
-void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus)
+void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus, BOOL bStart)
 {
     if (!g_hWndOutputPane) return;
 
     if (!IsWindowVisible(g_hWndOutputPane))
         ShowOutputPane();
 
+    LONG nCaretPos = 0;
     if (bAppend) {
-        // Move caret to end and insert
+        // Save pre-append length; used by bStart to position caret at chunk start
         GETTEXTLENGTHEX gtl;
         gtl.flags = GTL_DEFAULT;
         gtl.codepage = 1200;
-        LONG nLen = (LONG)SendMessage(g_hWndOutputPane, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+        LONG nPreAppendLen = (LONG)SendMessage(g_hWndOutputPane, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
         CHARRANGE cr;
-        cr.cpMin = nLen;
-        cr.cpMax = nLen;
+        cr.cpMin = nPreAppendLen;
+        cr.cpMax = nPreAppendLen;
         SendMessage(g_hWndOutputPane, EM_EXSETSEL, 0, (LPARAM)&cr);
         SendMessage(g_hWndOutputPane, EM_REPLACESEL, FALSE, (LPARAM)pszOutput);
+        if (bStart) {
+            // Place caret at start of newly appended chunk
+            nCaretPos = nPreAppendLen;
+        } else {
+            // Default: caret at end of all content
+            GETTEXTLENGTHEX gtl2;
+            gtl2.flags = GTL_DEFAULT;
+            gtl2.codepage = 1200;
+            nCaretPos = (LONG)SendMessage(g_hWndOutputPane, EM_GETTEXTLENGTHEX, (WPARAM)&gtl2, 0);
+        }
     } else {
         SetWindowText(g_hWndOutputPane, pszOutput);
+        nCaretPos = 0;  // replace mode: always scroll to top (bStart has same effect)
     }
+
+    SendMessage(g_hWndOutputPane, EM_SETSEL, (WPARAM)nCaretPos, (LPARAM)nCaretPos);
+    SendMessage(g_hWndOutputPane, EM_SCROLLCARET, 0, 0);
 
     if (bFocus)
         SetFocus(g_hWndOutputPane);
@@ -8763,7 +8779,8 @@ void ExecuteFilterDisplay(const std::string& outputData)
     } else if (displayMode == FILTER_DISPLAY_PANE) {
         BOOL bAppend = g_Filters[g_nCurrentFilter].bPaneAppend;
         BOOL bFocus  = g_Filters[g_nCurrentFilter].bPaneFocus;
-        ExecuteFilterDisplayPane(pszOutput, bAppend, bFocus);
+        BOOL bStart  = g_Filters[g_nCurrentFilter].bPaneStart;
+        ExecuteFilterDisplayPane(pszOutput, bAppend, bFocus, bStart);
 
     } else {  // FILTER_DISPLAY_MESSAGEBOX
         // Show in message box
@@ -9937,6 +9954,7 @@ void LoadFilters()
                 g_Filters[i].displayMode = FILTER_DISPLAY_PANE;
                 g_Filters[i].bPaneAppend = FALSE;
                 g_Filters[i].bPaneFocus  = FALSE;
+                g_Filters[i].bPaneStart  = FALSE;
 
                 // Read optional Pane= key (comma-separated: append, focus)
                 WCHAR szPane[64];
@@ -9962,6 +9980,8 @@ void LoadFilters()
                             g_Filters[i].bPaneAppend = TRUE;
                         else if (_wcsicmp(pToken, L"focus") == 0)
                             g_Filters[i].bPaneFocus = TRUE;
+                        else if (_wcsicmp(pToken, L"start") == 0)
+                            g_Filters[i].bPaneStart = TRUE;
                         p = pComma ? pComma + 1 : NULL;
                     }
                 }

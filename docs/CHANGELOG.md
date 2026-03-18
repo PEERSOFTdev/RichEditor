@@ -16,6 +16,8 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Remove redundant Category.cs from Filter10 default configuration
 - Add output pane: Display=pane with Pane=append/focus, F6, Ctrl+Shift+Delete, context menu
 - Annotate RichEdit controls with accessible names via IAccPropServices (MSAA Dynamic Annotation)
+- Replace wcstok with manual comma tokeniser in LoadFilters for cross-compiler portability
+- Add Pane=start token: place caret at start of newly written output; fix replace-mode scroll-to-top
 
 ---
 

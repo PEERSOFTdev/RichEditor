@@ -186,7 +186,7 @@ Action‑specific fields:
 - `Insert` (default `below`): `replace`, `below`, or `append`.
 - `Display` (default `messagebox`): `messagebox`, `statusbar`, or `pane`.
   - `pane` shows output in the output pane below the editor. The pane appears on the first use and stays visible for the session.
-  - Optional `Pane` key (comma‑separated): `append` (add to existing content instead of replacing), `focus` (move focus to pane after writing). Example: `Pane=append,focus`.
+  - Optional `Pane` key (comma‑separated): `append` (add to existing content instead of replacing), `focus` (move focus to pane after writing), `start` (place caret at start of newly written output: position 0 for replace mode, start of appended chunk for append mode). Example: `Pane=append,focus`.
 - `Clipboard` (default `copy`): `copy` or `append`.
 - `PromptEnd` (default `> `): REPL prompt terminator string (for example, `> ` or `$ `).
 - `EOLDetection` (default `auto`): end‑of‑line (EOL) detection for REPL output. `auto` detects from the first output; `crlf` = Windows, `lf` = Unix/Linux/WSL, `cr` = classic Mac.

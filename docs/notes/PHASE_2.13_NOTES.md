@@ -17,8 +17,27 @@ on first use; never hidden or destroyed during the session.
   tabular data); horizontal scroll bar added.
 - **Height** configurable via `OutputPaneLines=5` (integer lines) or `20%`
   (fraction of available client area).  Recalculated on `WM_SIZE`.
-- **`Pane=` key** accepts comma-separated tokens `append` and `focus`; parsed
+- **`Pane=` key** accepts comma-separated tokens `append`, `focus`, and `start`; parsed
   with a manual comma tokeniser (see `wcstok` note below).
+
+### `Pane=start` token
+
+`start` positions the caret at the beginning of the newly written output after the
+pane is updated, and scrolls that position into view via `EM_SCROLLCARET`.
+
+- **Replace mode** (no `append`): caret always goes to position 0 and the view
+  scrolls to the top.  This is also the fix for a pre-existing bug where
+  `SetWindowText` left the view scrolled to wherever it was before the write.
+  The `start` token has the same effect as the default in replace mode.
+- **Append mode + `start`**: the pre-append text length is saved before
+  `EM_REPLACESEL`, and the caret is set to that saved offset — i.e. the first
+  character of the newly appended chunk.
+- **Append mode without `start`**: caret remains at the end of all content
+  (existing behaviour, preserved).
+
+The scroll-to-top fix for replace mode is unconditional — it is a behaviour
+improvement, not a breaking change, because the view position after a full replace
+is not a user-observable setting.
 
 ### `wcstok` ABI mismatch (CI fix)
 

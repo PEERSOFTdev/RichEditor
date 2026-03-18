@@ -771,10 +771,11 @@ Pane=append,focus    ; optional comma-separated values
 
   | `Pane=` value | Meaning |
   |---|---|
-  | *(absent)* | Replace pane content; stay in main edit |
+  | *(absent)* | Replace pane content; scroll to top; stay in main edit |
   | `append` | Append to existing pane content |
   | `focus` | Move focus to pane after writing |
-  | `append,focus` | Both |
+  | `start` | Place caret at start of newly written output (position 0 for replace; start of appended chunk for append) |
+  | `append,focus` | Both modifiers combined |
 
 - **F6**: Switches focus between the main edit area and the output pane (only when pane is visible).
 - **Output pane keyboard shortcuts:**
@@ -1207,6 +1208,7 @@ Filters use an action-based architecture. The `Action=` setting determines what 
     - `Pane=` - Optional comma-separated modifiers:
       - `append` - Append to existing pane content (default: replace)
       - `focus` - Move focus to pane after writing
+      - `start` - Place caret at start of newly written output (position 0 for replace; start of appended chunk for append)
       - `append,focus` - Both modifiers combined
 
 - **`Action=clipboard`** - Copies output to clipboard silently

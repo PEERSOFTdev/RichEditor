@@ -188,7 +188,7 @@ Klíče specifické pro akci:
 - `Insert` (výchozí `below`): `replace` (nahradit), `below` (vložit pod řádek) nebo `append` (připojit na konec).
 - `Display` (výchozí `messagebox`): `messagebox` (dialogové okno), `statusbar` (stavový řádek) nebo `pane` (panel výstupu).
   - `pane` zobrazí výstup v panelu výstupu pod editorem. Panel se objeví při prvním použití a zůstane viditelný po celou dobu běhu aplikace.
-  - Volitelný klíč `Pane` (hodnoty oddělené čárkou): `append` (připojit k existujícímu obsahu místo nahrazení), `focus` (přesunout fokus na panel po zápisu). Příklad: `Pane=append,focus`.
+  - Volitelný klíč `Pane` (hodnoty oddělené čárkou): `append` (připojit k existujícímu obsahu místo nahrazení), `focus` (přesunout fokus na panel po zápisu), `start` (umístit kurzor na začátek nově zapsaného výstupu: pozice 0 při nahrazení, začátek připojeného bloku při připojení). Příklad: `Pane=append,focus`.
 - `Clipboard` (výchozí `copy`): `copy` (zkopírovat) nebo `append` (připojit k již zkopírovanému).
 - `PromptEnd` (výchozí `> `): ukončení REPL výzvy (např. `> ` nebo `$ `).
 - `EOLDetection` (výchozí `auto`): rozpoznání konce řádku (EOL, konec řádku) ve výstupu REPL. `auto` se řídí prvním výstupem; `crlf` = Windows, `lf` = Unix/Linux (např. Linux a WSL – Subsystém Windows pro Linux), `cr` = klasický Mac.
