@@ -28,15 +28,21 @@ OBJ = main.o resource.o
 
 # Compiler flags
 # -Os : optimize for size (keeps most O2 optimizations)
-# -g  : include debug symbols
+# -g  : include debug symbols (removed by strip target)
 # -Wall -Wextra : enable useful warnings
 # -static : static linking for standalone executable
-# -ffunction-sections/-fdata-sections + -Wl,--gc-sections : dead code elimination
-# -flto : link-time optimization
+# -ffunction-sections/-fdata-sections : place each function/data in its own section
+# -flto : link-time optimization (must appear in both CFLAGS and LDFLAGS)
+# -fno-exceptions : no C++ exception runtime (app uses no throw/catch; saves ~2 KB)
 CFLAGS = -std=c++11 -DUNICODE -D_UNICODE -Os -g -Wall -Wextra \
          -static -static-libgcc -static-libstdc++ \
-         -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
-LDFLAGS = -mwindows -municode -static -static-libgcc -static-libstdc++
+         -ffunction-sections -fdata-sections -flto -fno-exceptions
+# Linker flags
+# -Wl,--gc-sections : remove unreferenced sections prepared by -ffunction-sections
+# -flto -Os : LTO at size-optimized level (must match CFLAGS -Os)
+# -fno-exceptions : must also appear at link time for LTO to honour it
+LDFLAGS = -mwindows -municode -static -static-libgcc -static-libstdc++ \
+          -Wl,--gc-sections -flto -Os -fno-exceptions
 LIBS = -lcomctl32 -lcomdlg32 -lole32 -loleaut32 -lshell32 -lshlwapi -lversion -loleacc
 
 # Default target (debug build)

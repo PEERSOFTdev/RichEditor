@@ -18,6 +18,8 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Annotate RichEdit controls with accessible names via IAccPropServices (MSAA Dynamic Annotation)
 - Replace wcstok with manual comma tokeniser in LoadFilters for cross-compiler portability
 - Add Pane=start token: place caret at start of newly written output; fix replace-mode scroll-to-top
+- Fix MinGW linker flags: move --gc-sections to LDFLAGS; add -flto -Os -fno-exceptions
+- Remove redundant /Os and /Gy from MSVC release flags (implied by /O1)
 
 ---
 

@@ -150,7 +150,7 @@ goto :config_done
 
 :config_release
 set OUTPUT=msvc\RichEditor.exe
-set CFLAGS=/std:c++14 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS /D_CRT_NON_CONFORMING_WCSTOK /O1 /Os /Gy /GL /W3 /MT /GS- /GR- /Zc:inline /Zc:threadSafeInit- /EHsc /DNDEBUG
+set CFLAGS=/std:c++14 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS /D_CRT_NON_CONFORMING_WCSTOK /O1 /GL /W3 /MT /GS- /GR- /Zc:inline /Zc:threadSafeInit- /EHsc /DNDEBUG
 set LDFLAGS=/LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup
 echo Building RELEASE version (size-optimized)...
 goto :config_done
