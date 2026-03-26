@@ -78,7 +78,7 @@ CAPTION "About RichEditor"
 FONT 8, "MS Shell Dlg", 400, 0
 BEGIN
     ICON IDI_APPLICATION, IDC_STATIC, 10, 10, 20, 20
-    LTEXT "RichEditor v2.8.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
+    LTEXT "RichEditor v2.9.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
     LTEXT "Lightweight, accessible Win32 plain-text editor", IDC_STATIC, 40, 25, 190, 10
     LTEXT "Copyright (C) 2025-2026 PEERSOFT", IDC_STATIC, 40, 37, 190, 10
     LTEXT "", IDC_STATIC, 10, 49, 220, 1, SS_ETCHEDHORZ
@@ -129,8 +129,8 @@ END
 
 // Version Information
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     2,8,0,0
-PRODUCTVERSION  2,8,0,0
+FILEVERSION     2,9,0,0
+PRODUCTVERSION  2,9,0,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
     FILEFLAGS   VS_FF_DEBUG
@@ -147,24 +147,24 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lightweight Text Editor"
-            VALUE "FileVersion",      "2.8.0.0"
+            VALUE "FileVersion",      "2.9.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025-2026 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "2.8.0"
+            VALUE "ProductVersion",   "2.9.0"
             VALUE "Comments",         "Accessible plain-text editor with UTF-8, autosave, word wrap, find/replace, filters, elevated save, and English+Czech UI. Built with MinGW-w64 or MSVC."
         END
         BLOCK "040504B0"  // Czech, Unicode
         BEGIN
             VALUE "CompanyName",      "PEERSOFT"
             VALUE "FileDescription",  "RichEditor - Lehký textový editor"
-            VALUE "FileVersion",      "2.8.0.0"
+            VALUE "FileVersion",      "2.9.0.0"
             VALUE "InternalName",     "RichEditor"
             VALUE "LegalCopyright",   "Copyright (C) 2025-2026 PEERSOFT"
             VALUE "OriginalFilename", "RichEditor.exe"
             VALUE "ProductName",      "RichEditor"
-            VALUE "ProductVersion",   "2.8.0"
+            VALUE "ProductVersion",   "2.9.0"
             VALUE "Comments",         "Přístupný editor prostého textu s UTF-8, automatickým ukládáním, zalamováním řádků, hledáním/nahrazením, filtry, ukládáním se zvýšenými právy a anglickým+českým UI."
         END
     END
@@ -398,7 +398,7 @@ CAPTION "O programu RichEditor"
 FONT 8, "MS Shell Dlg", 400, 0
 BEGIN
     ICON IDI_APPLICATION, IDC_STATIC, 10, 10, 20, 20
-    LTEXT "RichEditor v2.8.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
+    LTEXT "RichEditor v2.9.0", IDC_STATIC, 40, 10, 190, 12, SS_NOPREFIX
     LTEXT "Lehký, přístupný editor prostého textu Win32", IDC_STATIC, 40, 25, 190, 10
     LTEXT "Copyright (C) 2025-2026 PEERSOFT", IDC_STATIC, 40, 37, 190, 10
     LTEXT "", IDC_STATIC, 10, 49, 220, 1, SS_ETCHEDHORZ

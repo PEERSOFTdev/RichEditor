@@ -7,6 +7,8 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 
 ## Unreleased
 
+## v2.9.0 (2026-03-26)
+
 - Add script: filter prefix with embedded JScript engine (Phase 2.12)
 - Fix script: filter: call SetScriptState(STARTED) before expression eval
 - Fix Sort Lines script: split/join on CR, drop semicolon
