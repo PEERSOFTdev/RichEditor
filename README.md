@@ -152,6 +152,10 @@ See `docs/CREDITS.md`.
 
 MIT License. See `LICENSE`.
 
+## Source Code
+
+https://github.com/PEERSOFTdev/RichEditor
+
 ## Project Philosophy
 
 See `PHILOSOPHY.md`.

@@ -88,14 +88,14 @@ Linking...
 =========================================
 Build complete: msvc\RichEditor.exe
 Optimized for size
-Size: 258560 bytes (252 KB)
+Size: 301568 bytes (295 KB)
 =========================================
 
 Comparison with MinGW build:
-  MinGW:  315392 bytes (308 KB)
-  MSVC:   258560 bytes (252 KB)
+  MinGW:  348160 bytes (340 KB)
+  MSVC:   301568 bytes (295 KB)
   
-🏆 MSVC is 56 KB (18%) smaller!
+MSVC is 46 KB (13%) smaller!
 ```
 
 ## Build Configuration Details
@@ -105,9 +105,7 @@ Optimized for **minimum binary size**:
 
 ```
 Compiler flags:
-  /O1                   :: Minimize size
-  /Os                   :: Favor small code
-  /Gy                   :: Enable function-level linking
+  /O1                   :: Minimize size (implies /Os and /Gy)
   /GL                   :: Whole program optimization
   /GS-                  :: Disable security checks (saves ~5-10 KB)
   /GR-                  :: Disable RTTI (not used, saves ~5 KB)
@@ -120,9 +118,9 @@ Linker flags:
   /OPT:ICF              :: Identical COMDAT folding
 ```
 
-**Expected size:** **252 KB** (actual result: 258,560 bytes)
+**Expected size:** ~**295 KB** (~301,568 bytes)
 
-**MSVC produces significantly smaller binaries than MinGW** - 18% reduction!
+**MSVC produces smaller binaries than MinGW** — ~13% reduction.
 
 ### Debug Build
 Includes debug symbols for Visual Studio debugging:
@@ -178,24 +176,23 @@ Output: msvc\RichEditor_dbg.exe + .pdb file
 
 ## Size Comparison Results
 
-**ACTUAL BUILD RESULTS (January 2026):**
+**ACTUAL BUILD RESULTS (March 2026):**
 
 | Build System | Optimization | Size | Difference |
 |--------------|--------------|------|------------|
-| **MSVC 2022** | `/O1 /Os /GL /LTCG /GS- /GR-` | **252 KB** (258,560 bytes) | **Baseline** ✅ |
-| MinGW-w64 | `-Os -s` | **308 KB** (315,392 bytes) | **+56 KB (+18%)** |
-| MemPad (reference) | (unknown) | ~280 KB | +28 KB |
+| **MSVC 2022** | `/O1 /GL /LTCG /GS- /GR-` | **~295 KB** (~301,568 bytes) | **Baseline** |
+| MinGW-w64 | `-Os -flto -fno-exceptions` | **340 KB** (348,160 bytes) | **+46 KB (+13%)** |
 
-**🏆 MSVC WINS!** The MSVC build is **18% smaller** than MinGW and even beats MemPad by 28 KB!
+MSVC produces a smaller binary than MinGW — ~13% reduction.
 
 **Why MSVC produces smaller code:**
-- ✅ More aggressive dead code elimination (`/OPT:REF` with `/LTCG`)
-- ✅ Better COMDAT folding - merges duplicate template instantiations (`/OPT:ICF`)
-- ✅ Smaller static CRT compared to MinGW's libstdc++/libgcc
-- ✅ Superior link-time optimization (LTCG is more mature than GCC's LTO)
-- ✅ Function-level linking removes unused functions completely (`/Gy`)
-- ✅ Disabled security checks save ~10 KB (`/GS-`)
-- ✅ Disabled RTTI saves ~5 KB (`/GR-`)
+- More aggressive dead code elimination (`/OPT:REF` with `/LTCG`)
+- Better COMDAT folding — merges duplicate template instantiations (`/OPT:ICF`)
+- Smaller static CRT compared to MinGW's libstdc++/libgcc
+- Superior link-time optimization (LTCG is more mature than GCC's LTO)
+- Function-level linking removes unused functions completely (`/Gy`, implied by `/O1`)
+- Disabled security checks save ~10 KB (`/GS-`)
+- Disabled RTTI saves ~5 KB (`/GR-`)
 
 **Recommendation:** **Use MSVC for release builds** to minimize executable size.
 
@@ -226,7 +223,7 @@ Both build systems produce functionally identical executables:
 - Need reproducible builds across platforms
 
 **Choose MSVC if:**
-- **Want smallest binary size (18% smaller!)** ✅ **RECOMMENDED**
+- **Want smallest binary size (~13% smaller)**
 - Prefer native Windows debugging
 - Need Visual Studio integration
 
@@ -266,7 +263,7 @@ Expected: Additional 5-10% size reduction
 
 ## License Compatibility
 
-Both MSVC and MinGW builds produce the same GPL-licensed binary. Using MSVC compiler does not affect licensing (Microsoft allows commercial and GPL use of MSVC-compiled binaries).
+Both MSVC and MinGW builds produce the same MIT-licensed binary. Using MSVC compiler does not affect licensing.
 
 ## Questions?
 
