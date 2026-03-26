@@ -36,6 +36,9 @@ msvc/*.pdb
 msvc/*.ilk
 msvc/*.exe
 
+# Release distribution
+dist/
+
 # Visual Studio Code
 .vscode/
 

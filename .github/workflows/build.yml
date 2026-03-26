@@ -56,27 +56,53 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
       - name: Download MinGW artifact
         uses: actions/download-artifact@v4
         with:
           name: RichEditor-mingw
-          path: dist/mingw
+          path: artifacts/mingw
 
       - name: Download MSVC artifact
         uses: actions/download-artifact@v4
         with:
           name: RichEditor-msvc
-          path: dist/msvc
+          path: artifacts/msvc
 
-      - name: Rename release assets
+      - name: Package release zips
         run: |
-          mv dist/mingw/RichEditor.exe dist/RichEditor-mingw.exe
-          mv dist/msvc/RichEditor.exe dist/RichEditor-msvc.exe
+          TAG="${{ steps.version.outputs.tag }}"
+          for variant in mingw msvc; do
+            DIR="dist/RichEditor-${TAG}-${variant}"
+            mkdir -p "${DIR}/docs"
+            cp "artifacts/${variant}/RichEditor.exe" "${DIR}/"
+            cp LICENSE README.md README_CS.md "${DIR}/"
+            cp docs/USER_MANUAL_EN.md docs/USER_MANUAL_CS.md docs/CHANGELOG.md "${DIR}/docs/"
+            (cd dist && zip -r "RichEditor-${TAG}-${variant}.zip" "RichEditor-${TAG}-${variant}/")
+          done
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/RichEditor-mingw.exe
-            dist/RichEditor-msvc.exe
+            dist/RichEditor-${{ steps.version.outputs.tag }}-mingw.zip
+            dist/RichEditor-${{ steps.version.outputs.tag }}-msvc.zip
           generate_release_notes: true
+          body: |
+            ## Which download should I choose?
+
+            | Build | Best for | Notes |
+            |-------|----------|-------|
+            | **RichEditor-${{ steps.version.outputs.tag }}-mingw.zip** | Most users | Cross-compiled with GCC/MinGW. Slightly larger binary (~340 KB). |
+            | **RichEditor-${{ steps.version.outputs.tag }}-msvc.zip** | Smallest size | Built with Microsoft Visual C++. Smaller binary (~295 KB). |
+
+            Both builds are **functionally identical** — same features, same UI, same accessibility support. Both are fully static with no DLL dependencies. Choose either one.
+
+            Each archive contains the executable, documentation (English + Czech user manuals), changelog, and license.
+
+            Source code: https://github.com/PEERSOFTdev/RichEditor

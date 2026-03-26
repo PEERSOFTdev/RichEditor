@@ -4,6 +4,7 @@
 # Usage:
 #   make                                    - Build debug version (default)
 #   make strip                              - Strip debug symbols for distribution
+#   make dist                               - Build stripped zip for release
 #   make CROSS=x86_64-w64-mingw32.static-   - Override compiler prefix
 #   make clean                              - Remove build artifacts
 #   make rebuild                            - Clean and build
@@ -11,6 +12,14 @@
 # Build types:
 #   debug   - Debug symbols with -Os optimization (~875KB)
 #   strip   - Stripped debug build for distribution (~275KB)
+#   dist    - Stripped build packaged as release zip with docs
+
+# Extract version from resource.rc  (e.g. FILEVERSION 2,9,0,0 -> 2.9.0)
+VERSION := $(shell grep -m1 '^ *FILEVERSION' src/resource.rc | \
+             sed 's/.*FILEVERSION *//;s/,[0-9]*$$//;s/,/./g;s/ *$$//')
+DIST_VARIANT ?= mingw
+DIST_NAME = RichEditor-v$(VERSION)-$(DIST_VARIANT)
+DIST_DIR = dist/$(DIST_NAME)
 
 # Default cross-compiler prefix (can be overridden)
 CROSS ?= x86_64-w64-mingw32.static-
@@ -71,6 +80,25 @@ strip: all
 	@echo "========================================="
 	@echo ""
 
+# Release zip: stripped exe + docs in a versioned directory
+dist: strip
+	@echo "Packaging $(DIST_NAME).zip ..."
+	@rm -rf $(DIST_DIR) dist/$(DIST_NAME).zip
+	@mkdir -p $(DIST_DIR)/docs
+	@cp $(TARGET) $(DIST_DIR)/
+	@cp LICENSE $(DIST_DIR)/
+	@cp README.md $(DIST_DIR)/
+	@cp README_CS.md $(DIST_DIR)/
+	@cp docs/USER_MANUAL_EN.md $(DIST_DIR)/docs/
+	@cp docs/USER_MANUAL_CS.md $(DIST_DIR)/docs/
+	@cp docs/CHANGELOG.md $(DIST_DIR)/docs/
+	@cd dist && zip -r $(DIST_NAME).zip $(DIST_NAME)/
+	@echo ""
+	@echo "========================================="
+	@echo "Release archive: dist/$(DIST_NAME).zip"
+	@echo "========================================="
+	@echo ""
+
 $(TARGET): $(OBJ)
 	$(CXX) $(LDFLAGS) $(OBJ) $(LIBS) -o $(TARGET)
 
@@ -84,6 +112,10 @@ clean:
 	rm -f $(OBJ) $(TARGET)
 	@echo "Cleaned build artifacts"
 
+distclean: clean
+	rm -rf dist/
+	@echo "Cleaned dist directory"
+
 rebuild: clean all
 
 # Help target
@@ -94,7 +126,9 @@ help:
 	@echo "Targets:"
 	@echo "  make                    - Build with debug symbols (default)"
 	@echo "  make strip              - Strip debug symbols for distribution"
+	@echo "  make dist               - Build release zip with docs"
 	@echo "  make clean              - Remove build artifacts"
+	@echo "  make distclean          - Remove build artifacts and dist/"
 	@echo "  make rebuild            - Clean and rebuild"
 	@echo "  make help               - Show this help"
 	@echo ""
@@ -116,4 +150,4 @@ help:
 	@echo "  make strip CROSS=i686-w64-mingw32.static-    # 32-bit stripped build"
 	@echo ""
 
-.PHONY: all debug strip clean rebuild help
+.PHONY: all debug strip dist clean distclean rebuild help

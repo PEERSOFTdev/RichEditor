@@ -7,6 +7,12 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 
 ## Unreleased
 
+- Bump version to v2.9.0
+- Update BUILD_MSVC.md: fix GPL to MIT, remove external comparisons, update stale sizes
+- Add README_CS.md: Czech signpost with manual pointer and archive contents
+- Add source code URL to README.md
+- Add release zip workflow: make dist target and CI packaging with docs
+
 ## v2.9.0 (2026-03-26)
 
 - Add script: filter prefix with embedded JScript engine (Phase 2.12)
