@@ -510,7 +510,7 @@ void ShowSaveTextFailure(SaveTextFailure failure, DWORD dwError);
 static void RestoreForegroundAfterElevation();
 void FileNew();
 void FileNewFromTemplate(int nTemplateIndex);
-void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount, int* pnTxtFilterIndex);
+void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount, int* pnTxtFilterIndex, BOOL bIncludeAllSupported);
 void FileOpen();
 BOOL FileSave();
 BOOL FileSaveAs();
@@ -7796,15 +7796,18 @@ BOOL IsExtensionInList(const WCHAR *szExt, const WCHAR *szList)
         return FALSE;
     }
     
-    WCHAR szListCopy[512];
-    wcscpy(szListCopy, szList);
-    
-    WCHAR *pToken = wcstok(szListCopy, L";");
-    while (pToken != NULL) {
-        if (_wcsicmp(pToken, szExt) == 0) {
-            return TRUE;
+    // Manual tokeniser (no wcstok — matches LoadFilters portability fix)
+    const WCHAR *p = szList;
+    while (*p) {
+        const WCHAR *pStart = p;
+        while (*p && *p != L';') p++;
+        size_t len = p - pStart;
+        if (len > 0 && len == wcslen(szExt)) {
+            if (_wcsnicmp(pStart, szExt, len) == 0) {
+                return TRUE;
+            }
         }
-        pToken = wcstok(NULL, L";");
+        if (*p == L';') p++;
     }
     
     return FALSE;
@@ -7813,14 +7816,17 @@ BOOL IsExtensionInList(const WCHAR *szExt, const WCHAR *szList)
 //============================================================================
 // BuildFileDialogFilter - Build file filter string for Open/Save dialogs
 // Builds filter string from template categories with localized labels
-// Format: "Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+// Format: "All Supported Types (*.md;*.txt)\0*.md;*.txt\0Markdown Files (*.md)\0*.md\0Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"
+// The first entry is always a combined "All Supported Types" filter
 // pszFilter: Output buffer for filter string (must be at least 1024 WCHARs)
 // cchFilter: Size of output buffer in WCHARs
 // pnFilterCount: Optional output - receives number of filters added (can be NULL)
 // pnTxtFilterIndex: Optional output - receives 1-based index of "Text Files" filter (can be NULL)
 //                   Set to -1 if txt is already in a category filter
+// bIncludeAllSupported: If TRUE, prepend a combined "All Supported Types" entry (for Open);
+//                       if FALSE, omit it (for Save As where a specific type is preferred)
 //============================================================================
-void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount, int* pnTxtFilterIndex)
+void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount, int* pnTxtFilterIndex, BOOL bIncludeAllSupported)
 {
     if (!pszFilter || cchFilter < 1024) return;
     
@@ -7879,7 +7885,89 @@ void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount
         }
     }
     
-    // Build filter string from categories
+    // Determine if "Text Files (*.txt)" needs a built-in entry
+    BOOL txtAlreadyAdded = FALSE;
+    for (int i = 0; i < categoryCount; i++) {
+        if (IsExtensionInList(L"txt", categoryFilters[i].szExtensions)) {
+            txtAlreadyAdded = TRUE;
+            break;
+        }
+    }
+    
+    // --- "All Supported Types" combined entry (first, Open dialog only) ---
+    if (bIncludeAllSupported) {
+        // Collect all unique extensions across categories + built-in txt
+        WCHAR szAllExts[512] = L"";
+        for (int i = 0; i < categoryCount; i++) {
+            // Append each extension from this category
+            const WCHAR *p = categoryFilters[i].szExtensions;
+            while (*p) {
+                const WCHAR *pStart = p;
+                while (*p && *p != L';') p++;
+                size_t len = p - pStart;
+                if (len > 0) {
+                    WCHAR szExt[MAX_TEMPLATE_FILEEXT];
+                    wcsncpy(szExt, pStart, len);
+                    szExt[len] = L'\0';
+                    if (!IsExtensionInList(szExt, szAllExts)) {
+                        if (szAllExts[0] != L'\0') wcscat(szAllExts, L";");
+                        wcscat(szAllExts, szExt);
+                    }
+                }
+                if (*p == L';') p++;
+            }
+        }
+        if (!txtAlreadyAdded) {
+            if (szAllExts[0] != L'\0') wcscat(szAllExts, L";");
+            wcscat(szAllExts, L"txt");
+        }
+        
+        // Build display form: "All Supported Types (*.md;*.txt)"
+        WCHAR szAllLabel[512];
+        LoadStringResource(IDS_ALL_SUPPORTED_TYPES, szAllLabel, 256);
+        wcscat(szAllLabel, L" (*.");
+        {
+            WCHAR szDisplayExt[256];
+            wcscpy(szDisplayExt, szAllExts);
+            WCHAR *pSemi = wcschr(szDisplayExt, L';');
+            while (pSemi != NULL) {
+                size_t remaining = wcslen(pSemi);
+                wmemmove(pSemi + 3, pSemi + 1, remaining);
+                pSemi[0] = L';';
+                pSemi[1] = L'*';
+                pSemi[2] = L'.';
+                pSemi = wcschr(pSemi + 3, L';');
+            }
+            wcscat(szAllLabel, szDisplayExt);
+        }
+        wcscat(szAllLabel, L")");
+        
+        // Build pattern form: "*.md;*.txt"
+        WCHAR szAllPattern[256];
+        wcscpy(szAllPattern, L"*.");
+        {
+            WCHAR szPatternExt[256];
+            wcscpy(szPatternExt, szAllExts);
+            WCHAR *pSemi = wcschr(szPatternExt, L';');
+            while (pSemi != NULL) {
+                size_t remaining = wcslen(pSemi);
+                wmemmove(pSemi + 3, pSemi + 1, remaining);
+                pSemi[0] = L';';
+                pSemi[1] = L'*';
+                pSemi[2] = L'.';
+                pSemi = wcschr(pSemi + 3, L';');
+            }
+            wcscat(szAllPattern, szPatternExt);
+        }
+        
+        // Write "All Supported Types" as first filter entry
+        wcscpy(pszFilter + pos, szAllLabel);
+        pos += wcslen(szAllLabel) + 1;
+        wcscpy(pszFilter + pos, szAllPattern);
+        pos += wcslen(szAllPattern) + 1;
+    }
+    
+    // --- Per-category filter entries ---
     for (int i = 0; i < categoryCount; i++) {
         // Build label: "Markdown Files (*.md)" or "HTML Files (*.htm;*.html)"
         WCHAR szFilterLabel[256];
@@ -7932,18 +8020,12 @@ void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount
     }
     
     // Add "Text Files (*.txt)" as built-in filter (if not already from templates)
-    BOOL txtAlreadyAdded = FALSE;
+    // When bIncludeAllSupported is TRUE, indices are offset by +1 for the combined entry
+    int indexOffset = bIncludeAllSupported ? 1 : 0;
     int txtFilterIndex = -1;  // Track txt filter index for FileSaveAs
     
-    for (int i = 0; i < categoryCount; i++) {
-        if (IsExtensionInList(L"txt", categoryFilters[i].szExtensions)) {
-            txtAlreadyAdded = TRUE;
-            break;
-        }
-    }
-    
     if (!txtAlreadyAdded) {
-        txtFilterIndex = categoryCount + 1;  // 1-based index
+        txtFilterIndex = categoryCount + 1 + indexOffset;  // 1-based + optional offset
         
         WCHAR szTxtLabel[128];
         wcscpy(szTxtLabel, szTextFiles);  // Localized "Text Files"
@@ -7969,9 +8051,9 @@ void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount
     pos += wcslen(L"*.*") + 1;
     pszFilter[pos] = L'\0';  // Double null terminator
     
-    // Return filter count if requested
+    // Return filter count if requested (optional All Supported + categories + txt? + All Files)
     if (pnFilterCount) {
-        *pnFilterCount = categoryCount + (txtAlreadyAdded ? 0 : 1) + 1;  // categories + txt + all files
+        *pnFilterCount = indexOffset + categoryCount + (txtAlreadyAdded ? 0 : 1) + 1;
     }
 }
 
@@ -7994,7 +8076,7 @@ void FileOpen()
     
     // Build dynamic filter string based on template categories
     WCHAR szFilter[1024];
-    BuildFileDialogFilter(szFilter, 1024, NULL, NULL);
+    BuildFileDialogFilter(szFilter, 1024, NULL, NULL, TRUE);
     
     ofn.lStructSize = sizeof(OPENFILENAME);
     ofn.hwndOwner = g_hWndMain;
@@ -8117,7 +8199,7 @@ BOOL FileSaveAs()
     // Build dynamic filter string based on template categories
     WCHAR szFilter[1024];
     int txtFilterIndex = -1;
-    BuildFileDialogFilter(szFilter, 1024, NULL, &txtFilterIndex);
+    BuildFileDialogFilter(szFilter, 1024, NULL, &txtFilterIndex, FALSE);
     
     // Determine default filter index and extension
     int nFilterIndex = 1;  // Default to first filter
@@ -8187,7 +8269,7 @@ BOOL FileSaveAs()
                     }
                     
                     if (categoryMatches) {
-                        nFilterIndex = seenCount + 1;  // 1-based
+                        nFilterIndex = seenCount + 1;  // 1-based index (no "All Supported Types" in Save As)
                         found = TRUE;
                     } else {
                         // Record this category and continue

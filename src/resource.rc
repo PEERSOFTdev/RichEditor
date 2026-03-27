@@ -323,6 +323,7 @@ BEGIN
      IDS_OUTPUTPANE_CLEAR            "Clear"
      IDS_ACCNAME_EDITOR              "Text Editor"
      IDS_ACCNAME_OUTPUTPANE          "Output Pane"
+     IDS_ALL_SUPPORTED_TYPES         "All Supported Types"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -597,4 +598,5 @@ BEGIN
      IDS_OUTPUTPANE_CLEAR            "Vymazat"
      IDS_ACCNAME_EDITOR              "Textový editor"
      IDS_ACCNAME_OUTPUTPANE          "Panel výstupu"
+     IDS_ALL_SUPPORTED_TYPES         "Všechny podporované typy"
 END

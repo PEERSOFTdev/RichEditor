@@ -492,6 +492,8 @@ OriginalPath=                 ; Empty for untitled, or original file path for sa
 - Picker menu flattened with category headers (no cascading)
 - Uncategorized templates appear at root level (no "General" category)
 - File Open/Save As dialogs build filters from template file types
+- Open dialog prepends "All Supported Types" combining every template extension plus `*.txt`
+- Save As omits the combined entry (shows only per-category filters for precise extension choice)
 - Save As default extension follows current file type
 
 **15 Default Markdown Templates:**

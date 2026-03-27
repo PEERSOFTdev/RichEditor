@@ -12,6 +12,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Add README_CS.md: Czech signpost with manual pointer and archive contents
 - Add source code URL to README.md
 - Add release zip workflow: make dist target and CI packaging with docs
+- Add All Supported Types filter to Open dialog; exclude from Save As
 
 ## v2.9.0 (2026-03-26)
 

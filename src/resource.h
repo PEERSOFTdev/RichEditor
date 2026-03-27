@@ -266,4 +266,7 @@
 #define IDS_ACCNAME_EDITOR              2177  // "Text Editor" / "Textový editor"
 #define IDS_ACCNAME_OUTPUTPANE          2178  // "Output Pane" / "Panel výstupu"
 
+// File dialog filter (2179)
+#define IDS_ALL_SUPPORTED_TYPES         2179  // "All Supported Types" / "Všechny podporované typy"
+
 #endif // RESOURCE_H
