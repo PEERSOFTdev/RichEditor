@@ -20,6 +20,7 @@ This project is organized into phases. The list below reflects completed work an
 - **Phase 2.10** - Configurable date/time formatting (DateFormat/TimeFormat/DateTimeTemplate).
 - **Phase 2.12** - Embedded JScript filter engine (`script:` prefix via IActiveScript COM; fixes Unicode filter bugs; migrates built-in Uppercase/Lowercase/Sort Lines filters).
 - **Phase 2.13** - Output pane (`Display=pane`) for script results with F6/Ctrl+Shift+Del/context menu; accessible names for both RichEdit controls via IAccPropServices (MSAA) and 1×1 UIA STATIC label technique.
+- **Phase 2.14** - Addon system: user-extensible filter and template packs loaded from `addons/<pack>/filters.ini` and `templates.ini`; duplicate-name override; `Reload Addons` menu item; working directory passthrough for addon executables.
 
 ## Planned / Open Phases
 

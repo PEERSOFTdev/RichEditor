@@ -796,6 +796,55 @@ Pane=append,focus    ; optional comma-separated values
 
 **Binary size delta:** 1 035 771 → 1 044 437 bytes (+8 666 bytes total for this phase)
 
+### Phase 2.14 (Complete)
+
+**Addon system** — user-extensible filter and template packs.
+
+**Directory layout:**
+
+```
+RichEditor.exe
+RichEditor.ini              ← main INI (Count= optional, still supported)
+addons/
+  my-suite/
+    filters.ini             ← addon filters (Count= optional)
+    templates.ini           ← addon templates (Count= optional)
+    tools/
+      myfilter.exe          ← relative path resolved via working directory
+  another-pack/
+    filters.ini
+```
+
+**Loading behaviour:**
+
+- On startup and via `Tools → Reload Addons`, the editor scans `addons\` next to the executable.
+- Addon directories are loaded in alphabetical order by directory name.
+- Within each addon directory, `filters.ini` and `templates.ini` are loaded using the same `[Filter1]`..`[FilterN]` / `[Template1]`..`[TemplateN]` section format as the main INI.
+- `Count=` in `[Filters]` or `[Templates]` is optional everywhere (main INI and addon files). If present, it defines the loop bound; if absent, sections are probed sequentially until an empty `Name=` is encountered.
+- Duplicate names (across main INI and all addons): last loaded wins. The previous definition is completely overwritten in place, and a warning is logged to the output pane.
+
+**Working directory resolution:**
+
+- Filter commands from addon packs are executed with `lpCurrentDirectory` set to the addon pack directory (e.g., `addons\my-suite\`). This allows addon `Command=` values to use relative paths to bundled executables.
+- Main INI filters continue to use `NULL` (inherit from process), preserving backward compatibility.
+
+**Reload Addons:**
+
+- `Tools → Reload Addons` performs a full reload: clears all filters and templates, re-reads the main INI and all addon packs, rebuilds all menus and the accelerator table. Filter and REPL selection is restored by name.
+
+**Status bar and output pane:**
+
+- After addon loading, a summary (`N packs, N addon filters, N addon templates`) is shown in the status bar.
+- The output pane is auto-shown only if warnings or errors were logged during loading (e.g., duplicate name overrides, limit reached).
+
+**INI parsing refactor:**
+
+- `ReadINIValueFromData(pszData, section, key, ...)` extracted as the core parsing routine, operating on an arbitrary wide-string buffer. `ReadINIValue` is now a thin wrapper that delegates to the cache.
+- `LoadINIFileToBuffer(path, outData)` reads a UTF-8 INI file into a `std::wstring` with BOM stripping.
+- `LoadFilters` and `LoadTemplates` accept a `std::vector<INISource>` (data pointer + source directory), enabling unified loading from multiple INI sources.
+
+**Binary size delta:** 348 672 → 356 352 bytes (+7 680 bytes stripped for this phase)
+
 ## Building
 
 ### Option 1: MSVC Build (Recommended for Windows) ✅

@@ -64,6 +64,8 @@ BEGIN
         BEGIN
             MENUITEM "(No filters configured)", ID_TOOLS_FILTER_BASE, GRAYED
         END
+        MENUITEM SEPARATOR
+        MENUITEM "Reload &Addons", ID_TOOLS_RELOAD_ADDONS
     END
     POPUP "&Help"
     BEGIN
@@ -324,6 +326,8 @@ BEGIN
      IDS_ACCNAME_EDITOR              "Text Editor"
      IDS_ACCNAME_OUTPUTPANE          "Output Pane"
      IDS_ALL_SUPPORTED_TYPES         "All Supported Types"
+     IDS_ADDON_OVERRIDE              "[Addons] %s ""%s"" from %s overrides previous definition"
+     IDS_ADDON_STATUS                "Loaded %d addon filters, %d addon templates"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -385,6 +389,8 @@ BEGIN
         BEGIN
             MENUITEM "(Žádné filtry nejsou nakonfigurovány)", ID_TOOLS_FILTER_BASE, GRAYED
         END
+        MENUITEM SEPARATOR
+        MENUITEM "Znovu načíst &doplňky", ID_TOOLS_RELOAD_ADDONS
     END
     POPUP "&Nápověda"
     BEGIN
@@ -599,4 +605,6 @@ BEGIN
      IDS_ACCNAME_EDITOR              "Textový editor"
      IDS_ACCNAME_OUTPUTPANE          "Panel výstupu"
      IDS_ALL_SUPPORTED_TYPES         "Všechny podporované typy"
+     IDS_ADDON_OVERRIDE              "[Doplňky] %s ""%s"" z %s přepisuje předchozí definici"
+     IDS_ADDON_STATUS                "Načteno %d doplňkových filtrů, %d doplňkových šablon"
 END

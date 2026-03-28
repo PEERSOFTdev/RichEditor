@@ -101,6 +101,29 @@ Templates support these variables:
 
 Advanced: templates are editable in `RichEditor.ini`. You can localize template names and descriptions using `Name.xx` and `Description.xx` keys (for example, `Name.cs`). Unknown variables are preserved as literals.
 
+## Addons (Filter and Template Packs)
+
+You can extend RichEditor by placing addon packs in an `addons` folder next to the executable. Each addon is a subdirectory containing `filters.ini` and/or `templates.ini`.
+
+Example layout:
+
+```
+RichEditor.exe
+addons/
+  my-tools/
+    filters.ini
+    tools/
+      myfilter.exe
+  snippets/
+    templates.ini
+```
+
+- Addon INI files use the same `[Filter1]`/`[Template1]` section format as the main `RichEditor.ini`. The `Count=` key is optional; if omitted, sections are probed sequentially.
+- Addon directories are loaded alphabetically by name.
+- If an addon defines a filter or template with the same `Name=` as an existing one, the addon version overwrites it (last loaded wins). The override is logged to the output pane.
+- Filter commands from addons are executed with their addon directory as the working directory, so relative paths to bundled tools work.
+- Use `Tools -> Reload Addons` to reload all addons without restarting.
+
 ## URL Handling
 
 URLs are detected automatically. Press Enter on a URL to open it, or right-click to open/copy. If cursor movement feels slow on a very large file, set `DetectURLs=0` in `[Settings]` and restart.

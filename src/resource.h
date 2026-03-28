@@ -54,6 +54,7 @@
 #define ID_TOOLS_INSERT_TEMPLATE        1203  // Insert Template submenu
 #define ID_TOOLS_SHOW_TEMPLATE_DESCRIPTIONS 1204  // Toggle template descriptions in menu
 #define ID_TOOLS_TEMPLATE_BASE          7000  // Base for template menu items (7000-7099)
+#define ID_TOOLS_RELOAD_ADDONS          1205  // Reload Addons (Phase 2.14)
 
 // File menu - MRU list
 #define ID_FILE_MRU_BASE                6000  // Base for MRU menu items (6000-6009)
@@ -268,5 +269,9 @@
 
 // File dialog filter (2179)
 #define IDS_ALL_SUPPORTED_TYPES         2179  // "All Supported Types" / "Všechny podporované typy"
+
+// Addon system strings (Phase 2.14: 2180-2183)
+#define IDS_ADDON_OVERRIDE              2180  // "[Addons] Filter/Template overridden" log message
+#define IDS_ADDON_STATUS                2181  // "Loaded %d addon filters, %d addon templates"
 
 #endif // RESOURCE_H

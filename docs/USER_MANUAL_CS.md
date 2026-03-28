@@ -101,6 +101,29 @@ Při psaní výrazů `script:` je třeba mít na paměti tři věci:
 
 Pokročilé: šablony lze upravovat v `RichEditor.ini` (konfigurační soubor). Jména a popisy šablon lze lokalizovat pomocí klíčů `Name.xx` a `Description.xx` (například `Name.cs`). Neznámé proměnné zůstávají jako text.
 
+## Doplňky (balíčky filtrů a šablon)
+
+RichEditor lze rozšířit umístěním balíčků doplňků do složky `addons` vedle spustitelného souboru. Každý doplněk je podadresář obsahující `filters.ini` a/nebo `templates.ini`.
+
+Příklad rozložení:
+
+```
+RichEditor.exe
+addons/
+  my-tools/
+    filters.ini
+    tools/
+      myfilter.exe
+  snippets/
+    templates.ini
+```
+
+- Soubory INI doplňků používají stejný formát sekcí `[Filter1]`/`[Template1]` jako hlavní `RichEditor.ini`. Klíč `Count=` je volitelný; pokud chybí, sekce se načítají postupně.
+- Adresáře doplňků se načítají v abecedním pořadí podle názvu.
+- Pokud doplněk definuje filtr nebo šablonu se stejným `Name=` jako existující položka, verze z doplňku ji přepíše (poslední načtený vyhrává). Přepsání se zaznamenává do panelu výstupu.
+- Příkazy filtrů z doplňků se spouštějí s adresářem doplňku jako pracovním adresářem, takže relativní cesty k přibaleným nástrojům fungují.
+- Pomocí `Nástroje -> Znovu načíst doplňky` lze znovu načíst všechny doplňky bez restartu.
+
 ## Adresy URL
 
 Adresy URL (webové odkazy) se detekují automaticky. Enter na adresu URL ji otevře, pravým tlačítkem lze adresu URL otevřít nebo zkopírovat. Pokud je pohyb kurzoru pomalý ve velmi velkém souboru, nastavte `DetectURLs=0` v sekci `[Settings]` a restartujte editor.

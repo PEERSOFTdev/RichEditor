@@ -359,6 +359,9 @@ struct FilterInfo {
     BOOL bPaneAppend;               // Pane=append — append to existing pane content
     BOOL bPaneFocus;                // Pane=focus  — move focus to pane after writing
     BOOL bPaneStart;                // Pane=start  — place caret at start of newly written output
+
+    // Addon source directory (Phase 2.14) — empty for main INI filters
+    WCHAR szSourceDir[MAX_PATH];
 };
 
 FilterInfo g_Filters[MAX_FILTERS];
@@ -385,6 +388,9 @@ struct TemplateInfo {
     // Keyboard shortcuts
     WORD wVirtualKey;      // 0 = no shortcut, VK_F1-VK_F12, '0'-'9', 'A'-'Z', etc.
     BYTE fModifiers;       // FCONTROL, FSHIFT, FALT (bitwise OR)
+
+    // Addon source directory (Phase 2.14) — empty for main INI templates
+    WCHAR szSourceDir[MAX_PATH];
 };
 
 TemplateInfo g_Templates[MAX_TEMPLATES];
@@ -424,6 +430,19 @@ BOOL g_bREPLIntentionalExit = FALSE;   // TRUE when user intentionally exits REP
 WCHAR g_szFilterStatusBarText[512] = L"";
 BOOL g_bFilterStatusBarActive = FALSE;
 WCHAR g_szAutosaveFlashPrevStatus[512] = L"";  // Status text saved before "[Autosaved]" flash
+
+//============================================================================
+// Addon System (Phase 2.14)
+//============================================================================
+
+// INI data source — used by LoadFilters/LoadTemplates to iterate over main INI + addons
+struct INISource {
+    const WCHAR* pszData;           // INI content as wide string (points into std::wstring)
+    WCHAR szSourceDir[MAX_PATH];    // Empty for main INI; addon pack dir for addon files
+};
+
+// Addon loading state
+BOOL g_bAddonWarnings = FALSE;      // TRUE if any addon warnings/errors were logged
 
 //============================================================================
 // Search System (Phase 2.9)
@@ -530,6 +549,11 @@ void ExecuteFilter();
 void CreateDefaultINI();
 void LoadSettings();
 void LoadFilters();
+void LoadFilters(const std::vector<INISource>& sources);
+void LoadTemplates(const std::vector<INISource>& sources);
+int  LoadAddons();
+void ReloadAddons();
+void GetExeDirectory(LPWSTR pszDir, DWORD dwSize);
 BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize);
 void SaveCurrentFilter();
 void SaveCurrentREPLFilter();
@@ -596,6 +620,10 @@ void AddToReplaceHistory(LPCWSTR pszText);
 // INI file functions
 BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD dwSize, LPCWSTR pszDefault);
 int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault);
+static BOOL ReadINIValueFromData(const WCHAR* pszData, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD cchValue, LPCWSTR pszDefault);
+static int ReadINIIntFromData(const WCHAR* pszData, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault);
+static BOOL LoadINIFileToBuffer(LPCWSTR pszFilePath, std::wstring& outData);
+static void LogAddonMessage(LPCWSTR pszMessage);
 BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue);
 BOOL EnsureIniCacheLoaded();
 BOOL FlushIniCache();
@@ -1063,158 +1091,173 @@ LPWSTR ParseEscapeSequences(LPCWSTR pszInput)
 }
 
 //============================================================================
-// LoadTemplates - Load templates from INI file
+// LoadTemplates - Load template configurations from INI sources
+// Accepts a list of INI data sources (main INI + addons).
+// When called with an empty list, reads from the main INI cache only.
 //============================================================================
-void LoadTemplates()
+void LoadTemplates(const std::vector<INISource>& sources)
 {
-    // Get path to INI file
-    WCHAR szIniPath[EXTENDED_PATH_MAX];
-    GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
+    g_nTemplateCount = 0;
 
-    // Read template count
-    g_nTemplateCount = ReadINIInt(szIniPath, L"Templates", L"Count", 0);
-    if (g_nTemplateCount > MAX_TEMPLATES) {
-        g_nTemplateCount = MAX_TEMPLATES;
-    }
-    
-    // Load each template
-    for (int i = 0; i < g_nTemplateCount; i++) {
-        WCHAR szSection[32];
-        swprintf(szSection, 32, L"Template%d", i + 1);
-        
-        // Read basic fields
-        ReadINIValue(szIniPath, szSection, L"Name", 
-                     g_Templates[i].szName, MAX_TEMPLATE_NAME, L"");
-        ReadINIValue(szIniPath, szSection, L"Description", 
-                     g_Templates[i].szDescription, MAX_TEMPLATE_DESC, L"");
-        ReadINIValue(szIniPath, szSection, L"Category", 
-                     g_Templates[i].szCategory, MAX_TEMPLATE_CATEGORY, L"");
-        ReadINIValue(szIniPath, szSection, L"FileExtension", 
-                     g_Templates[i].szFileExtension, MAX_TEMPLATE_FILEEXT, L"");
-        
-        // Read template value (with escape sequences)
-        WCHAR szTemplateRaw[MAX_TEMPLATE_VALUE];
-        ReadINIValue(szIniPath, szSection, L"Template", 
-                     szTemplateRaw, MAX_TEMPLATE_VALUE, L"");
-        
-        // Parse escape sequences (\n → newline, \t → tab, \xNN, \uNNNN, etc.)
-        LPWSTR pszParsed = ParseEscapeSequences(szTemplateRaw);
-        if (pszParsed) {
-            wcsncpy(g_Templates[i].szTemplate, pszParsed, MAX_TEMPLATE_VALUE - 1);
-            g_Templates[i].szTemplate[MAX_TEMPLATE_VALUE - 1] = L'\0';
-            free(pszParsed);
-        } else {
-            // Fallback: use raw string if parsing failed
-            wcsncpy(g_Templates[i].szTemplate, szTemplateRaw, MAX_TEMPLATE_VALUE - 1);
-            g_Templates[i].szTemplate[MAX_TEMPLATE_VALUE - 1] = L'\0';
-        }
-        
-        // Get system language code for localized strings
-        WCHAR szLangCode[16];
-        GetSystemLanguageCode(szLangCode, 16);
-        
-        // Try to load localized name
-        // First try full locale (e.g., "Name.cs_CZ")
-        WCHAR szLocalizedKey[64];
-        _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
-        szLocalizedKey[63] = L'\0';
-        ReadINIValue(szIniPath, szSection, szLocalizedKey, 
-                     g_Templates[i].szLocalizedName, MAX_TEMPLATE_NAME, L"");
-        
-        // If not found, try just language code (e.g., "Name.cs")
-        if (g_Templates[i].szLocalizedName[0] == L'\0') {
-            // Extract language code (first 2 chars before underscore)
-            WCHAR szLangOnly[8];
-            wcscpy(szLangOnly, szLangCode);
-            WCHAR* pUnderscore = wcschr(szLangOnly, L'_');
-            if (pUnderscore) {
-                *pUnderscore = L'\0';
+    // Pre-compute language code once
+    WCHAR szLangCode[16];
+    GetSystemLanguageCode(szLangCode, 16);
+    WCHAR szLangOnly[4] = L"";
+    wcsncpy(szLangOnly, szLangCode, 2);
+    szLangOnly[2] = L'\0';
+
+    for (size_t src = 0; src < sources.size(); src++) {
+        const WCHAR* pszData = sources[src].pszData;
+        if (!pszData || !pszData[0]) continue;
+
+        int nCount = ReadINIIntFromData(pszData, L"Templates", L"Count", 0);
+        BOOL bProbeMode = (nCount <= 0);
+        if (nCount > MAX_TEMPLATES) nCount = MAX_TEMPLATES;
+
+        for (int idx = 1; /* break below */; idx++) {
+            if (!bProbeMode && idx > nCount) break;
+            if (g_nTemplateCount >= MAX_TEMPLATES) {
+                WCHAR szWarn[256];
+                swprintf(szWarn, 256, L"[Addons] Template limit (%d) reached, skipping remaining templates.\r\n", MAX_TEMPLATES);
+                LogAddonMessage(szWarn);
+                break;
             }
-            
-            _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangOnly);
-            szLocalizedKey[63] = L'\0';
-            ReadINIValue(szIniPath, szSection, szLocalizedKey, 
-                         g_Templates[i].szLocalizedName, MAX_TEMPLATE_NAME, L"");
-        }
-        
-        // If no localized name, use default name
-        if (g_Templates[i].szLocalizedName[0] == L'\0') {
-            wcscpy(g_Templates[i].szLocalizedName, g_Templates[i].szName);
-        }
-        
-        // Try to load localized description
-        // First try full locale (e.g., "Description.cs_CZ")
-        _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangCode);
-        szLocalizedKey[63] = L'\0';
-        ReadINIValue(szIniPath, szSection, szLocalizedKey, 
-                     g_Templates[i].szLocalizedDescription, MAX_TEMPLATE_DESC, L"");
-        
-        // If not found, try just language code (e.g., "Description.cs")
-        if (g_Templates[i].szLocalizedDescription[0] == L'\0') {
-            // Extract language code (first 2 chars before underscore)
-            WCHAR szLangOnly[8];
-            wcscpy(szLangOnly, szLangCode);
-            WCHAR* pUnderscore = wcschr(szLangOnly, L'_');
-            if (pUnderscore) {
-                *pUnderscore = L'\0';
+
+            WCHAR szSection[32];
+            swprintf(szSection, 32, L"Template%d", idx);
+
+            WCHAR szName[MAX_TEMPLATE_NAME] = L"";
+            ReadINIValueFromData(pszData, szSection, L"Name", szName, MAX_TEMPLATE_NAME, L"");
+            if (szName[0] == L'\0') {
+                if (bProbeMode) break;
+                continue;
             }
-            
-            _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangOnly);
-            szLocalizedKey[63] = L'\0';
-            ReadINIValue(szIniPath, szSection, szLocalizedKey, 
-                         g_Templates[i].szLocalizedDescription, MAX_TEMPLATE_DESC, L"");
-        }
-        
-        // If no localized description, use default description
-        if (g_Templates[i].szLocalizedDescription[0] == L'\0') {
-            wcscpy(g_Templates[i].szLocalizedDescription, g_Templates[i].szDescription);
-        }
-        
-        // Try to load localized category (e.g., "Category.cs_CZ", then "Category.cs")
-        _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangCode);
-        szLocalizedKey[63] = L'\0';
-        ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                     g_Templates[i].szLocalizedCategory, MAX_TEMPLATE_CATEGORY, L"");
 
-        if (g_Templates[i].szLocalizedCategory[0] == L'\0') {
-            WCHAR szLangOnlyCat[8];
-            wcscpy(szLangOnlyCat, szLangCode);
-            WCHAR* pUnderscoreCat = wcschr(szLangOnlyCat, L'_');
-            if (pUnderscoreCat) *pUnderscoreCat = L'\0';
-            _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangOnlyCat);
-            szLocalizedKey[63] = L'\0';
-            ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                         g_Templates[i].szLocalizedCategory, MAX_TEMPLATE_CATEGORY, L"");
-        }
+            // Duplicate check
+            int nSlot = -1;
+            for (int d = 0; d < g_nTemplateCount; d++) {
+                if (wcscmp(g_Templates[d].szName, szName) == 0) {
+                    nSlot = d;
+                    break;
+                }
+            }
+            if (nSlot >= 0) {
+                WCHAR szMsg[512];
+                WCHAR szTpl[256];
+                LoadStringResource(IDS_ADDON_OVERRIDE, szTpl, 256);
+                _snwprintf(szMsg, 512, szTpl, szName);
+                szMsg[511] = L'\0';
+                size_t len = wcslen(szMsg);
+                if (len + 2 < 512) { szMsg[len] = L'\r'; szMsg[len+1] = L'\n'; szMsg[len+2] = L'\0'; }
+                LogAddonMessage(szMsg);
+            } else {
+                nSlot = g_nTemplateCount;
+                g_nTemplateCount++;
+            }
 
-        // Parse Shortcut field (optional)
-        WCHAR szShortcut[64];
-        ReadINIValue(szIniPath, szSection, L"Shortcut", szShortcut, 64, L"");
-        if (szShortcut[0] != L'\0') {
-            WORD wVirtualKey;
-            BYTE fModifiers;
-            
-            if (ParseShortcut(szShortcut, &wVirtualKey, &fModifiers)) {
-                // Check if reserved
-                if (IsShortcutReserved(wVirtualKey, fModifiers)) {
-                    // Skip - reserved shortcut
-                    g_Templates[i].wVirtualKey = 0;
-                    g_Templates[i].fModifiers = 0;
+            ZeroMemory(&g_Templates[nSlot], sizeof(TemplateInfo));
+            wcscpy(g_Templates[nSlot].szName, szName);
+            wcscpy(g_Templates[nSlot].szSourceDir, sources[src].szSourceDir);
+
+            // Basic fields
+            ReadINIValueFromData(pszData, szSection, L"Description",
+                                 g_Templates[nSlot].szDescription, MAX_TEMPLATE_DESC, L"");
+            ReadINIValueFromData(pszData, szSection, L"Category",
+                                 g_Templates[nSlot].szCategory, MAX_TEMPLATE_CATEGORY, L"");
+            ReadINIValueFromData(pszData, szSection, L"FileExtension",
+                                 g_Templates[nSlot].szFileExtension, MAX_TEMPLATE_FILEEXT, L"");
+
+            // Template value with escape sequences
+            WCHAR szTemplateRaw[MAX_TEMPLATE_VALUE];
+            ReadINIValueFromData(pszData, szSection, L"Template",
+                                 szTemplateRaw, MAX_TEMPLATE_VALUE, L"");
+            LPWSTR pszParsed = ParseEscapeSequences(szTemplateRaw);
+            if (pszParsed) {
+                wcsncpy(g_Templates[nSlot].szTemplate, pszParsed, MAX_TEMPLATE_VALUE - 1);
+                g_Templates[nSlot].szTemplate[MAX_TEMPLATE_VALUE - 1] = L'\0';
+                free(pszParsed);
+            } else {
+                wcsncpy(g_Templates[nSlot].szTemplate, szTemplateRaw, MAX_TEMPLATE_VALUE - 1);
+                g_Templates[nSlot].szTemplate[MAX_TEMPLATE_VALUE - 1] = L'\0';
+            }
+
+            // Localized name
+            WCHAR szLocalizedKey[64];
+            _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
+            szLocalizedKey[63] = L'\0';
+            ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                 g_Templates[nSlot].szLocalizedName, MAX_TEMPLATE_NAME, L"");
+            if (g_Templates[nSlot].szLocalizedName[0] == L'\0') {
+                _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangOnly);
+                szLocalizedKey[63] = L'\0';
+                ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                     g_Templates[nSlot].szLocalizedName, MAX_TEMPLATE_NAME, L"");
+            }
+            if (g_Templates[nSlot].szLocalizedName[0] == L'\0') {
+                wcscpy(g_Templates[nSlot].szLocalizedName, g_Templates[nSlot].szName);
+            }
+
+            // Localized description
+            _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangCode);
+            szLocalizedKey[63] = L'\0';
+            ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                 g_Templates[nSlot].szLocalizedDescription, MAX_TEMPLATE_DESC, L"");
+            if (g_Templates[nSlot].szLocalizedDescription[0] == L'\0') {
+                _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangOnly);
+                szLocalizedKey[63] = L'\0';
+                ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                     g_Templates[nSlot].szLocalizedDescription, MAX_TEMPLATE_DESC, L"");
+            }
+            if (g_Templates[nSlot].szLocalizedDescription[0] == L'\0') {
+                wcscpy(g_Templates[nSlot].szLocalizedDescription, g_Templates[nSlot].szDescription);
+            }
+
+            // Localized category
+            _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangCode);
+            szLocalizedKey[63] = L'\0';
+            ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                 g_Templates[nSlot].szLocalizedCategory, MAX_TEMPLATE_CATEGORY, L"");
+            if (g_Templates[nSlot].szLocalizedCategory[0] == L'\0') {
+                _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangOnly);
+                szLocalizedKey[63] = L'\0';
+                ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                     g_Templates[nSlot].szLocalizedCategory, MAX_TEMPLATE_CATEGORY, L"");
+            }
+
+            // Shortcut
+            WCHAR szShortcut[64];
+            ReadINIValueFromData(pszData, szSection, L"Shortcut", szShortcut, 64, L"");
+            if (szShortcut[0] != L'\0') {
+                WORD wVirtualKey;
+                BYTE fModifiers;
+                if (ParseShortcut(szShortcut, &wVirtualKey, &fModifiers)) {
+                    if (IsShortcutReserved(wVirtualKey, fModifiers)) {
+                        g_Templates[nSlot].wVirtualKey = 0;
+                        g_Templates[nSlot].fModifiers = 0;
+                    } else {
+                        g_Templates[nSlot].wVirtualKey = wVirtualKey;
+                        g_Templates[nSlot].fModifiers = fModifiers;
+                    }
                 } else {
-                    g_Templates[i].wVirtualKey = wVirtualKey;
-                    g_Templates[i].fModifiers = fModifiers;
+                    g_Templates[nSlot].wVirtualKey = 0;
+                    g_Templates[nSlot].fModifiers = 0;
                 }
             } else {
-                // Invalid shortcut format - ignore
-                g_Templates[i].wVirtualKey = 0;
-                g_Templates[i].fModifiers = 0;
+                g_Templates[nSlot].wVirtualKey = 0;
+                g_Templates[nSlot].fModifiers = 0;
             }
-        } else {
-            // No shortcut defined
-            g_Templates[i].wVirtualKey = 0;
-            g_Templates[i].fModifiers = 0;
         }
     }
+}
+
+// Legacy no-arg overload: loads from main INI cache only
+void LoadTemplates()
+{
+    EnsureIniCacheLoaded();
+    std::vector<INISource> sources(1);
+    sources[0].pszData = g_IniCache.data.c_str();
+    sources[0].szSourceDir[0] = L'\0';
+    LoadTemplates(sources);
 }
 
 //============================================================================
@@ -3123,9 +3166,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Update status bar
             UpdateStatusBar();
             
-            // Load filters and templates (settings already loaded in wWinMain)
-            LoadFilters();
-            LoadTemplates();  // Load templates with keyboard shortcuts
+            // Load filters, templates, and addons (settings already loaded in wWinMain)
+            LoadAddons();  // Loads main INI + addon packs, builds source lists
             BuildFilterMenu(hwnd);
             BuildTemplateMenu(hwnd);  // Build template submenu
             BuildFileNewMenu(hwnd);   // Build File→New submenu
@@ -3446,6 +3488,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         ExitREPLMode();
                         UpdateMenuStates(hwnd);
                     }
+                    break;
+
+                // Tools -> Reload Addons (Phase 2.14)
+                case ID_TOOLS_RELOAD_ADDONS:
+                    ReloadAddons();
                     break;
                 
                 // Tools -> Insert Template (Ctrl+Shift+T) - Show template picker menu
@@ -4393,6 +4440,20 @@ void GetINIFilePath(LPWSTR pszPath, DWORD dwSize)
     WCHAR* pszExt = wcsrchr(pszPath, L'.');
     if (pszExt) {
         wcscpy(pszExt, L".ini");
+    }
+}
+
+//============================================================================
+// GetExeDirectory - Get directory containing the executable (no trailing backslash)
+//============================================================================
+void GetExeDirectory(LPWSTR pszDir, DWORD dwSize)
+{
+    if (!pszDir || dwSize == 0) return;
+    GetModuleFileName(NULL, pszDir, dwSize);
+    // Remove filename, leaving just the directory
+    WCHAR* pszLastSlash = wcsrchr(pszDir, L'\\');
+    if (pszLastSlash) {
+        *pszLastSlash = L'\0';
     }
 }
 
@@ -5353,6 +5414,16 @@ void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus, BOOL
 
     if (bFocus)
         SetFocus(g_hWndOutputPane);
+}
+
+//============================================================================
+// LogAddonMessage - Append a message to the output pane for addon loading
+// Sets g_bAddonWarnings so the pane is auto-shown at the end if any were logged.
+//============================================================================
+static void LogAddonMessage(LPCWSTR pszMessage)
+{
+    g_bAddonWarnings = TRUE;
+    ExecuteFilterDisplayPane(pszMessage, TRUE /*append*/, FALSE /*no focus*/, FALSE /*no start*/);
 }
 
 //============================================================================
@@ -7230,11 +7301,13 @@ void GetSystemLanguageCode(LPWSTR pszLangCode, int cchLangCode)
 
 //============================================================================
 // INI reader backed by cached in-memory data (UNC-safe)
-BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD cchValue, LPCWSTR pszDefault)
+//============================================================================
+// ReadINIValueFromData - Parse INI data buffer for [Section] Key=Value
+// Core parsing logic used by both ReadINIValue (main INI cache) and addon loading
+//============================================================================
+static BOOL ReadINIValueFromData(const WCHAR* pszData, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD cchValue, LPCWSTR pszDefault)
 {
-    (void)pszIniPath;
-
-    if (!EnsureIniCacheLoaded()) {
+    if (!pszData || !pszData[0]) {
         if (pszDefault) {
             wcsncpy(pszValue, pszDefault, cchValue);
             pszValue[cchValue - 1] = L'\0';
@@ -7248,7 +7321,6 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
     WCHAR szSectionHeader[256];
     _snwprintf(szSectionHeader, 256, L"[%s]", pszSection);
     
-    const WCHAR* pszData = g_IniCache.data.c_str();
     const WCHAR* pszSectionStart = wcsstr(pszData, szSectionHeader);
     if (!pszSectionStart) {
         if (pszDefault) {
@@ -7332,6 +7404,38 @@ BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR
         pszValue[0] = L'\0';
     }
     return FALSE;
+}
+
+//============================================================================
+// ReadINIIntFromData - Read integer value from INI data buffer
+//============================================================================
+static int ReadINIIntFromData(const WCHAR* pszData, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault)
+{
+    WCHAR szValue[32];
+    if (ReadINIValueFromData(pszData, pszSection, pszKey, szValue, 32, NULL)) {
+        return _wtoi(szValue);
+    }
+    return nDefault;
+}
+
+//============================================================================
+// ReadINIValue - Read value from main INI cache
+//============================================================================
+BOOL ReadINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPWSTR pszValue, DWORD cchValue, LPCWSTR pszDefault)
+{
+    (void)pszIniPath;
+
+    if (!EnsureIniCacheLoaded()) {
+        if (pszDefault) {
+            wcsncpy(pszValue, pszDefault, cchValue);
+            pszValue[cchValue - 1] = L'\0';
+        } else {
+            pszValue[0] = L'\0';
+        }
+        return FALSE;
+    }
+    
+    return ReadINIValueFromData(g_IniCache.data.c_str(), pszSection, pszKey, pszValue, cchValue, pszDefault);
 }
 
 int ReadINIInt(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault)
@@ -7506,6 +7610,51 @@ BOOL EnsureIniCacheLoaded()
     
     g_IniCache.loaded = TRUE;
     g_IniCache.dirty = FALSE;
+    return TRUE;
+}
+
+//============================================================================
+// LoadINIFileToBuffer - Read an arbitrary INI file into a wide string buffer
+// Returns TRUE on success; on failure outData is left empty.
+//============================================================================
+static BOOL LoadINIFileToBuffer(LPCWSTR pszFilePath, std::wstring& outData)
+{
+    outData.clear();
+
+    HANDLE hFile = CreateFile(pszFilePath, GENERIC_READ, FILE_SHARE_READ,
+                              NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return FALSE;
+
+    DWORD dwSize = GetFileSize(hFile, NULL);
+    if (dwSize == 0 || dwSize == INVALID_FILE_SIZE) {
+        CloseHandle(hFile);
+        return (dwSize == 0) ? TRUE : FALSE;  // empty file is OK
+    }
+
+    char* pszRaw = (char*)malloc(dwSize + 1);
+    if (!pszRaw) { CloseHandle(hFile); return FALSE; }
+
+    DWORD dwRead;
+    BOOL bOK = ReadFile(hFile, pszRaw, dwSize, &dwRead, NULL);
+    CloseHandle(hFile);
+    if (!bOK || dwRead == 0) { free(pszRaw); return FALSE; }
+    pszRaw[dwRead] = '\0';
+
+    int cchWide = MultiByteToWideChar(CP_UTF8, 0, pszRaw, -1, NULL, 0);
+    if (cchWide <= 0) { free(pszRaw); return FALSE; }
+
+    WCHAR* pszWide = (WCHAR*)malloc(cchWide * sizeof(WCHAR));
+    if (!pszWide) { free(pszRaw); return FALSE; }
+
+    MultiByteToWideChar(CP_UTF8, 0, pszRaw, -1, pszWide, cchWide);
+    free(pszRaw);
+
+    // Strip UTF-8 BOM if present (0xFEFF)
+    if (pszWide[0] == 0xFEFF)
+        outData = pszWide + 1;
+    else
+        outData = pszWide;
+    free(pszWide);
     return TRUE;
 }
 
@@ -8674,7 +8823,8 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
 // Returns: true on success, false on failure
 //============================================================================
 bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8, 
-                      std::string& outputData, std::string& errorData, DWORD& dwExitCode)
+                      std::string& outputData, std::string& errorData, DWORD& dwExitCode,
+                      LPCWSTR pszWorkingDir)
 {
     // Create pipes for stdin, stdout, stderr
     HANDLE hStdinRead, hStdinWrite;
@@ -8716,8 +8866,11 @@ bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8,
     WCHAR szCommandCopy[MAX_FILTER_COMMAND + 100];
     wcscpy(szCommandCopy, pszCommand);
     
+    // Resolve working directory: use addon source dir if non-empty, else NULL (inherit)
+    LPCWSTR pszCwd = (pszWorkingDir && pszWorkingDir[0]) ? pszWorkingDir : NULL;
+
     if (!CreateProcess(NULL, szCommandCopy, NULL, NULL, TRUE, 
-                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+                       CREATE_NO_WINDOW, NULL, pszCwd, &si, &pi)) {
         WCHAR szError[512], szTitle[64], szTemplate[256];
         LoadStringResource(IDS_FILTER_EXEC_FAILED, szTemplate, 256);
         _snwprintf(szError, 512, szTemplate, GetLastError());
@@ -9207,7 +9360,8 @@ void ExecuteFilter()
     DWORD dwExitCode;
     
     if (!RunFilterCommand(g_Filters[g_nCurrentFilter].szCommand, pszInputUTF8, 
-                          outputData, errorData, dwExitCode)) {
+                          outputData, errorData, dwExitCode,
+                          g_Filters[g_nCurrentFilter].szSourceDir)) {
         free(pszInputUTF8);
         return;
     }
@@ -9926,267 +10080,264 @@ void LoadSettings()
 }
 
 //============================================================================
-// LoadFilters - Load filter configurations from INI file
+// LoadFilters - Load filter configurations from INI sources
+// Accepts a list of INI data sources (main INI + addons).
+// When called with an empty list, reads from the main INI cache only.
 //============================================================================
-void LoadFilters()
+void LoadFilters(const std::vector<INISource>& sources)
 {
-    // Get path to INI file (in same directory as executable)
+    g_nFilterCount = 0;
+
+    // Pre-compute language code once (used for every filter)
+    WCHAR szLangCode[16];
+    GetSystemLanguageCode(szLangCode, 16);
+    WCHAR szLangOnly[4] = L"";
+    wcsncpy(szLangOnly, szLangCode, 2);
+    szLangOnly[2] = L'\0';
+
+    for (size_t src = 0; src < sources.size(); src++) {
+        const WCHAR* pszData = sources[src].pszData;
+        if (!pszData || !pszData[0]) continue;
+
+        // Read Count= from [Filters] — if present and > 0, use as bound; otherwise probe
+        int nCount = ReadINIIntFromData(pszData, L"Filters", L"Count", 0);
+        BOOL bProbeMode = (nCount <= 0);
+        if (nCount > MAX_FILTERS) nCount = MAX_FILTERS;
+
+        for (int idx = 1; /* break below */; idx++) {
+            if (!bProbeMode && idx > nCount) break;
+            if (g_nFilterCount >= MAX_FILTERS) {
+                WCHAR szWarn[256];
+                swprintf(szWarn, 256, L"[Addons] Filter limit (%d) reached, skipping remaining filters.\r\n", MAX_FILTERS);
+                LogAddonMessage(szWarn);
+                break;
+            }
+
+            WCHAR szSection[32];
+            swprintf(szSection, 32, L"Filter%d", idx);
+
+            // Read Name first — in probe mode, empty name = end of list
+            WCHAR szName[MAX_FILTER_NAME] = L"";
+            ReadINIValueFromData(pszData, szSection, L"Name", szName, MAX_FILTER_NAME, L"");
+            if (szName[0] == L'\0') {
+                if (bProbeMode) break;  // end of sequential entries
+                continue;               // skip holes in counted mode
+            }
+
+            // Duplicate check: find existing filter with same Name
+            int nSlot = -1;
+            for (int d = 0; d < g_nFilterCount; d++) {
+                if (wcscmp(g_Filters[d].szName, szName) == 0) {
+                    nSlot = d;
+                    break;
+                }
+            }
+            if (nSlot >= 0) {
+                // Overwrite in place — log the override
+                WCHAR szMsg[512];
+                WCHAR szTemplate[256];
+                LoadStringResource(IDS_ADDON_OVERRIDE, szTemplate, 256);
+                _snwprintf(szMsg, 512, szTemplate, szName);
+                szMsg[511] = L'\0';
+                // Append newline
+                size_t len = wcslen(szMsg);
+                if (len + 2 < 512) { szMsg[len] = L'\r'; szMsg[len+1] = L'\n'; szMsg[len+2] = L'\0'; }
+                LogAddonMessage(szMsg);
+            } else {
+                nSlot = g_nFilterCount;
+                g_nFilterCount++;
+            }
+
+            // Zero-init the slot
+            ZeroMemory(&g_Filters[nSlot], sizeof(FilterInfo));
+
+            // Copy name
+            wcscpy(g_Filters[nSlot].szName, szName);
+
+            // Set source directory
+            wcscpy(g_Filters[nSlot].szSourceDir, sources[src].szSourceDir);
+
+            // Read basic fields
+            ReadINIValueFromData(pszData, szSection, L"Command",
+                                 g_Filters[nSlot].szCommand, MAX_FILTER_COMMAND, L"");
+            ReadINIValueFromData(pszData, szSection, L"Description",
+                                 g_Filters[nSlot].szDescription, MAX_FILTER_DESC, L"");
+            ReadINIValueFromData(pszData, szSection, L"Category",
+                                 g_Filters[nSlot].szCategory, MAX_FILTER_CATEGORY, L"");
+
+            // Localized category
+            WCHAR szLocalizedKey[64];
+            _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangCode);
+            ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                 g_Filters[nSlot].szLocalizedCategory, MAX_FILTER_CATEGORY, L"");
+            if (g_Filters[nSlot].szLocalizedCategory[0] == L'\0') {
+                _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangOnly);
+                ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                     g_Filters[nSlot].szLocalizedCategory, MAX_FILTER_CATEGORY, L"");
+            }
+
+            // Localized name
+            _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
+            ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                 g_Filters[nSlot].szLocalizedName, MAX_FILTER_NAME, L"");
+            if (g_Filters[nSlot].szLocalizedName[0] == L'\0') {
+                _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangOnly);
+                ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                     g_Filters[nSlot].szLocalizedName, MAX_FILTER_NAME, L"");
+            }
+            if (g_Filters[nSlot].szLocalizedName[0] == L'\0') {
+                wcscpy(g_Filters[nSlot].szLocalizedName, g_Filters[nSlot].szName);
+            }
+
+            // Localized description
+            _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangCode);
+            ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                 g_Filters[nSlot].szLocalizedDescription, MAX_FILTER_DESC, L"");
+            if (g_Filters[nSlot].szLocalizedDescription[0] == L'\0') {
+                _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangOnly);
+                ReadINIValueFromData(pszData, szSection, szLocalizedKey,
+                                     g_Filters[nSlot].szLocalizedDescription, MAX_FILTER_DESC, L"");
+            }
+            if (g_Filters[nSlot].szLocalizedDescription[0] == L'\0') {
+                wcscpy(g_Filters[nSlot].szLocalizedDescription, g_Filters[nSlot].szDescription);
+            }
+
+            // Read action type
+            WCHAR szAction[32];
+            ReadINIValueFromData(pszData, szSection, L"Action", szAction, 32, L"insert");
+
+            if (_wcsicmp(szAction, L"display") == 0) {
+                g_Filters[nSlot].action = FILTER_ACTION_DISPLAY;
+
+                WCHAR szDisplay[32];
+                ReadINIValueFromData(pszData, szSection, L"Display", szDisplay, 32, L"messagebox");
+
+                if (_wcsicmp(szDisplay, L"statusbar") == 0) {
+                    g_Filters[nSlot].displayMode = FILTER_DISPLAY_STATUSBAR;
+                } else if (_wcsicmp(szDisplay, L"messagebox") == 0) {
+                    g_Filters[nSlot].displayMode = FILTER_DISPLAY_MESSAGEBOX;
+                } else if (_wcsicmp(szDisplay, L"pane") == 0) {
+                    g_Filters[nSlot].displayMode = FILTER_DISPLAY_PANE;
+                    g_Filters[nSlot].bPaneAppend = FALSE;
+                    g_Filters[nSlot].bPaneFocus  = FALSE;
+                    g_Filters[nSlot].bPaneStart  = FALSE;
+
+                    WCHAR szPane[64];
+                    ReadINIValueFromData(pszData, szSection, L"Pane", szPane, 64, L"");
+                    if (szPane[0] != L'\0') {
+                        WCHAR szTok[64];
+                        wcscpy(szTok, szPane);
+                        WCHAR *p = szTok;
+                        while (p && *p) {
+                            WCHAR *pComma = wcschr(p, L',');
+                            if (pComma) *pComma = L'\0';
+                            WCHAR *pToken = p;
+                            while (*pToken == L' ' || *pToken == L'\t') pToken++;
+                            WCHAR *pEnd = pToken + wcslen(pToken);
+                            while (pEnd > pToken &&
+                                   (*(pEnd-1) == L' ' || *(pEnd-1) == L'\t')) pEnd--;
+                            *pEnd = L'\0';
+                            if (_wcsicmp(pToken, L"append") == 0)
+                                g_Filters[nSlot].bPaneAppend = TRUE;
+                            else if (_wcsicmp(pToken, L"focus") == 0)
+                                g_Filters[nSlot].bPaneFocus = TRUE;
+                            else if (_wcsicmp(pToken, L"start") == 0)
+                                g_Filters[nSlot].bPaneStart = TRUE;
+                            p = pComma ? pComma + 1 : NULL;
+                        }
+                    }
+                } else {
+                    OutputDebugString(L"Filter: Invalid Display value, using 'messagebox'\n");
+                    g_Filters[nSlot].displayMode = FILTER_DISPLAY_MESSAGEBOX;
+                }
+
+            } else if (_wcsicmp(szAction, L"clipboard") == 0) {
+                g_Filters[nSlot].action = FILTER_ACTION_CLIPBOARD;
+
+                WCHAR szClipboard[32];
+                ReadINIValueFromData(pszData, szSection, L"Clipboard", szClipboard, 32, L"copy");
+
+                if (_wcsicmp(szClipboard, L"append") == 0) {
+                    g_Filters[nSlot].clipboardMode = FILTER_CLIPBOARD_APPEND;
+                } else if (_wcsicmp(szClipboard, L"copy") == 0) {
+                    g_Filters[nSlot].clipboardMode = FILTER_CLIPBOARD_COPY;
+                } else {
+                    OutputDebugString(L"Filter: Invalid Clipboard value, using 'copy'\n");
+                    g_Filters[nSlot].clipboardMode = FILTER_CLIPBOARD_COPY;
+                }
+
+            } else if (_wcsicmp(szAction, L"none") == 0) {
+                g_Filters[nSlot].action = FILTER_ACTION_NONE;
+
+            } else if (_wcsicmp(szAction, L"repl") == 0) {
+                g_Filters[nSlot].action = FILTER_ACTION_REPL;
+
+                ReadINIValueFromData(pszData, szSection, L"PromptEnd",
+                                     g_Filters[nSlot].szPromptEnd, 16, L"> ");
+
+                WCHAR szEOL[32];
+                ReadINIValueFromData(pszData, szSection, L"EOLDetection", szEOL, 32, L"auto");
+
+                if (_wcsicmp(szEOL, L"crlf") == 0) {
+                    g_Filters[nSlot].replEOLMode = REPL_EOL_CRLF;
+                } else if (_wcsicmp(szEOL, L"lf") == 0) {
+                    g_Filters[nSlot].replEOLMode = REPL_EOL_LF;
+                } else if (_wcsicmp(szEOL, L"cr") == 0) {
+                    g_Filters[nSlot].replEOLMode = REPL_EOL_CR;
+                } else {
+                    g_Filters[nSlot].replEOLMode = REPL_EOL_AUTO;
+                }
+
+                g_Filters[nSlot].bExitNotification =
+                    (ReadINIIntFromData(pszData, szSection, L"ExitNotification", 1) != 0);
+
+            } else {
+                // Default: insert action
+                g_Filters[nSlot].action = FILTER_ACTION_INSERT;
+
+                WCHAR szInsert[32];
+                ReadINIValueFromData(pszData, szSection, L"Insert", szInsert, 32, L"below");
+
+                if (_wcsicmp(szInsert, L"replace") == 0) {
+                    g_Filters[nSlot].insertMode = FILTER_INSERT_REPLACE;
+                } else if (_wcsicmp(szInsert, L"append") == 0) {
+                    g_Filters[nSlot].insertMode = FILTER_INSERT_APPEND;
+                } else if (_wcsicmp(szInsert, L"below") == 0) {
+                    g_Filters[nSlot].insertMode = FILTER_INSERT_BELOW;
+                } else {
+                    OutputDebugString(L"Filter: Invalid Insert value, using 'below'\n");
+                    g_Filters[nSlot].insertMode = FILTER_INSERT_BELOW;
+                }
+            }
+
+            // Context menu settings
+            g_Filters[nSlot].bContextMenu =
+                (ReadINIIntFromData(pszData, szSection, L"ContextMenu", 0) != 0);
+            g_Filters[nSlot].nContextMenuOrder =
+                ReadINIIntFromData(pszData, szSection, L"ContextMenuOrder", 999);
+
+            // Validate filter configuration
+            WCHAR szValidationError[512];
+            if (!ValidateFilter(&g_Filters[nSlot], nSlot, szValidationError, 512)) {
+                WCHAR szTitle[64];
+                LoadStringResource(IDS_ERROR, szTitle, 64);
+                MessageBox(g_hWndMain, szValidationError, szTitle, MB_ICONWARNING | MB_OK);
+                g_Filters[nSlot].szName[0] = L'\0';
+            } else if (wcslen(szValidationError) > 0) {
+                OutputDebugString(L"Filter warning: ");
+                OutputDebugString(szValidationError);
+                OutputDebugString(L"\n");
+            }
+        }
+    }
+
+    // Restore last selected classic filter from main INI (always from cache)
     WCHAR szIniPath[EXTENDED_PATH_MAX];
     GetINIFilePath(szIniPath, EXTENDED_PATH_MAX);
-    
-    // Read filter count using direct file reading
-    g_nFilterCount = ReadINIInt(szIniPath, L"Filters", L"Count", 0);
-    if (g_nFilterCount > MAX_FILTERS) {
-        g_nFilterCount = MAX_FILTERS;
-    }
-    
-    // Load each filter
-    for (int i = 0; i < g_nFilterCount; i++) {
-        WCHAR szSection[32];
-        swprintf(szSection, 32, L"Filter%d", i + 1);
-        
-        ReadINIValue(szIniPath, szSection, L"Name", 
-                     g_Filters[i].szName, MAX_FILTER_NAME, L"");
-        ReadINIValue(szIniPath, szSection, L"Command", 
-                     g_Filters[i].szCommand, MAX_FILTER_COMMAND, L"");
-        ReadINIValue(szIniPath, szSection, L"Description", 
-                     g_Filters[i].szDescription, MAX_FILTER_DESC, L"");
-        ReadINIValue(szIniPath, szSection, L"Category", 
-                     g_Filters[i].szCategory, MAX_FILTER_CATEGORY, L"");
-        
-        // Get system language code for localized strings
-        WCHAR szLangCode[16];
-        GetSystemLanguageCode(szLangCode, 16);
-        WCHAR szLocalizedKey[64];
 
-        // Try to load localized category (e.g., "Category.cs_CZ")
-        _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangCode);
-        ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                     g_Filters[i].szLocalizedCategory, MAX_FILTER_CATEGORY, L"");
-        
-        // If not found, try just language code without country (e.g., "Category.cs")
-        if (g_Filters[i].szLocalizedCategory[0] == L'\0') {
-            WCHAR szLangOnly[4] = L"";
-            wcsncpy(szLangOnly, szLangCode, 2);
-            szLangOnly[2] = L'\0';
-            _snwprintf(szLocalizedKey, 64, L"Category.%s", szLangOnly);
-            ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                         g_Filters[i].szLocalizedCategory, MAX_FILTER_CATEGORY, L"");
-        }
-        
-        // Try to load localized name (e.g., "Name.cs_CZ")
-        _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangCode);
-        ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                     g_Filters[i].szLocalizedName, MAX_FILTER_NAME, L"");
-        
-        // If not found, try just language code without country (e.g., "Name.cs")
-        if (g_Filters[i].szLocalizedName[0] == L'\0') {
-            WCHAR szLangOnly[4] = L"";
-            wcsncpy(szLangOnly, szLangCode, 2);
-            szLangOnly[2] = L'\0';
-            _snwprintf(szLocalizedKey, 64, L"Name.%s", szLangOnly);
-            ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                         g_Filters[i].szLocalizedName, MAX_FILTER_NAME, L"");
-        }
-        
-        // If still not found, use English name as fallback
-        if (g_Filters[i].szLocalizedName[0] == L'\0') {
-            wcscpy(g_Filters[i].szLocalizedName, g_Filters[i].szName);
-        }
-        
-        // Try to load localized description (e.g., "Description.cs_CZ")
-        _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangCode);
-        ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                     g_Filters[i].szLocalizedDescription, MAX_FILTER_DESC, L"");
-        
-        // If not found, try just language code without country
-        if (g_Filters[i].szLocalizedDescription[0] == L'\0') {
-            WCHAR szLangOnly[4] = L"";
-            wcsncpy(szLangOnly, szLangCode, 2);
-            szLangOnly[2] = L'\0';
-            _snwprintf(szLocalizedKey, 64, L"Description.%s", szLangOnly);
-            ReadINIValue(szIniPath, szSection, szLocalizedKey,
-                         g_Filters[i].szLocalizedDescription, MAX_FILTER_DESC, L"");
-        }
-        
-        // If still not found, use English description as fallback
-        if (g_Filters[i].szLocalizedDescription[0] == L'\0') {
-            wcscpy(g_Filters[i].szLocalizedDescription, g_Filters[i].szDescription);
-        }
-        
-        // Read action type (insert, display, clipboard, none)
-        WCHAR szAction[32];
-        ReadINIValue(szIniPath, szSection, L"Action", 
-                     szAction, 32, L"insert");
-        
-        // Parse action and read action-specific parameters
-        if (_wcsicmp(szAction, L"display") == 0) {
-            g_Filters[i].action = FILTER_ACTION_DISPLAY;
-            
-            // Read Display parameter (statusbar or messagebox)
-            WCHAR szDisplay[32];
-            ReadINIValue(szIniPath, szSection, L"Display", 
-                         szDisplay, 32, L"messagebox");
-            
-            if (_wcsicmp(szDisplay, L"statusbar") == 0) {
-                g_Filters[i].displayMode = FILTER_DISPLAY_STATUSBAR;
-            } else if (_wcsicmp(szDisplay, L"messagebox") == 0) {
-                g_Filters[i].displayMode = FILTER_DISPLAY_MESSAGEBOX;
-            } else if (_wcsicmp(szDisplay, L"pane") == 0) {
-                g_Filters[i].displayMode = FILTER_DISPLAY_PANE;
-                g_Filters[i].bPaneAppend = FALSE;
-                g_Filters[i].bPaneFocus  = FALSE;
-                g_Filters[i].bPaneStart  = FALSE;
-
-                // Read optional Pane= key (comma-separated: append, focus)
-                WCHAR szPane[64];
-                ReadINIValue(szIniPath, szSection, L"Pane", szPane, 64, L"");
-                if (szPane[0] != L'\0') {
-                    // Tokenise on comma (manual scan; avoids wcstok ABI mismatch
-                    // between MXE C11 3-arg and Ubuntu MinGW 2-arg forms)
-                    WCHAR szTok[64];
-                    wcscpy(szTok, szPane);
-                    WCHAR *p = szTok;
-                    while (p && *p) {
-                        WCHAR *pComma = wcschr(p, L',');
-                        if (pComma) *pComma = L'\0';
-                        // Trim leading spaces
-                        WCHAR *pToken = p;
-                        while (*pToken == L' ' || *pToken == L'\t') pToken++;
-                        // Trim trailing spaces
-                        WCHAR *pEnd = pToken + wcslen(pToken);
-                        while (pEnd > pToken &&
-                               (*(pEnd-1) == L' ' || *(pEnd-1) == L'\t')) pEnd--;
-                        *pEnd = L'\0';
-                        if (_wcsicmp(pToken, L"append") == 0)
-                            g_Filters[i].bPaneAppend = TRUE;
-                        else if (_wcsicmp(pToken, L"focus") == 0)
-                            g_Filters[i].bPaneFocus = TRUE;
-                        else if (_wcsicmp(pToken, L"start") == 0)
-                            g_Filters[i].bPaneStart = TRUE;
-                        p = pComma ? pComma + 1 : NULL;
-                    }
-                }
-            } else {
-                // Invalid value - show warning and use default
-                WCHAR szWarning[256];
-                swprintf(szWarning, 256, 
-                         L"Filter %d: Invalid Display value '%s', using 'messagebox'. Valid values: statusbar, messagebox", 
-                         i + 1, szDisplay);
-                OutputDebugString(szWarning);
-                OutputDebugString(L"\n");
-                g_Filters[i].displayMode = FILTER_DISPLAY_MESSAGEBOX;
-            }
-            
-        } else if (_wcsicmp(szAction, L"clipboard") == 0) {
-            g_Filters[i].action = FILTER_ACTION_CLIPBOARD;
-            
-            // Read Clipboard parameter (copy or append)
-            WCHAR szClipboard[32];
-            ReadINIValue(szIniPath, szSection, L"Clipboard", 
-                         szClipboard, 32, L"copy");
-            
-            if (_wcsicmp(szClipboard, L"append") == 0) {
-                g_Filters[i].clipboardMode = FILTER_CLIPBOARD_APPEND;
-            } else if (_wcsicmp(szClipboard, L"copy") == 0) {
-                g_Filters[i].clipboardMode = FILTER_CLIPBOARD_COPY;
-            } else {
-                // Invalid value - show warning and use default
-                WCHAR szWarning[256];
-                swprintf(szWarning, 256, 
-                         L"Filter %d: Invalid Clipboard value '%s', using 'copy'. Valid values: copy, append", 
-                         i + 1, szClipboard);
-                OutputDebugString(szWarning);
-                OutputDebugString(L"\n");
-                g_Filters[i].clipboardMode = FILTER_CLIPBOARD_COPY;
-            }
-            
-        } else if (_wcsicmp(szAction, L"none") == 0) {
-            g_Filters[i].action = FILTER_ACTION_NONE;
-            
-        } else if (_wcsicmp(szAction, L"repl") == 0) {
-            // REPL (interactive) action (Phase 2.5)
-            g_Filters[i].action = FILTER_ACTION_REPL;
-            
-            // Read PromptEnd parameter (e.g., "> ", "$ ", "# ")
-            ReadINIValue(szIniPath, szSection, L"PromptEnd",
-                         g_Filters[i].szPromptEnd, 16, L"> ");
-            
-            // Read EOLDetection parameter (auto, crlf, lf, cr)
-            WCHAR szEOL[32];
-            ReadINIValue(szIniPath, szSection, L"EOLDetection",
-                         szEOL, 32, L"auto");
-            
-            if (_wcsicmp(szEOL, L"crlf") == 0) {
-                g_Filters[i].replEOLMode = REPL_EOL_CRLF;
-            } else if (_wcsicmp(szEOL, L"lf") == 0) {
-                g_Filters[i].replEOLMode = REPL_EOL_LF;
-            } else if (_wcsicmp(szEOL, L"cr") == 0) {
-                g_Filters[i].replEOLMode = REPL_EOL_CR;
-            } else {
-                // Default or invalid: use auto-detection
-                g_Filters[i].replEOLMode = REPL_EOL_AUTO;
-            }
-            
-            // Read ExitNotification parameter (1=show dialog when filter exits, 0=silent)
-            g_Filters[i].bExitNotification = (ReadINIInt(szIniPath, szSection, L"ExitNotification", 1) != 0);
-            
-        } else {
-            // Default: insert action
-            g_Filters[i].action = FILTER_ACTION_INSERT;
-            
-            // Read Insert parameter (replace, below, or append)
-            WCHAR szInsert[32];
-            ReadINIValue(szIniPath, szSection, L"Insert", 
-                         szInsert, 32, L"below");
-            
-            if (_wcsicmp(szInsert, L"replace") == 0) {
-                g_Filters[i].insertMode = FILTER_INSERT_REPLACE;
-            } else if (_wcsicmp(szInsert, L"append") == 0) {
-                g_Filters[i].insertMode = FILTER_INSERT_APPEND;
-            } else if (_wcsicmp(szInsert, L"below") == 0) {
-                g_Filters[i].insertMode = FILTER_INSERT_BELOW;
-            } else {
-                // Invalid value - show warning and use default
-                WCHAR szWarning[256];
-                swprintf(szWarning, 256, 
-                         L"Filter %d: Invalid Insert value '%s', using 'below'. Valid values: replace, below, append", 
-                         i + 1, szInsert);
-                OutputDebugString(szWarning);
-                OutputDebugString(L"\n");
-                g_Filters[i].insertMode = FILTER_INSERT_BELOW;
-            }
-        }
-        
-        // Read context menu settings
-        g_Filters[i].bContextMenu = (ReadINIInt(szIniPath, szSection, L"ContextMenu", 0) != 0);
-        g_Filters[i].nContextMenuOrder = ReadINIInt(szIniPath, szSection, L"ContextMenuOrder", 999);
-        
-        // Validate filter configuration
-        WCHAR szValidationError[512];
-        if (!ValidateFilter(&g_Filters[i], i, szValidationError, 512)) {
-            // Show error message for invalid filters
-            WCHAR szTitle[64];
-            LoadStringResource(IDS_ERROR, szTitle, 64);
-            MessageBox(g_hWndMain, szValidationError, szTitle, MB_ICONWARNING | MB_OK);
-            
-            // Skip this filter (mark as invalid by clearing name)
-            g_Filters[i].szName[0] = L'\0';
-        } else if (wcslen(szValidationError) > 0) {
-            // Show warning message (e.g., missing description)
-            // We'll log this to debug output but not show a dialog for warnings
-            OutputDebugString(L"Filter warning: ");
-            OutputDebugString(szValidationError);
-            OutputDebugString(L"\n");
-        }
-    }
-    
-    // Load last selected classic filter from settings (by name, defaulting to None)
     WCHAR szLastFilter[MAX_FILTER_NAME] = L"";
     ReadINIValue(szIniPath, L"Settings", L"CurrentFilter", szLastFilter, MAX_FILTER_NAME, L"");
-    
-    // Try to find classic filter by name
-    g_nCurrentFilter = -1; // Default to None
+    g_nCurrentFilter = -1;
     if (szLastFilter[0] != L'\0') {
         for (int i = 0; i < g_nFilterCount; i++) {
             if (wcscmp(g_Filters[i].szName, szLastFilter) == 0) {
@@ -10195,13 +10346,10 @@ void LoadFilters()
             }
         }
     }
-    
-    // Load last selected REPL filter from settings (by name, defaulting to None)
+
     WCHAR szLastREPLFilter[MAX_FILTER_NAME] = L"";
     ReadINIValue(szIniPath, L"Settings", L"CurrentREPLFilter", szLastREPLFilter, MAX_FILTER_NAME, L"");
-    
-    // Try to find REPL filter by name
-    g_nSelectedREPLFilter = -1; // Default to None
+    g_nSelectedREPLFilter = -1;
     if (szLastREPLFilter[0] != L'\0') {
         for (int i = 0; i < g_nFilterCount; i++) {
             if (wcscmp(g_Filters[i].szName, szLastREPLFilter) == 0) {
@@ -10210,6 +10358,194 @@ void LoadFilters()
             }
         }
     }
+}
+
+// Legacy no-arg overload: loads from main INI cache only
+void LoadFilters()
+{
+    EnsureIniCacheLoaded();
+    std::vector<INISource> sources(1);
+    sources[0].pszData = g_IniCache.data.c_str();
+    sources[0].szSourceDir[0] = L'\0';
+    LoadFilters(sources);
+}
+
+//============================================================================
+// LoadAddons - Scan addons/ subdirectory and load filters + templates
+// Builds a unified source list (main INI first, then addons sorted by name)
+// and calls LoadFilters/LoadTemplates with the combined list.
+// Returns: number of addon packs loaded.
+//============================================================================
+int LoadAddons()
+{
+    EnsureIniCacheLoaded();
+
+    // Reset warnings flag; LogAddonMessage will set it if needed
+    g_bAddonWarnings = FALSE;
+
+    // Source lists — main INI is always first
+    std::vector<INISource> filterSources;
+    std::vector<INISource> templateSources;
+
+    // Buffers to keep addon INI data alive during loading
+    std::vector<std::wstring> addonFilterBuffers;
+    std::vector<std::wstring> addonTemplateBuffers;
+
+    // Main INI as first source
+    {
+        INISource mainSrc;
+        mainSrc.pszData = g_IniCache.data.c_str();
+        mainSrc.szSourceDir[0] = L'\0';
+        filterSources.push_back(mainSrc);
+        templateSources.push_back(mainSrc);
+    }
+
+    // Get exe directory and build addons path
+    WCHAR szExeDir[MAX_PATH];
+    GetExeDirectory(szExeDir, MAX_PATH);
+
+    WCHAR szAddonsDir[MAX_PATH];
+    _snwprintf(szAddonsDir, MAX_PATH, L"%s\\addons", szExeDir);
+    szAddonsDir[MAX_PATH - 1] = L'\0';
+
+    // Scan addons directory for subdirectories
+    WCHAR szSearchPath[MAX_PATH];
+    _snwprintf(szSearchPath, MAX_PATH, L"%s\\*", szAddonsDir);
+    szSearchPath[MAX_PATH - 1] = L'\0';
+
+    WIN32_FIND_DATA fd;
+    HANDLE hFind = FindFirstFile(szSearchPath, &fd);
+    int nAddonPacks = 0;
+
+    if (hFind != INVALID_HANDLE_VALUE) {
+        // Collect directory names first, then sort alphabetically
+        std::vector<std::wstring> addonDirs;
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+            if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+            addonDirs.push_back(fd.cFileName);
+        } while (FindNextFile(hFind, &fd));
+        FindClose(hFind);
+
+        std::sort(addonDirs.begin(), addonDirs.end());
+
+        for (size_t i = 0; i < addonDirs.size(); i++) {
+            WCHAR szPackDir[MAX_PATH];
+            _snwprintf(szPackDir, MAX_PATH, L"%s\\%s", szAddonsDir, addonDirs[i].c_str());
+            szPackDir[MAX_PATH - 1] = L'\0';
+
+            BOOL bHasContent = FALSE;
+
+            // Try filters.ini
+            WCHAR szFiltersIni[MAX_PATH];
+            _snwprintf(szFiltersIni, MAX_PATH, L"%s\\filters.ini", szPackDir);
+            szFiltersIni[MAX_PATH - 1] = L'\0';
+
+            std::wstring filterBuf;
+            if (LoadINIFileToBuffer(szFiltersIni, filterBuf) && !filterBuf.empty()) {
+                addonFilterBuffers.push_back(filterBuf);
+                INISource src;
+                // pszData will be fixed below after all push_backs
+                src.pszData = NULL;
+                wcscpy(src.szSourceDir, szPackDir);
+                filterSources.push_back(src);
+                bHasContent = TRUE;
+            }
+
+            // Try templates.ini
+            WCHAR szTemplatesIni[MAX_PATH];
+            _snwprintf(szTemplatesIni, MAX_PATH, L"%s\\templates.ini", szPackDir);
+            szTemplatesIni[MAX_PATH - 1] = L'\0';
+
+            std::wstring templateBuf;
+            if (LoadINIFileToBuffer(szTemplatesIni, templateBuf) && !templateBuf.empty()) {
+                addonTemplateBuffers.push_back(templateBuf);
+                INISource src;
+                src.pszData = NULL;
+                wcscpy(src.szSourceDir, szPackDir);
+                templateSources.push_back(src);
+                bHasContent = TRUE;
+            }
+
+            if (bHasContent) nAddonPacks++;
+        }
+    }
+
+    // Fix up pszData pointers now that vectors are stable
+    // filterSources[0] is main INI (already correct)
+    // filterSources[1..] correspond to addonFilterBuffers[0..]
+    for (size_t i = 1; i < filterSources.size(); i++) {
+        filterSources[i].pszData = addonFilterBuffers[i - 1].c_str();
+    }
+    for (size_t i = 1; i < templateSources.size(); i++) {
+        templateSources[i].pszData = addonTemplateBuffers[i - 1].c_str();
+    }
+
+    // Load filters and templates from all sources
+    LoadFilters(filterSources);
+    LoadTemplates(templateSources);
+
+    // Show status bar summary
+    if (nAddonPacks > 0) {
+        // Count addon-sourced items (those with non-empty szSourceDir)
+        int nAddonFilters = 0, nAddonTemplates = 0;
+        for (int i = 0; i < g_nFilterCount; i++) {
+            if (g_Filters[i].szSourceDir[0] != L'\0') nAddonFilters++;
+        }
+        for (int i = 0; i < g_nTemplateCount; i++) {
+            if (g_Templates[i].szSourceDir[0] != L'\0') nAddonTemplates++;
+        }
+
+        WCHAR szStatus[256];
+        WCHAR szTpl[256];
+        LoadStringResource(IDS_ADDON_STATUS, szTpl, 256);
+        _snwprintf(szStatus, 256, szTpl, nAddonPacks, nAddonFilters, nAddonTemplates);
+        szStatus[255] = L'\0';
+        if (g_hWndStatus) {
+            SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
+        }
+    }
+
+    // Show output pane only if warnings were logged
+    if (g_bAddonWarnings && g_hWndOutputPane) {
+        ShowOutputPane();
+    }
+
+    return nAddonPacks;
+}
+
+//============================================================================
+// ReloadAddons - Full reload: clear all filters/templates, re-read main INI
+// + all addons, rebuild menus, restore state.
+//============================================================================
+void ReloadAddons()
+{
+    // Preserve current selections by name (they will be restored by LoadFilters)
+    // Save and re-read INI cache
+    EnsureIniCacheLoaded();
+
+    // Clear output pane for fresh log
+    if (g_hWndOutputPane) {
+        SetWindowText(g_hWndOutputPane, L"");
+    }
+
+    // LoadAddons does: LoadFilters + LoadTemplates with combined sources
+    LoadAddons();
+
+    // Rebuild menus and UI
+    BuildFilterMenu(g_hWndMain);
+    BuildTemplateMenu(g_hWndMain);
+    BuildFileNewMenu(g_hWndMain);
+
+    // Rebuild accelerator table (templates may have changed shortcuts)
+    if (g_hAccel) {
+        DestroyAcceleratorTable(g_hAccel);
+        g_hAccel = NULL;
+    }
+    g_hAccel = BuildAcceleratorTable();
+
+    UpdateFilterDisplay();
+    UpdateMenuStates(g_hWndMain);
 }
 
 
@@ -10989,8 +11325,9 @@ void StartREPLFilter(int filterIndex)
     wcscpy(szCommand, g_Filters[filterIndex].szCommand);
     
     // Create the process
+    LPCWSTR pszCwd = (g_Filters[filterIndex].szSourceDir[0]) ? g_Filters[filterIndex].szSourceDir : NULL;
     if (!CreateProcess(NULL, szCommand, NULL, NULL, TRUE, 
-                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+                       CREATE_NO_WINDOW, NULL, pszCwd, &si, &pi)) {
         CloseHandle(hStdoutRead);
         CloseHandle(hStdoutWrite);
         CloseHandle(hStdinRead);
