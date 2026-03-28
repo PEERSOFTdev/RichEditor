@@ -7,4 +7,6 @@ This folder contains phase-oriented planning or final status notes. It intention
 - `FINAL_PHASE_2.9.2_SUMMARY.md` - final summary for Phase 2.9.2
 - `IMPLEMENTATION_PLAN_Phase_2.10.md` - plan for Phase 2.10
 - `PHASE_2.11_WRAP_RULER_PLAN.md` - plan for wrap ruler (twips/column)
+- `PHASE_2.13_NOTES.md` - implementation notes for output pane and accessible names
+- `PHASE_2.14_NOTES.md` - implementation notes for addon system
 - `AGENTS_APPENDIX.md` - deeper agent notes and patterns
