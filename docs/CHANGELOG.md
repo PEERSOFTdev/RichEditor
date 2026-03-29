@@ -11,6 +11,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Add addon system for user-extensible filter and template packs (Phase 2.14)
 - Fix crash in addon system on empty addons directory
 - Refine addon override messages with type labels and compound template keys
+- Fix addon status bar format string to include pack count
 
 ## v2.9.0 (2026-03-26)
 
