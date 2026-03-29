@@ -845,6 +845,16 @@ addons/
 
 **Binary size delta:** 348 672 → 356 352 bytes (+7 680 bytes stripped for this phase)
 
+**Filter debug logging (`FilterDebug=1`):**
+
+- `FilterDebug=` in `[Settings]` — default `0` (off). Not auto-written to the INI when absent.
+- When active, regular filter execution logs to the output pane: resolved command, working directory (if set), exit code, and captured stderr.
+- REPL sessions additionally log: start command + working directory, every input line sent (`>>`), raw and ANSI-stripped stdout/stderr chunks (`<<`), and exit code or "Stopped by user".
+- Display=pane filters are forced to append mode while debug is active so filter output does not overwrite debug messages.
+- REPL background threads post debug messages via `WM_FILTER_DEBUG` (`WM_USER + 102`) for thread-safe main-thread logging.
+
+**Binary size delta (with FilterDebug):** 358 400 → 359 936 bytes (+1 536 bytes)
+
 ## Building
 
 ### Option 1: MSVC Build (Recommended for Windows) ✅
@@ -1173,6 +1183,7 @@ TimeFormat=HH:mm
 ; Output pane settings
 OutputPaneLines=5             ; Height: integer lines (e.g. "5") or percentage of available area (e.g. "20%")
 OutputPaneReadOnly=0          ; 1=read-only pane, 0=editable (default: 0)
+; FilterDebug=0               ; 1=log filter/REPL execution to output pane (default: 0, not auto-written)
 
 ; Most recently used files (auto-managed)
 CurrentFilter=Calculator      ; Last selected filter (auto-saved)

@@ -35,6 +35,7 @@
 // Custom messages for REPL (Phase 2.5)
 #define WM_REPL_OUTPUT  (WM_USER + 100)  // wParam: unused, lParam: LPWSTR (output text to insert)
 #define WM_REPL_EXITED  (WM_USER + 101)  // wParam: unused, lParam: unused (filter process exited)
+#define WM_FILTER_DEBUG (WM_USER + 102)  // wParam: unused, lParam: LPWSTR (debug text, handler frees)
 
 // Deferred file-load message: allows the menu to fully close before the blocking
 // LoadTextFile call starts, preventing accessibility tree confusion on slow RichEdit.
@@ -435,6 +436,7 @@ WCHAR g_szAutosaveFlashPrevStatus[512] = L"";  // Status text saved before "[Aut
 // Addon System (Phase 2.14)
 //============================================================================
 WCHAR g_szAddonStatus[256] = L"";  // Last addon load summary for status bar re-display
+BOOL g_bFilterDebug = FALSE;       // FilterDebug INI setting — opt-in filter/REPL debug logging
 
 // INI data source — used by LoadFilters/LoadTemplates to iterate over main INI + addons
 struct INISource {
@@ -625,6 +627,7 @@ static BOOL ReadINIValueFromData(const WCHAR* pszData, LPCWSTR pszSection, LPCWS
 static int ReadINIIntFromData(const WCHAR* pszData, LPCWSTR pszSection, LPCWSTR pszKey, int nDefault);
 static BOOL LoadINIFileToBuffer(LPCWSTR pszFilePath, std::wstring& outData);
 static void LogAddonMessage(LPCWSTR pszMessage);
+static void LogFilterDebug(LPCWSTR pszMessage);
 BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue);
 BOOL EnsureIniCacheLoaded();
 BOOL FlushIniCache();
@@ -3508,6 +3511,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // Tools -> Exit Interactive Mode
                 case ID_TOOLS_EXIT_INTERACTIVE:
                     if (g_bREPLMode) {
+                        if (g_bFilterDebug) LogFilterDebug(L"[REPL] Stopped by user\r\n");
                         g_bREPLIntentionalExit = TRUE;
                         ExitREPLMode();
                         UpdateMenuStates(hwnd);
@@ -4021,6 +4025,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         
         case WM_REPL_EXITED:
         {
+            // Debug: log exit before cleanup (process handle still valid)
+            if (g_bFilterDebug) {
+                if (g_bREPLIntentionalExit) {
+                    LogFilterDebug(L"[REPL] Stopped by user\r\n");
+                } else {
+                    DWORD dwCode = 0;
+                    if (g_hREPLProcess)
+                        GetExitCodeProcess(g_hREPLProcess, &dwCode);
+                    WCHAR szLog[64];
+                    _snwprintf(szLog, _countof(szLog),
+                               L"[REPL] Exited (code %d)\r\n", (int)dwCode);
+                    szLog[_countof(szLog) - 1] = L'\0';
+                    LogFilterDebug(szLog);
+                }
+            }
+
             // REPL filter process has exited
             // Cleanup REPL resources
             ExitREPLMode();
@@ -4036,6 +4056,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Reset flag for next REPL session
             g_bREPLIntentionalExit = FALSE;
             
+            return 0;
+        }
+
+        case WM_FILTER_DEBUG:
+        {
+            // Thread-safe filter debug logging — message posted from background threads
+            LPWSTR pszMsg = (LPWSTR)lParam;
+            if (pszMsg) {
+                LogFilterDebug(pszMsg);
+                free(pszMsg);
+            }
             return 0;
         }
 
@@ -5456,6 +5487,7 @@ static void LogAddonMessage(LPCWSTR pszMessage)
 //============================================================================
 static void LogFilterDebug(LPCWSTR pszMessage)
 {
+    if (!g_bFilterDebug) return;
     ExecuteFilterDisplayPane(pszMessage, TRUE /*append*/, FALSE /*no focus*/, FALSE /*no start*/);
 }
 
@@ -9136,6 +9168,8 @@ void ExecuteFilterDisplay(const std::string& outputData)
         BOOL bAppend = g_Filters[g_nCurrentFilter].bPaneAppend;
         BOOL bFocus  = g_Filters[g_nCurrentFilter].bPaneFocus;
         BOOL bStart  = g_Filters[g_nCurrentFilter].bPaneStart;
+        // Force append mode when debug logging is active to preserve debug output
+        if (g_bFilterDebug) bAppend = TRUE;
         ExecuteFilterDisplayPane(pszOutput, bAppend, bFocus, bStart);
 
     } else {  // FILTER_DISPLAY_MESSAGEBOX
@@ -10210,6 +10244,17 @@ void LoadSettings()
             g_bOutputPaneReadOnly = FALSE;
         } else {
             g_bOutputPaneReadOnly = (nRO != 0);
+        }
+    }
+
+    // FilterDebug - 0 = off (default), 1 = log filter/REPL execution to output pane
+    // Not written to INI by default — only present when user explicitly enables
+    {
+        int nDbg = ReadINIInt(szIniPath, L"Settings", L"FilterDebug", -1);
+        if (nDbg < 0) {
+            g_bFilterDebug = FALSE;
+        } else {
+            g_bFilterDebug = (nDbg != 0);
         }
     }
     
@@ -11537,6 +11582,22 @@ void StartREPLFilter(int filterIndex)
         return;
     }
     
+    // Debug: log REPL start
+    if (g_bFilterDebug) {
+        WCHAR szLog[MAX_FILTER_COMMAND + MAX_PATH + 64];
+        _snwprintf(szLog, _countof(szLog),
+                   L"[REPL] Started: %s\r\n", szCommand);
+        szLog[_countof(szLog) - 1] = L'\0';
+        LogFilterDebug(szLog);
+        if (pszCwd) {
+            WCHAR szCwdLog[MAX_PATH + 32];
+            _snwprintf(szCwdLog, _countof(szCwdLog),
+                       L"[REPL] Working dir: %s\r\n", pszCwd);
+            szCwdLog[_countof(szCwdLog) - 1] = L'\0';
+            LogFilterDebug(szCwdLog);
+        }
+    }
+
     // Update title bar to show Interactive Mode
     UpdateTitle(g_hWndMain);
     
@@ -11581,9 +11642,31 @@ DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
         // Convert UTF-8 to UTF-16
         LPWSTR pszOutput = UTF8ToUTF16(buffer);
         if (pszOutput) {
+            // Debug: log raw output before stripping ANSI escapes
+            if (g_bFilterDebug) {
+                size_t dbgLen = wcslen(pszOutput) + 24;
+                LPWSTR pszDbg = (LPWSTR)malloc(dbgLen * sizeof(WCHAR));
+                if (pszDbg) {
+                    _snwprintf(pszDbg, dbgLen, L"[REPL] << (raw) %s\r\n", pszOutput);
+                    pszDbg[dbgLen - 1] = L'\0';
+                    PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
+                }
+            }
+
             // Strip ANSI escape sequences (colors, cursor positioning, etc.)
             StripANSIEscapes(pszOutput);
             
+            // Debug: log filtered output after stripping
+            if (g_bFilterDebug) {
+                size_t dbgLen = wcslen(pszOutput) + 16;
+                LPWSTR pszDbg = (LPWSTR)malloc(dbgLen * sizeof(WCHAR));
+                if (pszDbg) {
+                    _snwprintf(pszDbg, dbgLen, L"[REPL] << %s\r\n", pszOutput);
+                    pszDbg[dbgLen - 1] = L'\0';
+                    PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
+                }
+            }
+
             // Allocate copy for message (will be freed by message handler)
             LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
             if (pszCopy) {
@@ -11621,9 +11704,31 @@ DWORD WINAPI REPLStderrThread(LPVOID /* lpParam */)
         // Convert UTF-8 to UTF-16
         LPWSTR pszOutput = UTF8ToUTF16(buffer);
         if (pszOutput) {
+            // Debug: log raw stderr before stripping ANSI escapes
+            if (g_bFilterDebug) {
+                size_t dbgLen = wcslen(pszOutput) + 32;
+                LPWSTR pszDbg = (LPWSTR)malloc(dbgLen * sizeof(WCHAR));
+                if (pszDbg) {
+                    _snwprintf(pszDbg, dbgLen, L"[REPL] << (stderr raw) %s\r\n", pszOutput);
+                    pszDbg[dbgLen - 1] = L'\0';
+                    PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
+                }
+            }
+
             // Strip ANSI escape sequences (colors, cursor positioning, etc.)
             StripANSIEscapes(pszOutput);
             
+            // Debug: log filtered stderr after stripping
+            if (g_bFilterDebug) {
+                size_t dbgLen = wcslen(pszOutput) + 24;
+                LPWSTR pszDbg = (LPWSTR)malloc(dbgLen * sizeof(WCHAR));
+                if (pszDbg) {
+                    _snwprintf(pszDbg, dbgLen, L"[REPL] << (stderr) %s\r\n", pszOutput);
+                    pszDbg[dbgLen - 1] = L'\0';
+                    PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
+                }
+            }
+
             // Allocate copy for message (will be freed by message handler)
             LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
             if (pszCopy) {
@@ -11798,6 +11903,14 @@ void SendLineToREPL()
         // Flush the pipe
         FlushFileBuffers(g_hREPLStdin);
         
+        // Debug: log sent input
+        if (g_bFilterDebug) {
+            WCHAR szLog[2048];
+            _snwprintf(szLog, _countof(szLog), L"[REPL] >> %s\r\n", pszInput);
+            szLog[_countof(szLog) - 1] = L'\0';
+            LogFilterDebug(szLog);
+        }
+
         free(pszInputUTF8);
     }
     

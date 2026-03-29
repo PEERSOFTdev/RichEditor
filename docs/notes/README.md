@@ -9,4 +9,6 @@ This folder contains phase-oriented planning or final status notes. It intention
 - `PHASE_2.11_WRAP_RULER_PLAN.md` - plan for wrap ruler (twips/column)
 - `PHASE_2.13_NOTES.md` - implementation notes for output pane and accessible names
 - `PHASE_2.14_NOTES.md` - implementation notes for addon system
+- `FILTER_DEBUG_NOTES.md` - filter and REPL debug logging design
+- `SIZE_OPTIMIZATION.md` - binary size optimization notes
 - `AGENTS_APPENDIX.md` - deeper agent notes and patterns

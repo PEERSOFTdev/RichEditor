@@ -158,7 +158,8 @@ Date and time formatting.
 - `DateFormat` (default `%shortdate%`): format used by `%date%` in templates. Set it to a built‑in variable (like `%shortdate%`) or a custom date format string.
 - `TimeFormat` (default `HH:mm`): format used by `%time%` in templates. Set it to a built‑in variable (like `%shorttime%`) or a custom time format string.
 - `OutputPaneLines` (default `5`): height of the output pane. Use an integer for a fixed number of lines (for example, `10`) or append `%` for a percentage of the available area (for example, `20%`).
-- `OutputPaneReadOnly` (default `0`): `1` makes the output pane read‑only; `0` keeps it editable.
+- `OutputPaneReadOnly` (default `0`): `1` makes the output pane read-only; `0` keeps it editable.
+- `FilterDebug` (default `0`): `1` enables debug logging for filter and REPL execution. When active, the output pane shows the resolved command, working directory, exit code, and stderr for each filter run. REPL sessions additionally log every input line sent and output chunk received. This key is not written to the INI by default; add `FilterDebug=1` manually when needed for troubleshooting.
 
 Date/time variables and custom formats (Windows date/time picture tokens).
 
@@ -188,9 +189,9 @@ Internal state (usually not edited by hand).
 
 ### [Filters] and [FilterN]
 
-`[Filters]` stores a single key:
+`[Filters]` stores an optional key:
 
-- `Count` (default `10`): number of filter entries that follow.
+- `Count` (optional): number of filter entries. If omitted, filter sections are probed sequentially (`[Filter1]`, `[Filter2]`, ...) until an empty or missing `Name=` is found.
 
 Each `[FilterN]` defines one filter. Required fields:
 
@@ -222,9 +223,9 @@ Context menu placement:
 
 ### [Templates] and [TemplateN]
 
-`[Templates]` stores a single key:
+`[Templates]` stores an optional key:
 
-- `Count` (default `15`): number of template entries that follow.
+- `Count` (optional): number of template entries. If omitted, template sections are probed sequentially until an empty or missing `Name=` is found.
 
 Each `[TemplateN]` defines one template:
 

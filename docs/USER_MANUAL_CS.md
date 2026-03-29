@@ -159,6 +159,7 @@ Formát data a času.
 - `TimeFormat` (výchozí `HH:mm`): formát pro `%time%` v šablonách. Nastavte na vestavěnou proměnnou (např. `%shorttime%`) nebo vlastní formátovací řetězec.
 - `OutputPaneLines` (výchozí `5`): výška panelu výstupu. Celé číslo udává pevný počet řádků (např. `10`); hodnota s `%` udává procento dostupné plochy (např. `20%`).
 - `OutputPaneReadOnly` (výchozí `0`): `1` = panel výstupu je jen pro čtení; `0` = panel je editovatelný.
+- `FilterDebug` (výchozí `0`): `1` zapne ladící výpis pro spouštění filtrů a REPL. Při aktivaci panel výstupu zobrazuje vyřešený příkaz, pracovní adresář, návratový kód a stderr pro každé spuštění filtru. U relací REPL se navíc zaznamenává každý odeslaný vstupní řádek a přijatý výstup. Tento klíč se ve výchozím stavu do INI nezapisuje; přidejte `FilterDebug=1` ručně, když je potřeba pro odstraňování problémů.
 
 Proměnné data/času a vlastní formáty (formátovací značky systému Windows).
 
@@ -190,9 +191,9 @@ Interní stav (běžně se neupravuje ručně).
 
 ### [Filters] a [FilterN]
 
-`[Filters]` má jediný klíč:
+`[Filters]` má volitelný klíč:
 
-- `Count` (výchozí `10`): počet filtrů v dalších sekcích.
+- `Count` (volitelný): počet filtrů. Pokud chybí, sekce filtrů se načítají postupně (`[Filter1]`, `[Filter2]`, ...) dokud se nenarazí na prázdný nebo chybějící `Name=`.
 
 Každý `[FilterN]` definuje jeden filtr. Povinné položky:
 
@@ -224,9 +225,9 @@ Kontextová nabídka:
 
 ### [Templates] a [TemplateN]
 
-`[Templates]` má jediný klíč:
+`[Templates]` má volitelný klíč:
 
-- `Count` (výchozí `15`): počet šablon v dalších sekcích.
+- `Count` (volitelný): počet šablon. Pokud chybí, sekce šablon se načítají postupně dokud se nenarazí na prázdný nebo chybějící `Name=`.
 
 Každý `[TemplateN]` definuje jednu šablonu:
 
