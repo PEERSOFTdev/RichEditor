@@ -551,7 +551,7 @@ void LoadSettings();
 void LoadFilters();
 void LoadFilters(const std::vector<INISource>& sources);
 void LoadTemplates(const std::vector<INISource>& sources);
-int  LoadAddons();
+void LoadAddons();
 void ReloadAddons();
 void GetExeDirectory(LPWSTR pszDir, DWORD dwSize);
 BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize);
@@ -10393,9 +10393,8 @@ void LoadFilters()
 // LoadAddons - Scan addons/ subdirectory and load filters + templates
 // Builds a unified source list (main INI first, then addons sorted by name)
 // and calls LoadFilters/LoadTemplates with the combined list.
-// Returns: number of addon packs loaded.
 //============================================================================
-int LoadAddons()
+void LoadAddons()
 {
     EnsureIniCacheLoaded();
 
@@ -10529,8 +10528,6 @@ int LoadAddons()
     if (g_bAddonWarnings && g_hWndOutputPane) {
         ShowOutputPane();
     }
-
-    return nAddonPacks;
 }
 
 //============================================================================
