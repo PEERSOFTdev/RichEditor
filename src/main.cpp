@@ -10554,6 +10554,9 @@ void ReloadAddons()
 //============================================================================
 BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, int errorMsgSize)
 {
+    // Ensure output buffer is always valid (callers may check wcslen on success)
+    if (errorMsg && errorMsgSize > 0) errorMsg[0] = L'\0';
+
     // Check if filter has a name
     if (filter->szName[0] == L'\0') {
         swprintf(errorMsg, errorMsgSize, 
@@ -10672,7 +10675,7 @@ void UpdateFilterDisplay()
     BOOL hasREPL = FALSE;
     BOOL hasClassic = FALSE;
     
-    if (g_bREPLMode) {
+    if (g_bREPLMode && g_nCurrentREPLFilter >= 0 && g_nCurrentREPLFilter < g_nFilterCount) {
         // Show running REPL filter
         hasREPL = TRUE;
     } else if (g_nSelectedREPLFilter >= 0 && g_nSelectedREPLFilter < g_nFilterCount) {
