@@ -9,6 +9,8 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 
 - Add All Supported Types filter to Open dialog; exclude from Save As
 - Add addon system for user-extensible filter and template packs (Phase 2.14)
+- Fix crash in addon system on empty addons directory
+- Refine addon override messages with type labels and compound template keys
 
 ## v2.9.0 (2026-03-26)
 
