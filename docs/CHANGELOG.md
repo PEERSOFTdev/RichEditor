@@ -12,6 +12,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Fix crash in addon system on empty addons directory
 - Refine addon override messages with type labels and compound template keys
 - Fix addon status bar format string to include pack count
+- Re-display addon status after resume or command-line file load
 
 ## v2.9.0 (2026-03-26)
 
