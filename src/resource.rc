@@ -326,8 +326,11 @@ BEGIN
      IDS_ACCNAME_EDITOR              "Text Editor"
      IDS_ACCNAME_OUTPUTPANE          "Output Pane"
      IDS_ALL_SUPPORTED_TYPES         "All Supported Types"
-     IDS_ADDON_OVERRIDE              "[Addons] %s ""%s"" from %s overrides previous definition"
+     IDS_FILTER                     "filter"
+     IDS_TEMPLATE                   "template"
+     IDS_ADDON_OVERRIDE_FLT         "[Addons] %s ""%s"" from %s overrides previous definition"
      IDS_ADDON_STATUS                "Loaded %d addon filters, %d addon templates"
+     IDS_ADDON_OVERRIDE_TPL         "[Addons] %s ""%s"" (%s) from %s overrides previous definition"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -605,6 +608,9 @@ BEGIN
      IDS_ACCNAME_EDITOR              "Textový editor"
      IDS_ACCNAME_OUTPUTPANE          "Panel výstupu"
      IDS_ALL_SUPPORTED_TYPES         "Všechny podporované typy"
-     IDS_ADDON_OVERRIDE              "[Doplňky] %s ""%s"" z %s přepisuje předchozí definici"
+     IDS_FILTER                     "filtr"
+     IDS_TEMPLATE                   "šablona"
+     IDS_ADDON_OVERRIDE_FLT         "[Doplňky] %s ""%s"" z %s přepisuje předchozí definici"
      IDS_ADDON_STATUS                "Načteno %d doplňkových filtrů, %d doplňkových šablon"
+     IDS_ADDON_OVERRIDE_TPL         "[Doplňky] %s ""%s"" (%s) z %s přepisuje předchozí definici"
 END

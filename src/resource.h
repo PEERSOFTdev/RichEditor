@@ -270,8 +270,11 @@
 // File dialog filter (2179)
 #define IDS_ALL_SUPPORTED_TYPES         2179  // "All Supported Types" / "Všechny podporované typy"
 
-// Addon system strings (Phase 2.14: 2180-2183)
-#define IDS_ADDON_OVERRIDE              2180  // "[Addons] Filter/Template overridden" log message
+// Addon system strings (Phase 2.14: 2180-2184)
+#define IDS_ADDON_OVERRIDE_FLT         2180  // "[Addons] filter/filtr overridden" log message
 #define IDS_ADDON_STATUS                2181  // "Loaded %d addon filters, %d addon templates"
+#define IDS_TEMPLATE                    2182  // "template" / "šablona"
+#define IDS_FILTER                     2183  // "filter" / "filtr"
+#define IDS_ADDON_OVERRIDE_TPL         2184  // "[Addons] template/šablona overridden (with fileext)"
 
 #endif // RESOURCE_H

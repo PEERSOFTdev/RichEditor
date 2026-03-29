@@ -1133,10 +1133,21 @@ void LoadTemplates(const std::vector<INISource>& sources)
                 continue;
             }
 
-            // Duplicate check
+            // Read FileExtension (needed for duplicate key)
+            WCHAR szFileExt[MAX_TEMPLATE_FILEEXT] = L"";
+            ReadINIValueFromData(pszData, szSection, L"FileExtension", szFileExt, MAX_TEMPLATE_FILEEXT, L"");
+
+            // Duplicate check: key = source:Name:FileExtension
+            WCHAR szKey[512];
+            WCHAR szExistingKey[512];
+            _snwprintf(szKey, 512, L"%s:%s:%s", sources[src].szSourceDir, szName, szFileExt);
+
             int nSlot = -1;
             for (int d = 0; d < g_nTemplateCount; d++) {
-                if (wcscmp(g_Templates[d].szName, szName) == 0) {
+                _snwprintf(szExistingKey, 512, L"%s:%s:%s",
+                           g_Templates[d].szSourceDir, g_Templates[d].szName,
+                           g_Templates[d].szFileExtension);
+                if (wcscmp(szKey, szExistingKey) == 0) {
                     nSlot = d;
                     break;
                 }
@@ -1144,8 +1155,14 @@ void LoadTemplates(const std::vector<INISource>& sources)
             if (nSlot >= 0) {
                 WCHAR szMsg[512];
                 WCHAR szTpl[256];
-                LoadStringResource(IDS_ADDON_OVERRIDE, szTpl, 256);
-                _snwprintf(szMsg, 512, szTpl, szName);
+                WCHAR szTemplateType[32];
+                LoadStringResource(IDS_TEMPLATE, szTemplateType, 32);
+                LoadStringResource(IDS_ADDON_OVERRIDE_TPL, szTpl, 256);
+                const WCHAR* pszDisplaySource = sources[src].szSourceDir[0]
+                    ? sources[src].szSourceDir : L"RichEditor";
+                WCHAR szSourceExt[512];
+                _snwprintf(szSourceExt, 512, L"%s:%s", pszDisplaySource, szFileExt);
+                _snwprintf(szMsg, 512, szTpl, szTemplateType, szName, szSourceExt, szFileExt);
                 szMsg[511] = L'\0';
                 size_t len = wcslen(szMsg);
                 if (len + 2 < 512) { szMsg[len] = L'\r'; szMsg[len+1] = L'\n'; szMsg[len+2] = L'\0'; }
@@ -10136,8 +10153,10 @@ void LoadFilters(const std::vector<INISource>& sources)
                 // Overwrite in place — log the override
                 WCHAR szMsg[512];
                 WCHAR szTemplate[256];
-                LoadStringResource(IDS_ADDON_OVERRIDE, szTemplate, 256);
-                _snwprintf(szMsg, 512, szTemplate, szName);
+                WCHAR szFilterType[32];
+                LoadStringResource(IDS_FILTER, szFilterType, 32);
+                LoadStringResource(IDS_ADDON_OVERRIDE_FLT, szTemplate, 256);
+                _snwprintf(szMsg, 512, szTemplate, szFilterType, szName, sources[src].szSourceDir);
                 szMsg[511] = L'\0';
                 // Append newline
                 size_t len = wcslen(szMsg);
