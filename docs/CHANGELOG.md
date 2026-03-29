@@ -14,6 +14,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Fix addon status bar format string to include pack count
 - Re-display addon status after resume or command-line file load
 - Resolve relative exe paths for addon filters and add filter debug logging
+- Only resolve exe paths that contain a directory separator
 
 ## v2.9.0 (2026-03-26)
 
