@@ -434,6 +434,7 @@ WCHAR g_szAutosaveFlashPrevStatus[512] = L"";  // Status text saved before "[Aut
 //============================================================================
 // Addon System (Phase 2.14)
 //============================================================================
+WCHAR g_szAddonStatus[256] = L"";  // Last addon load summary for status bar re-display
 
 // INI data source — used by LoadFilters/LoadTemplates to iterate over main INI + addons
 struct INISource {
@@ -875,6 +876,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
         }
     }
     
+    // Re-display addon status on status bar after file load (LoadTextFile's
+    // UpdateStatusBar overwrites it with cursor position info)
+    if (g_szAddonStatus[0] != L'\0' && g_hWndStatus) {
+        SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)g_szAddonStatus);
+    }
+
     // Message loop
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
@@ -10514,14 +10521,15 @@ void LoadAddons()
             if (g_Templates[i].szSourceDir[0] != L'\0') nAddonTemplates++;
         }
 
-        WCHAR szStatus[256];
         WCHAR szTpl[256];
         LoadStringResource(IDS_ADDON_STATUS, szTpl, 256);
-        _snwprintf(szStatus, 256, szTpl, nAddonPacks, nAddonFilters, nAddonTemplates);
-        szStatus[255] = L'\0';
+        _snwprintf(g_szAddonStatus, 256, szTpl, nAddonPacks, nAddonFilters, nAddonTemplates);
+        g_szAddonStatus[255] = L'\0';
         if (g_hWndStatus) {
-            SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)szStatus);
+            SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)g_szAddonStatus);
         }
+    } else {
+        g_szAddonStatus[0] = L'\0';
     }
 
     // Show output pane only if warnings were logged
