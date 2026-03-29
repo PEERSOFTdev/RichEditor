@@ -8890,10 +8890,14 @@ static void ResolveFilterCommand(const WCHAR* pszCommand, LPCWSTR pszSourceDir,
                 pArgs = L"";
             }
         }
-        // Check whether exe path is relative (no drive letter, no UNC prefix)
-        BOOL bRelative = !(szExe[0] == L'\\' ||
-                          (szExe[0] && szExe[1] == L':'));
-        if (bRelative) {
+        // Resolve only if the exe is a relative *path* (contains \ or /).
+        // Bare names like "powershell.exe" have no separator and should be
+        // left to the OS PATH search; only "subdir\tool.exe" style commands
+        // need the source directory prepended.
+        BOOL bIsRelativePath = !(szExe[0] == L'\\' ||
+                                (szExe[0] && szExe[1] == L':')) &&
+                               (wcschr(szExe, L'\\') || wcschr(szExe, L'/'));
+        if (bIsRelativePath) {
             // Build: "sourceDir\exe" + args  (quoted for spaces in path)
             WCHAR szResolved[MAX_FILTER_COMMAND + MAX_PATH];
             _snwprintf(szResolved, MAX_FILTER_COMMAND + MAX_PATH,
