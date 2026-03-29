@@ -5451,6 +5451,15 @@ static void LogAddonMessage(LPCWSTR pszMessage)
 }
 
 //============================================================================
+// LogFilterDebug - Append a filter execution debug message to the output pane.
+// Appends the text and shows the pane, but does not steal focus.
+//============================================================================
+static void LogFilterDebug(LPCWSTR pszMessage)
+{
+    ExecuteFilterDisplayPane(pszMessage, TRUE /*append*/, FALSE /*no focus*/, FALSE /*no start*/);
+}
+
+//============================================================================
 // CalculateTabAwareColumn - Calculate visual column position with tab expansion
 // 
 // Parameters:
@@ -8843,6 +8852,63 @@ INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM /* lPar
 }
 
 //============================================================================
+//============================================================================
+// ResolveFilterCommand - Build a command line with absolute executable path
+// When pszSourceDir is non-empty and the executable in pszCommand is a
+// relative path, prepends pszSourceDir so CreateProcess can find the binary.
+// CreateProcess lpCurrentDirectory only sets the child's CWD — it does NOT
+// affect where the OS searches for the executable.
+// pszOut must be at least (MAX_FILTER_COMMAND + MAX_PATH + 4) WCHARs.
+//============================================================================
+static void ResolveFilterCommand(const WCHAR* pszCommand, LPCWSTR pszSourceDir,
+                                 WCHAR* pszOut, int nOutSize)
+{
+    if (pszSourceDir && pszSourceDir[0]) {
+        // Extract the executable token (respecting a leading quote)
+        const WCHAR* pCmd = pszCommand;
+        WCHAR szExe[MAX_FILTER_COMMAND] = L"";
+        const WCHAR* pArgs = NULL;
+        if (*pCmd == L'"') {
+            const WCHAR* pEnd = wcschr(pCmd + 1, L'"');
+            if (pEnd) {
+                int len = (int)(pEnd - pCmd - 1);
+                wcsncpy(szExe, pCmd + 1, len);
+                szExe[len] = L'\0';
+                pArgs = pEnd + 1;
+            }
+        }
+        if (szExe[0] == L'\0') {
+            // Unquoted: token up to first space
+            const WCHAR* pSpace = wcschr(pCmd, L' ');
+            if (pSpace) {
+                int len = (int)(pSpace - pCmd);
+                wcsncpy(szExe, pCmd, len);
+                szExe[len] = L'\0';
+                pArgs = pSpace;
+            } else {
+                wcscpy(szExe, pCmd);
+                pArgs = L"";
+            }
+        }
+        // Check whether exe path is relative (no drive letter, no UNC prefix)
+        BOOL bRelative = !(szExe[0] == L'\\' ||
+                          (szExe[0] && szExe[1] == L':'));
+        if (bRelative) {
+            // Build: "sourceDir\exe" + args  (quoted for spaces in path)
+            WCHAR szResolved[MAX_FILTER_COMMAND + MAX_PATH];
+            _snwprintf(szResolved, MAX_FILTER_COMMAND + MAX_PATH,
+                       L"%s\\%s", pszSourceDir, szExe);
+            szResolved[MAX_FILTER_COMMAND + MAX_PATH - 1] = L'\0';
+            _snwprintf(pszOut, nOutSize, L"\"%s\"%s", szResolved, pArgs);
+            pszOut[nOutSize - 1] = L'\0';
+            return;
+        }
+    }
+    // Absolute path or no source dir — copy as-is
+    wcsncpy(pszOut, pszCommand, nOutSize);
+    pszOut[nOutSize - 1] = L'\0';
+}
+
 // RunFilterCommand - Execute filter command and capture output
 // Returns: true on success, false on failure
 //============================================================================
@@ -8886,18 +8952,45 @@ bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8,
     
     PROCESS_INFORMATION pi = {};
     
-    // Create process
-    WCHAR szCommandCopy[MAX_FILTER_COMMAND + 100];
-    wcscpy(szCommandCopy, pszCommand);
+    // Resolve relative executable paths against the addon source directory
+    WCHAR szCommandCopy[MAX_FILTER_COMMAND + MAX_PATH + 4];
+    ResolveFilterCommand(pszCommand, pszWorkingDir, szCommandCopy,
+                         MAX_FILTER_COMMAND + MAX_PATH + 4);
     
     // Resolve working directory: use addon source dir if non-empty, else NULL (inherit)
     LPCWSTR pszCwd = (pszWorkingDir && pszWorkingDir[0]) ? pszWorkingDir : NULL;
 
+    // Log resolved command to output pane
+    {
+        WCHAR szLog[MAX_FILTER_COMMAND + MAX_PATH + 64];
+        _snwprintf(szLog, MAX_FILTER_COMMAND + MAX_PATH + 64,
+                   L"[Filter] Command: %s\r\n", szCommandCopy);
+        szLog[MAX_FILTER_COMMAND + MAX_PATH + 63] = L'\0';
+        LogFilterDebug(szLog);
+        if (pszCwd) {
+            WCHAR szCwdLog[MAX_PATH + 32];
+            _snwprintf(szCwdLog, MAX_PATH + 32, L"[Filter] Working dir: %s\r\n", pszCwd);
+            szCwdLog[MAX_PATH + 31] = L'\0';
+            LogFilterDebug(szCwdLog);
+        }
+    }
+
     if (!CreateProcess(NULL, szCommandCopy, NULL, NULL, TRUE, 
                        CREATE_NO_WINDOW, NULL, pszCwd, &si, &pi)) {
-        WCHAR szError[512], szTitle[64], szTemplate[256];
+        DWORD dwErr = GetLastError();
+
+        // Log failure to output pane
+        {
+            WCHAR szLog[128];
+            _snwprintf(szLog, 128, L"[Filter] CreateProcess failed, error %d\r\n", dwErr);
+            szLog[127] = L'\0';
+            LogFilterDebug(szLog);
+        }
+
+        WCHAR szError[1024], szTitle[64], szTemplate[256];
         LoadStringResource(IDS_FILTER_EXEC_FAILED, szTemplate, 256);
-        _snwprintf(szError, 512, szTemplate, GetLastError());
+        _snwprintf(szError, 1024, szTemplate, szCommandCopy, dwErr);
+        szError[1023] = L'\0';
         LoadStringResource(IDS_FILTER_EXEC_ERROR, szTitle, 64);
         MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
         CloseHandle(hStdinRead);
@@ -9392,6 +9485,26 @@ void ExecuteFilter()
     
     free(pszInputUTF8);
     
+    // Log exit code to output pane
+    {
+        WCHAR szLog[128];
+        _snwprintf(szLog, 128, L"[Filter] Exit code: %d\r\n", dwExitCode);
+        szLog[127] = L'\0';
+        LogFilterDebug(szLog);
+    }
+
+    // Log stderr to output pane (if any)
+    if (!errorData.empty()) {
+        LPWSTR pszStderr = UTF8ToUTF16(errorData.c_str());
+        if (pszStderr) {
+            WCHAR szHdr[] = L"[Filter] stderr:\r\n";
+            LogFilterDebug(szHdr);
+            LogFilterDebug(pszStderr);
+            LogFilterDebug(L"\r\n");
+            free(pszStderr);
+        }
+    }
+
     // Show errors if any
     if (!errorData.empty()) {
         LPWSTR pszError = UTF8ToUTF16(errorData.c_str());
@@ -11347,12 +11460,14 @@ void StartREPLFilter(int filterIndex)
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof(pi));
     
-    // Create command line (need writable buffer)
-    WCHAR szCommand[MAX_FILTER_COMMAND + 1];
-    wcscpy(szCommand, g_Filters[filterIndex].szCommand);
+    // Resolve relative executable paths against the addon source directory
+    LPCWSTR pszWorkDir = g_Filters[filterIndex].szSourceDir;
+    WCHAR szCommand[MAX_FILTER_COMMAND + MAX_PATH + 4];
+    ResolveFilterCommand(g_Filters[filterIndex].szCommand, pszWorkDir,
+                         szCommand, MAX_FILTER_COMMAND + MAX_PATH + 4);
     
     // Create the process
-    LPCWSTR pszCwd = (g_Filters[filterIndex].szSourceDir[0]) ? g_Filters[filterIndex].szSourceDir : NULL;
+    LPCWSTR pszCwd = pszWorkDir[0] ? pszWorkDir : NULL;
     if (!CreateProcess(NULL, szCommand, NULL, NULL, TRUE, 
                        CREATE_NO_WINDOW, NULL, pszCwd, &si, &pi)) {
         CloseHandle(hStdoutRead);
@@ -11362,15 +11477,17 @@ void StartREPLFilter(int filterIndex)
         CloseHandle(hStderrRead);
         CloseHandle(hStderrWrite);
         
-        WCHAR szMsg[512];
+        DWORD dwErr = GetLastError();
+        WCHAR szMsg[1024];
         WCHAR szError[256];
         WCHAR szErrorTitle[64];
         LoadStringResource(IDS_REPL_FAILED_START, szError, 256);
         LoadStringResource(IDS_ERROR, szErrorTitle, 64);
         
-        wcscpy(szMsg, szError);
-        wcscat(szMsg, L": ");
-        wcscat(szMsg, g_Filters[filterIndex].szLocalizedName);
+        _snwprintf(szMsg, 1024, L"%s: %s\n\nCommand: %s\nError code: %d",
+                   szError, g_Filters[filterIndex].szLocalizedName,
+                   szCommand, dwErr);
+        szMsg[1023] = L'\0';
         
         MessageBox(g_hWndMain, szMsg, szErrorTitle, MB_ICONERROR);
         return;
