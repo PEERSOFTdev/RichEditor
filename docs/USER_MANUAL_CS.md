@@ -159,7 +159,7 @@ Formát data a času.
 - `TimeFormat` (výchozí `HH:mm`): formát pro `%time%` v šablonách. Nastavte na vestavěnou proměnnou (např. `%shorttime%`) nebo vlastní formátovací řetězec.
 - `OutputPaneLines` (výchozí `5`): výška panelu výstupu. Celé číslo udává pevný počet řádků (např. `10`); hodnota s `%` udává procento dostupné plochy (např. `20%`).
 - `OutputPaneReadOnly` (výchozí `0`): `1` = panel výstupu je jen pro čtení; `0` = panel je editovatelný.
-- `FilterDebug` (výchozí `0`): `1` zapne ladící výpis pro spouštění filtrů a REPL. Při aktivaci panel výstupu zobrazuje vyřešený příkaz, pracovní adresář, návratový kód a stderr pro každé spuštění filtru. U relací REPL se navíc zaznamenává každý odeslaný vstupní řádek a přijatý výstup. Tento klíč se ve výchozím stavu do INI nezapisuje; přidejte `FilterDebug=1` ručně, když je potřeba pro odstraňování problémů.
+- `FilterDebug` (výchozí `0`): `1` zapne ladící výpis pro spouštění filtrů a REPL. Při aktivaci panel výstupu zobrazuje vyřešený příkaz, pracovní adresář, návratový kód a stderr pro každé spuštění filtru. U relací REPL se navíc zaznamenává každý odeslaný vstupní řádek a přijatý výstup. V režimu REPL lze zadat `\raw:<text>` na řádku s výzvou a text se odešle s rozšířením escape sekvencí bez automatického konce řádku — užitečné pro testování přesných sekvencí bajtů. Tento klíč se ve výchozím stavu do INI nezapisuje; přidejte `FilterDebug=1` ručně, když je potřeba pro odstraňování problémů.
 
 Proměnné data/času a vlastní formáty (formátovací značky systému Windows).
 

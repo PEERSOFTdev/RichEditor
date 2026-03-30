@@ -16,6 +16,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Resolve relative exe paths for addon filters and add filter debug logging
 - Only resolve exe paths that contain a directory separator
 - Add opt-in FilterDebug INI key for filter and REPL execution debug logging
+- Add \raw: prefix for escape-expanded REPL input in debug mode
 
 ## v2.9.0 (2026-03-26)
 

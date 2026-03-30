@@ -56,3 +56,26 @@ and frees the memory.
 ## Binary size impact
 
 +1 536 bytes stripped (358 400 -> 359 936).
+
+## Raw REPL input (`\raw:` prefix)
+
+When `FilterDebug=1` and a REPL session is active, typing a line starting with
+`\raw:` sends the text after the prefix through escape expansion and directly
+to REPL stdin **without appending any EOL**. The user must include `\n`, `\r\n`,
+etc. explicitly. This uses the same `ParseEscapeSequences()` function as
+Find/Replace.
+
+Examples (typed after the REPL prompt):
+
+| Input | Bytes sent to stdin |
+|-------|-------------------|
+| `\raw:hello` | `hello` (no newline) |
+| `\raw:hello\n` | `hello` + LF |
+| `\raw:hello\r\n` | `hello` + CR LF |
+| `\raw:\x1b[2J` | ESC `[2J` (ANSI clear) |
+| `\raw:\t\t\n` | TAB TAB LF |
+
+The debug log shows `[REPL] >> (raw debug) <escaped form>` for each raw send.
+
+When `FilterDebug=0`, the `\raw:` prefix is sent as normal text with automatic
+EOL — no special handling occurs.

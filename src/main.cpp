@@ -11879,6 +11879,39 @@ void SendLineToREPL()
     // Get input portion
     LPCWSTR pszInput = pszLine + inputStart;
     
+    // Raw debug send: \raw: prefix expands escape sequences, no automatic EOL
+    // Skip leading whitespace — PromptEnd trailing space may be trimmed by INI parser,
+    // leaving a residual space between the detected prompt end and the \raw: prefix.
+    if (g_bFilterDebug) {
+        LPCWSTR pszCheck = pszInput;
+        while (*pszCheck == L' ' || *pszCheck == L'\t') pszCheck++;
+        if (wcsncmp(pszCheck, L"\\raw:", 5) == 0) {
+            LPCWSTR pszRaw = pszCheck + 5;
+            LPWSTR pszExpanded = ParseEscapeSequences(pszRaw);
+            if (pszExpanded && g_hREPLStdin) {
+                LPSTR pszUTF8 = UTF16ToUTF8(pszExpanded);
+                if (pszUTF8) {
+                    DWORD dwWritten;
+                    WriteFile(g_hREPLStdin, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
+                    FlushFileBuffers(g_hREPLStdin);
+                    WCHAR szLog[2048];
+                    _snwprintf(szLog, _countof(szLog), L"[REPL] >> (raw debug) %s\r\n", pszRaw);
+                    szLog[_countof(szLog) - 1] = L'\0';
+                    LogFilterDebug(szLog);
+                    free(pszUTF8);
+                }
+                free(pszExpanded);
+            }
+            free(pszLine);
+            CHARRANGE crEnd;
+            crEnd.cpMin = lineEnd;
+            crEnd.cpMax = lineEnd;
+            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crEnd);
+            SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\n");
+            return;
+        }
+    }
+    
     // Convert to UTF-8
     LPSTR pszInputUTF8 = UTF16ToUTF8(pszInput);
     if (pszInputUTF8) {

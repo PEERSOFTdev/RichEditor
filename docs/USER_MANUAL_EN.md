@@ -159,7 +159,7 @@ Date and time formatting.
 - `TimeFormat` (default `HH:mm`): format used by `%time%` in templates. Set it to a built‑in variable (like `%shorttime%`) or a custom time format string.
 - `OutputPaneLines` (default `5`): height of the output pane. Use an integer for a fixed number of lines (for example, `10`) or append `%` for a percentage of the available area (for example, `20%`).
 - `OutputPaneReadOnly` (default `0`): `1` makes the output pane read-only; `0` keeps it editable.
-- `FilterDebug` (default `0`): `1` enables debug logging for filter and REPL execution. When active, the output pane shows the resolved command, working directory, exit code, and stderr for each filter run. REPL sessions additionally log every input line sent and output chunk received. This key is not written to the INI by default; add `FilterDebug=1` manually when needed for troubleshooting.
+- `FilterDebug` (default `0`): `1` enables debug logging for filter and REPL execution. When active, the output pane shows the resolved command, working directory, exit code, and stderr for each filter run. REPL sessions additionally log every input line sent and output chunk received. In REPL mode, typing `\raw:<text>` on a prompt line sends the text with escape expansion and no automatic EOL — useful for testing exact byte sequences. This key is not written to the INI by default; add `FilterDebug=1` manually when needed for troubleshooting.
 
 Date/time variables and custom formats (Windows date/time picture tokens).
 

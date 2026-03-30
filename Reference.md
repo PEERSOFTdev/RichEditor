@@ -852,6 +852,7 @@ addons/
 - REPL sessions additionally log: start command + working directory, every input line sent (`>>`), raw and ANSI-stripped stdout/stderr chunks (`<<`), and exit code or "Stopped by user".
 - Display=pane filters are forced to append mode while debug is active so filter output does not overwrite debug messages.
 - REPL background threads post debug messages via `WM_FILTER_DEBUG` (`WM_USER + 102`) for thread-safe main-thread logging.
+- **Raw REPL input:** typing `\raw:<text>` on a REPL prompt line sends `<text>` through escape expansion (`\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`) directly to stdin with no automatic EOL. The user must include line endings explicitly. Only active when `FilterDebug=1`.
 
 **Binary size delta (with FilterDebug):** 358 400 → 359 936 bytes (+1 536 bytes)
 
