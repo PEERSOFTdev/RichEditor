@@ -46,5 +46,8 @@ dist/
 .idea/
 *.sublime-*
 
+# User addon packs (runtime only)
+addons/
+
 # OpenCode workspace
 .opencode/
