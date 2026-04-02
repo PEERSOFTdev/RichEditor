@@ -89,6 +89,7 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - Avoid vague subjects ("misc", "fix stuff").
 - Tests: if run, add a final "Tests: ..." line; if not run and notable, add "Tests: not run".
 - Never commit secrets or ignored/local files unless explicitly requested.
+- **All commits must be GPG-signed** (`git commit -S`). The repository enforces signed commits via branch protection. Never use `--no-gpg-sign`; if GPG signing fails, stop and alert the user.
 
 ## Where to Look
 
