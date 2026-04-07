@@ -100,3 +100,42 @@ An earlier attempt enabled `AURL_ENABLEURL` at startup, then sent `EM_AUTOURLDET
 
 - `resource.rc` uses `#pragma code_page(65001)` and must remain UTF-8 with BOM.
 - English + Czech resources are compiled into one universal binary.
+
+## DPI Awareness and Visual Styles
+
+### Manifest
+
+`src/RichEditor.manifest` is embedded as resource `1 24` in `src/resource.rc`. It declares three things:
+
+1. **Per-Monitor V2 DPI awareness** (Win10 1703+) with `PerMonitor` fallback (Win8.1+) and `true/pm` legacy fallback (Win7).
+2. **Common Controls v6** visual styles — enables themed status bar, dialogs, and menus.
+3. **UTF-8 active code page** (Win10 1903+) — aligns with the app's UTF-8-first file handling.
+
+Do not remove or split this manifest; all three features depend on it.
+
+### Dynamic API Loading
+
+`GetDpiForWindow` (Win10 1607+) and `EnableNonClientDpiScaling` (Win10 1703+) are loaded at startup via `GetProcAddress` from `user32.dll`. This lets the binary run on older Windows without import failures. If `GetDpiForWindow` is absent, `GetDpiForHwnd()` falls back to `GetDeviceCaps(hdc, LOGPIXELSX)`.
+
+### WM_DPICHANGED Flow
+
+1. User drags the window to a monitor with different DPI.
+2. Windows sends `WM_DPICHANGED` with the new DPI in `HIWORD(wParam)` and a suggested window rect in `lParam`.
+3. The handler updates `g_nDpi`, resets `g_nOutputPaneLineHeight` (so it's recalculated), and calls `SetWindowPos` with the suggested rect.
+4. `SetWindowPos` triggers `WM_SIZE`, which re-layouts the status bar, RichEdit, and output pane using the updated `g_nDpi`.
+
+### WM_NCCREATE and EnableNonClientDpiScaling
+
+On Per-Monitor V1 (Win8.1 / Win10 pre-1703), the system does not automatically scale the non-client area (title bar, scroll bars). Calling `EnableNonClientDpiScaling(hwnd)` in `WM_NCCREATE` enables this. On V2 (Win10 1703+), the call is harmless — V2 handles non-client scaling automatically.
+
+### Pixel Constants
+
+All pixel measurements in layout code use `ScaleDpi(value, g_nDpi)`. The 96-DPI design values are:
+- 640 x 480 — minimum window size (enforced in `WM_GETMINMAXINFO`)
+- 200 — status bar right partition width
+- 15 — output pane line-based height padding
+- 20 — output pane min/max margin
+
+### Dialogs
+
+All dialogs use `DIALOGEX` with `FONT 8, "MS Shell Dlg"` and DLU-based coordinates. Per-Monitor V2's dialog manager handles scaling automatically for these dialogs. No per-dialog DPI code is needed.

@@ -22,3 +22,4 @@ Each file is one request. Agents pick up the plan, implement it, and mark it don
 |----|-------|--------|
 | [UR-001](UR-001_zoom_support.md) | Zoom support (Ctrl+wheel, reset, persistence, status bar) | Done |
 | [UR-002](UR-002_selection_status_bar.md) | Selection stats in status bar (visual lines, char count, total) | Done |
+| [UR-003](UR-003_hidpi_support.md) | HiDPI support (Per-Monitor V2 DPI awareness, visual styles, manifest) | Done |

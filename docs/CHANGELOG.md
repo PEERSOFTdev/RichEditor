@@ -17,6 +17,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Only resolve exe paths that contain a directory separator
 - Add opt-in FilterDebug INI key for filter and REPL execution debug logging
 - Add \raw: prefix for escape-expanded REPL input in debug mode
+- Add Per-Monitor V2 DPI awareness with manifest, visual styles, and UTF-8 code page
 
 ## v2.9.0 (2026-03-26)
 

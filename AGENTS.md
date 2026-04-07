@@ -67,6 +67,17 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - `g_bSaveInProgress`: guard set by `FileSave`, `FileSaveAs`, and `DoAutosave`; prevents re-entrant saves. `WM_CLOSE` clears it before the close sequence. `PromptSaveChanges` IDNO path sets `g_bModified=FALSE` and `g_bSaveInProgress=TRUE` to block post-discard saves.
 - `OFN_NOTESTFILECREATE` is set on Save As dialog flags intentionally, with a manual overwrite prompt, to bypass the shell's refusal to present the dialog for protected paths.
 
+## DPI Awareness and Visual Styles
+
+- DPI awareness is declared via `src/RichEditor.manifest`, embedded as resource `1 24` in `src/resource.rc`. The manifest also enables Common Controls v6 visual styles and the UTF-8 active code page. Do not remove or modify it without understanding that it controls all three features.
+- The app is Per-Monitor V2 DPI-aware (Win10 1703+) with fallback to Per-Monitor V1 (Win8.1+) and system-DPI-aware (Win7/Vista).
+- `g_nDpi` holds the current effective DPI. It is initialized in `WM_CREATE` and updated in `WM_DPICHANGED`.
+- **Never hardcode pixel constants.** Use `ScaleDpi(value, g_nDpi)` for any pixel measurement that must adapt to DPI (status bar widths, padding, minimum sizes, etc.).
+- `GetDpiForHwnd(hwnd)` dynamically loads `GetDpiForWindow` (Win10 1607+); falls back to `GetDeviceCaps(LOGPIXELSX)`.
+- `EnableNonClientDpiScaling` is called in `WM_NCCREATE` for correct title bar / scroll bar scaling on Per-Monitor V1.
+- New dialogs must use `DIALOGEX` with `FONT 8, "MS Shell Dlg"` and DLU-based coordinates. The Per-Monitor V2 dialog manager handles scaling automatically for such dialogs.
+- `WM_GETMINMAXINFO` enforces DPI-scaled minimum window size.
+
 ## Reference.md Maintenance (Agent Guidelines)
 
 - Preserve the legacy README tone and structure (see `README.md` at commit `e2567a9`); avoid reorganizing sections.

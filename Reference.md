@@ -856,6 +856,17 @@ addons/
 
 **Binary size delta (with FilterDebug):** 358 400 → 359 936 bytes (+1 536 bytes)
 
+**DPI awareness and visual styles:**
+
+- The app is Per-Monitor V2 DPI-aware (Win10 1703+) with graceful fallback to Per-Monitor V1 (Win8.1+) and system-DPI-aware (Win7/Vista). Text, controls, and dialogs render sharply on high-DPI displays without bitmap scaling.
+- An embedded application manifest (`src/RichEditor.manifest`) declares DPI awareness, enables Common Controls v6 visual styles (themed status bar, dialogs, and menus), and sets UTF-8 as the active code page.
+- `WM_DPICHANGED` handles monitor transitions: the window re-layouts all children (RichEdit, output pane, status bar) at the new DPI automatically.
+- `WM_GETMINMAXINFO` enforces a DPI-scaled minimum window size (640x480 at 96 DPI).
+- All pixel constants (status bar partition, output pane padding, minimum window size) are scaled via `ScaleDpi(value, g_nDpi)`.
+- DPI functions (`GetDpiForWindow`, `EnableNonClientDpiScaling`) are dynamically loaded at runtime for backward compatibility with older Windows versions.
+
+**Binary size delta (with DPI):** 359 936 → 362 496 bytes (+2 560 bytes)
+
 ## Building
 
 ### Option 1: MSVC Build (Recommended for Windows) ✅

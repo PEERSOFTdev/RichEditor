@@ -1,6 +1,6 @@
 # RichEditor - Uživatelská příručka (Čeština)
 
-RichEditor je lehký a přístupný textový editor pro systém Windows (Win32, klasické rozhraní pro aplikace pro pracovní plochu) určený pro prostý text. Je navržen tak, aby byl rychlý, ovládání zůstalo předvídatelné a pokročilé funkce byly soustředěny do externích nástrojů (filtrů a šablon). Tato příručka popisuje i funkce, které nejsou na první pohled zřejmé.
+RichEditor je lehký a přístupný textový editor pro systém Windows (Win32, klasické rozhraní pro aplikace pro pracovní plochu) určený pro prostý text. Je navržen tak, aby byl rychlý, ovládání zůstalo předvídatelné a pokročilé funkce byly soustředěny do externích nástrojů (filtrů a šablon). Editor je DPI-aware (Per-Monitor V2) a zobrazuje se ostře na displejích s vysokým rozlišením, včetně víceobrazovkových sestav s různým škálováním. Tato příručka popisuje i funkce, které nejsou na první pohled zřejmé.
 
 ## Rychlý start
 

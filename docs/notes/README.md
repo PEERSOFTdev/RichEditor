@@ -11,4 +11,5 @@ This folder contains phase-oriented planning or final status notes. It intention
 - `PHASE_2.14_NOTES.md` - implementation notes for addon system
 - `FILTER_DEBUG_NOTES.md` - filter and REPL debug logging design
 - `SIZE_OPTIMIZATION.md` - binary size optimization notes
+- `DPI_NOTES.md` - Per-Monitor V2 DPI awareness implementation notes
 - `AGENTS_APPENDIX.md` - deeper agent notes and patterns

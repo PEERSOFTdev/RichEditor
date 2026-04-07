@@ -1,6 +1,6 @@
 # RichEditor User Manual (English)
 
-RichEditor is a lightweight, accessible Win32 text editor for plain text. It is designed to stay fast, keep the interface predictable, and let power features live in external tools (filters and templates). If you read this manual once, you will likely discover features that are intentionally hidden from the surface UI.
+RichEditor is a lightweight, accessible Win32 text editor for plain text. It is designed to stay fast, keep the interface predictable, and let power features live in external tools (filters and templates). The editor is DPI-aware (Per-Monitor V2) and renders sharply on high-DPI displays, including multi-monitor setups with mixed scaling. If you read this manual once, you will likely discover features that are intentionally hidden from the surface UI.
 
 ## Quick Start
 
