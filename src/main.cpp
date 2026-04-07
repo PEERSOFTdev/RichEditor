@@ -448,6 +448,22 @@ struct INISource {
 BOOL g_bAddonWarnings = FALSE;      // TRUE if any addon warnings/errors were logged
 
 //============================================================================
+// DPI Awareness (Per-Monitor V2)
+//============================================================================
+static UINT g_nDpi = USER_DEFAULT_SCREEN_DPI;   // Current effective DPI (96 at startup)
+
+// Dynamically loaded DPI functions (Win10 1607+ / Win10 1703+)
+typedef UINT (WINAPI *PFN_GetDpiForWindow)(HWND);
+typedef BOOL (WINAPI *PFN_EnableNonClientDpiScaling)(HWND);
+static PFN_GetDpiForWindow       pfnGetDpiForWindow = NULL;
+static PFN_EnableNonClientDpiScaling pfnEnableNonClientDpiScaling = NULL;
+
+// Scale a 96-DPI design value to the current DPI
+static inline int ScaleDpi(int value, UINT dpi) {
+    return MulDiv(value, dpi, USER_DEFAULT_SCREEN_DPI);
+}
+
+//============================================================================
 // Search System (Phase 2.9)
 //============================================================================
 #define MAX_FIND_HISTORY 20
@@ -628,6 +644,8 @@ static int ReadINIIntFromData(const WCHAR* pszData, LPCWSTR pszSection, LPCWSTR 
 static BOOL LoadINIFileToBuffer(LPCWSTR pszFilePath, std::wstring& outData);
 static void LogAddonMessage(LPCWSTR pszMessage);
 static void LogFilterDebug(LPCWSTR pszMessage);
+static void InitDpiApis();
+static UINT GetDpiForHwnd(HWND hwnd);
 BOOL WriteINIValue(LPCWSTR pszIniPath, LPCWSTR pszSection, LPCWSTR pszKey, LPCWSTR pszValue);
 BOOL EnsureIniCacheLoaded();
 BOOL FlushIniCache();
@@ -668,6 +686,39 @@ BOOL DetectPrompt(LPCWSTR pszLine, LPCWSTR pszPromptEnd, int* pInputStart);
 void StripANSIEscapes(LPWSTR pszText);
 
 //============================================================================
+// InitDpiApis - Load DPI functions at runtime for graceful fallback
+//============================================================================
+static void InitDpiApis()
+{
+    HMODULE hUser32 = GetModuleHandle(L"user32.dll");
+    if (hUser32) {
+        pfnGetDpiForWindow = (PFN_GetDpiForWindow)(void*)
+            GetProcAddress(hUser32, "GetDpiForWindow");
+        pfnEnableNonClientDpiScaling = (PFN_EnableNonClientDpiScaling)(void*)
+            GetProcAddress(hUser32, "EnableNonClientDpiScaling");
+    }
+}
+
+//============================================================================
+// GetDpiForHwnd - Query effective DPI for a window (fallback to DC query)
+//============================================================================
+static UINT GetDpiForHwnd(HWND hwnd)
+{
+    if (pfnGetDpiForWindow && hwnd) {
+        UINT dpi = pfnGetDpiForWindow(hwnd);
+        if (dpi > 0) return dpi;
+    }
+    // Fallback: query the DC (returns system DPI when DPI-unaware or on older OS)
+    HDC hdc = GetDC(hwnd);
+    if (hdc) {
+        UINT dpi = (UINT)GetDeviceCaps(hdc, LOGPIXELSX);
+        ReleaseDC(hwnd, hdc);
+        if (dpi > 0) return dpi;
+    }
+    return USER_DEFAULT_SCREEN_DPI;
+}
+
+//============================================================================
 // WinMain - Entry Point
 //============================================================================
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
@@ -678,6 +729,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&icc);
+
+    // Load DPI functions early (before any window creation)
+    InitDpiApis();
 
     // Parse command line arguments early (needed for elevated save mode)
     int argc = 0;
@@ -775,9 +829,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     int windowWidth = (workWidth * 80) / 100;
     int windowHeight = (workHeight * 80) / 100;
     
-    // Enforce reasonable bounds: minimum 640x480, maximum work area size
-    if (windowWidth < 640) windowWidth = (workWidth < 640) ? workWidth : 640;
-    if (windowHeight < 480) windowHeight = (workHeight < 480) ? workHeight : 480;
+    // Enforce reasonable bounds: minimum 640x480 (DPI-scaled), maximum work area size
+    // Note: g_nDpi is still 96 here (window not yet created), but once DPI-aware the
+    // work area is already in physical pixels, so the minimum just needs to be reasonable.
+    // WM_GETMINMAXINFO enforces the scaled minimum during subsequent resizes.
+    int minW = ScaleDpi(640, g_nDpi);
+    int minH = ScaleDpi(480, g_nDpi);
+    if (windowWidth < minW) windowWidth = (workWidth < minW) ? workWidth : minW;
+    if (windowHeight < minH) windowHeight = (workHeight < minH) ? workHeight : minH;
     if (windowWidth > workWidth) windowWidth = workWidth;
     if (windowHeight > workHeight) windowHeight = workHeight;
     
@@ -3154,8 +3213,17 @@ void AddToReplaceHistory(LPCWSTR pszText)
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
+        case WM_NCCREATE:
+            // Enable proper non-client scaling for Per-Monitor V1 fallback (Win10 pre-1703)
+            if (pfnEnableNonClientDpiScaling)
+                pfnEnableNonClientDpiScaling(hwnd);
+            return DefWindowProc(hwnd, msg, wParam, lParam);
+
         case WM_CREATE:
         {
+            // Query effective DPI for this window's monitor
+            g_nDpi = GetDpiForHwnd(hwnd);
+
             // Initialize state
             g_szFileName[0] = L'\0';
             g_szFileTitle[0] = L'\0';
@@ -3229,7 +3297,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // Update status bar parts based on new window size
                 RECT rcStatus;
                 GetClientRect(g_hWndStatus, &rcStatus);
-                int parts[] = {rcStatus.right - 200, -1}; // Part 0 takes all but 200px, part 1 gets 200px
+                int parts[] = {rcStatus.right - ScaleDpi(200, g_nDpi), -1};
                 SendMessage(g_hWndStatus, SB_SETPARTS, 2, (LPARAM)parts);
             }
             
@@ -3260,10 +3328,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             }
                         }
                         if (g_nOutputPaneLineHeight > 0)
-                            nPaneH = g_nOutputPaneLineHeight * g_nOutputPaneSizeValue + 15;
+                            nPaneH = g_nOutputPaneLineHeight * g_nOutputPaneSizeValue + ScaleDpi(15, g_nDpi);
                     }
-                    if (nPaneH < 20)  nPaneH = 20;
-                    if (nPaneH > nAvailable - 20) nPaneH = nAvailable - 20;
+                    if (nPaneH < ScaleDpi(20, g_nDpi))  nPaneH = ScaleDpi(20, g_nDpi);
+                    if (nPaneH > nAvailable - ScaleDpi(20, g_nDpi)) nPaneH = nAvailable - ScaleDpi(20, g_nDpi);
                     if (nPaneH < 0)   nPaneH = 0;
 
                     SetWindowPos(g_hWndOutputPane, NULL,
@@ -3284,6 +3352,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
             
+        case WM_DPICHANGED:
+        {
+            // Per-Monitor V2: window moved to a monitor with different DPI
+            g_nDpi = HIWORD(wParam);
+            // Reset cached line height so it is recalculated at the new DPI
+            g_nOutputPaneLineHeight = 0;
+            // Apply the suggested window rect from the system
+            RECT* prcSuggested = (RECT*)lParam;
+            SetWindowPos(hwnd, NULL,
+                prcSuggested->left, prcSuggested->top,
+                prcSuggested->right - prcSuggested->left,
+                prcSuggested->bottom - prcSuggested->top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            return 0;
+        }
+
+        case WM_GETMINMAXINFO:
+        {
+            // Enforce DPI-scaled minimum window size
+            MINMAXINFO* pmmi = (MINMAXINFO*)lParam;
+            pmmi->ptMinTrackSize.x = ScaleDpi(640, g_nDpi);
+            pmmi->ptMinTrackSize.y = ScaleDpi(480, g_nDpi);
+            return 0;
+        }
+
         case WM_SETFOCUS:
             // Restore focus to edit control when window receives focus
             if (g_hWndEdit) {
@@ -5368,7 +5461,7 @@ HWND CreateStatusBar(HWND hwndParent)
         // Set parts: part 0 for main status, part 1 (200px) for filter
         // Parts array contains right edge positions of each part
         int parts[2];
-        parts[0] = rcParent.right - 200;  // Part 0 ends 200px from right
+        parts[0] = rcParent.right - ScaleDpi(200, g_nDpi);  // Part 0 ends 200dp from right
         parts[1] = -1;                     // Part 1 extends to right edge
         SendMessage(hwndStatus, SB_SETPARTS, 2, (LPARAM)parts);
     }

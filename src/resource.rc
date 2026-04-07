@@ -4,6 +4,9 @@
 // Tell the resource compiler to use UTF-8 encoding
 #pragma code_page(65001)
 
+// Application manifest (DPI awareness, visual styles, UTF-8 code page)
+1 24 "RichEditor.manifest"
+
 // English (United States) resources
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
