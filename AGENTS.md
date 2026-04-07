@@ -101,6 +101,7 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - Tests: if run, add a final "Tests: ..." line; if not run and notable, add "Tests: not run".
 - Never commit secrets or ignored/local files unless explicitly requested.
 - **All commits must be GPG-signed** (`git commit -S`). The repository enforces signed commits via branch protection. Never use `--no-gpg-sign`; if GPG signing fails, stop and alert the user.
+- **Never push to the remote.** Agents must only commit locally. Pushing is always a human action.
 
 ## Where to Look
 
