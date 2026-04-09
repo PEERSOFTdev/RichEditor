@@ -77,3 +77,6 @@ New file, embedded as resource `1 24` in `src/resource.rc`. Declares:
 - Verify the output pane and status bar partition scale proportionally.
 - Verify the app runs without error on Windows 7 (graceful system-DPI-aware fallback).
 - Binary size delta: 359 936 → 362 496 bytes (+2 560 bytes stripped).
+- PowerShell DPI verification (see `docs/notes/DPI_NOTES.md` for the full script) confirmed
+  `Awareness: 2` (PerMonitor) and `DPI: 120` (125% scaling) on the developer's machine.
+- GitHub issue #1 closed as completed by the issue author after testing the built artifact.

@@ -49,6 +49,47 @@ and updated in `WM_DPICHANGED`.
 - **GetTwipsForPixels()** — already uses `GetDeviceCaps(LOGPIXELSX)`; returns the real
   DPI once the process is DPI-aware.
 
+## Verifying DPI awareness at runtime (PowerShell)
+
+The following PowerShell snippet queries the running RichEditor process to confirm that
+Per-Monitor V2 DPI awareness is active. This was used for initial testing by a screen
+reader user who could not visually verify rendering sharpness but needed to confirm the
+manifest and DPI infrastructure were functioning correctly.
+
+```powershell
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class DpiCheck {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern int GetAwarenessFromDpiAwarenessContext(IntPtr value);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hwnd);
+}
+"@
+
+$proc = Get-Process RichEditor -ErrorAction Stop
+$hwnd = $proc.MainWindowHandle
+$ctx = [DpiCheck]::GetWindowDpiAwarenessContext($hwnd)
+$awareness = [DpiCheck]::GetAwarenessFromDpiAwarenessContext($ctx)
+$dpi = [DpiCheck]::GetDpiForWindow($hwnd)
+
+# Awareness: 0=Unaware, 1=System, 2=PerMonitor
+Write-Host "Awareness: $awareness (0=Unaware, 1=System, 2=PerMonitor)"
+Write-Host "DPI: $dpi (96=100%, 120=125%, 144=150%, 192=200%)"
+```
+
+Expected output for a correctly configured build at 125% scaling:
+
+```
+Awareness: 2 (0=Unaware, 1=System, 2=PerMonitor)
+DPI: 120 (96=100%, 120=125%, 144=150%, 192=200%)
+```
+
 ## Binary size impact
 
 359 936 → 362 496 bytes stripped (+2 560 bytes / +0.7%).
