@@ -139,3 +139,21 @@ All pixel measurements in layout code use `ScaleDpi(value, g_nDpi)`. The 96-DPI 
 ### Dialogs
 
 All dialogs use `DIALOGEX` with `FONT 8, "MS Shell Dlg"` and DLU-based coordinates. Per-Monitor V2's dialog manager handles scaling automatically for these dialogs. No per-dialog DPI code is needed.
+
+## RichEdit UIA Provider and Menu Bar Accessibility
+
+### Problem
+
+Modern RichEdit DLLs (Office 365 / Windows 11, version 8.0+, class `RichEditD2DPT`) expose a native UI Automation (UIA) provider. When NVDA navigates the menu bar and wraps around through the system menu position, its hybrid MSAA+UIA bridge can pick up the RichEdit's UIA tree instead of the system menu's MSAA object. This causes NVDA to announce the window title and "Text document edit area" instead of "System menu".
+
+The issue does not occur with the older native Windows RichEdit (MSAA-only, class `RICHEDIT50W` or `RichEdit20W`), nor with Narrator (pure UIA), nor in applications that don't have a RichEdit child window.
+
+### Solution
+
+`g_bInMenuLoop` tracks whether the user is navigating the menu bar, set by `WM_ENTERMENULOOP` / `WM_EXITMENULOOP` in `WndProc`. Both `EditSubclassProc` and `OutputPaneSubclassProc` intercept `WM_GETOBJECT` and return 0 when `g_bInMenuLoop` is true. Returning 0 tells the UIA core that the window has no accessible object for the requested ID, so NVDA falls back to the correct MSAA menu-bar object.
+
+### Future considerations
+
+- This pattern should be applied to any new RichEdit-based child windows added to the application.
+- If a future RichEdit version changes how `WM_GETOBJECT` returning 0 is handled, the fix may need adjustment.
+- The suppression is harmless for MSAA-only RichEdit versions since they don't have a native UIA provider to suppress.

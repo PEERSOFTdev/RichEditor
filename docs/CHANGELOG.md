@@ -18,6 +18,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Add opt-in FilterDebug INI key for filter and REPL execution debug logging
 - Add \raw: prefix for escape-expanded REPL input in debug mode
 - Add Per-Monitor V2 DPI awareness with manifest, visual styles, and UTF-8 code page
+- Suppress RichEdit UIA provider during menu bar navigation for correct NVDA system menu announcement
 
 ## v2.9.0 (2026-03-26)
 

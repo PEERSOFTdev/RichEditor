@@ -78,6 +78,13 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - New dialogs must use `DIALOGEX` with `FONT 8, "MS Shell Dlg"` and DLU-based coordinates. The Per-Monitor V2 dialog manager handles scaling automatically for such dialogs.
 - `WM_GETMINMAXINFO` enforces DPI-scaled minimum window size.
 
+## Menu Bar Accessibility (RichEdit UIA Suppression)
+
+- Modern RichEdit (v8.0+, Office/Win11 DLL) has a native UIA provider that interferes with NVDA's menu bar navigation, causing the system menu position to announce the document title instead of "System menu".
+- `g_bInMenuLoop` tracks menu bar activity via `WM_ENTERMENULOOP` / `WM_EXITMENULOOP`.
+- Both `EditSubclassProc` and `OutputPaneSubclassProc` return 0 for `WM_GETOBJECT` when `g_bInMenuLoop` is true, suppressing the UIA provider during menu navigation.
+- **Any new RichEdit-based child window** must apply the same `WM_GETOBJECT` suppression in its subclass procedure.
+
 ## Reference.md Maintenance (Agent Guidelines)
 
 - Preserve the legacy README tone and structure (see `README.md` at commit `e2567a9`); avoid reorganizing sections.
