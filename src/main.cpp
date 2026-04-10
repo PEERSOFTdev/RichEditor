@@ -60,6 +60,7 @@ BOOL g_bWordWrap = TRUE;          // Word wrap enabled by default
 BOOL g_bReadOnly = FALSE;         // Read-only mode (can be set via /readonly or File menu)
 int  g_nZoomPercent = 100;        // Current zoom level in percent (100 = default)
 BOOL g_bSaveInProgress = FALSE;   // Prevent concurrent saves/autosave reentrancy
+BOOL g_bInMenuLoop = FALSE;       // TRUE while the user is navigating the menu bar
 
 //============================================================================
 // Bookmarks (Phase 2.9.3)
@@ -3858,6 +3859,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
             
+        case WM_ENTERMENULOOP:
+            g_bInMenuLoop = TRUE;
+            break;
+
+        case WM_EXITMENULOOP:
+            g_bInMenuLoop = FALSE;
+            break;
+
         case WM_CONTEXTMENU:
             // Handle context menu on RichEdit control
             if ((HWND)wParam == g_hWndEdit) {
@@ -4226,11 +4235,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 //============================================================================
 // OutputPaneSubclassProc - Subclass procedure for the output pane RichEdit
 //
-// Handles: F6 → return focus to main edit, Ctrl+Shift+Delete → clear pane,
-// WM_CONTEXTMENU → "Copy All" / "Clear" popup menu.
+// Handles: F6 -> return focus to main edit, Ctrl+Shift+Delete -> clear pane,
+// WM_CONTEXTMENU -> "Copy All" / "Clear" popup menu.
+// Suppresses WM_GETOBJECT during menu bar navigation (see EditSubclassProc).
 //============================================================================
 LRESULT CALLBACK OutputPaneSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    // Suppress UIA provider during menu bar navigation (see EditSubclassProc).
+    if (msg == WM_GETOBJECT && g_bInMenuLoop)
+        return 0;
+
     if (msg == WM_KEYDOWN) {
         if (wParam == VK_F6) {
             SetFocus(g_hWndEdit);
@@ -4306,10 +4320,22 @@ LRESULT CALLBACK OutputPaneSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 //============================================================================
 // EditSubclassProc - Subclass procedure for RichEdit control
 //
-// Intercepts WM_KEYDOWN to handle Enter key for REPL mode and URLs
+// Intercepts WM_KEYDOWN to handle Enter key for REPL mode and URLs.
+// Suppresses WM_GETOBJECT during menu bar navigation to prevent the
+// RichEdit UIA provider from interfering with NVDA screen reader.
 //============================================================================
 LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    // Suppress the RichEdit UIA provider while the menu bar is active.
+    // Modern RichEdit (Office/Win11, v8.0+) exposes a native UIA provider that
+    // can confuse NVDA's hybrid MSAA+UIA bridge during menu bar navigation,
+    // causing the system menu position to announce the document title and edit
+    // area instead of "System menu".  Returning 0 tells the UIA core that this
+    // window has no accessible object for the requested ID, so NVDA falls back
+    // to the correct MSAA menu-bar object.
+    if (msg == WM_GETOBJECT && g_bInMenuLoop)
+        return 0;
+
     if (msg == WM_KEYDOWN) {
         // F6: move focus to output pane (only when pane is visible)
         if (wParam == VK_F6 && g_hWndOutputPane && IsWindowVisible(g_hWndOutputPane)) {
