@@ -186,7 +186,9 @@ than anything available in GNU ld.
 
 ## Code-Level Opportunities
 
-### Applied refactors — 512 bytes saved (362,496 → 361,984 stripped)
+### Applied refactors — 2,048 bytes saved (362,496 → 360,448 stripped)
+
+#### Batch 1 — 512 bytes (362,496 → 361,984)
 
 | Pattern | Action | Lines removed |
 |---|---|---|
@@ -194,24 +196,19 @@ than anything available in GNU ld.
 | Template variable expansion (6 date/time format blocks in `ExpandTemplateVariables`) | Replaced with table-driven loop using function pointer | ~60 |
 | `LoadSettings()` read-default-parse pattern | Added `LoadSettingBool`, `LoadSettingInt`, `LoadSettingString` helpers | ~80 |
 
+#### Batch 2 — 1,536 bytes (361,984 → 360,448)
+
+| Pattern | Action | Lines removed |
+|---|---|---|
+| RichEdit `EM_GETTEXTRANGE` boilerplate (17 sites) | Added `RE_GetTextRange()` inline helper | ~50 |
+| RichEdit `EM_EXGETSEL` boilerplate (23 sites) | Added `RE_GetSel()` inline helper | ~23 |
+| RichEdit `EM_EXSETSEL` boilerplate (23 sites) | Added `RE_SetSel()` inline helper | ~45 |
+| RichEdit `EM_GETTEXTLENGTHEX` boilerplate (8 sites) | Added `RE_GetTextLen()` inline helper | ~16 |
+| Strip trailing newline (3 identical 7-line blocks) | Extracted `StripTrailingNewline()` helper | ~14 |
+| `LoadRichEditLibrary()` 3 DLL fallback blocks | Table-driven loop over DLL names | ~25 |
+| `CreateRichEditControl()` 5 class fallback blocks | Table-driven loop with version thresholds | ~40 |
+
 ### Remaining opportunities (estimated, not yet implemented)
-
-| Pattern | Repetitions | Est. Savings |
-|---|---|---|
-| `CreateRichEditControl()` DLL fallback blocks | 5 similar blocks | 1-2 KB |
-| Strip trailing newline pattern | 3 copies | 0.3 KB |
-
-### SendMessage wrapper functions — estimated 2-4 KB
-
-187 `SendMessage` calls to RichEdit controls.  The top candidates for wrappers:
-
-| Message | Count | Boilerplate per call |
-|---|---|---|
-| `EM_EXGETSEL` / `EM_EXSETSEL` | 45 combined | CHARRANGE struct setup |
-| `EM_GETTEXTRANGE` | 17 | TEXTRANGE struct setup |
-| `EM_GETTEXTLENGTHEX` | 8 | GETTEXTLENGTHEX struct setup |
-
-Introducing 3-4 inline helper functions would deduplicate the struct setup.
 
 ### String constant deduplication — estimated 0-2 KB
 

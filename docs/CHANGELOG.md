@@ -19,6 +19,8 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Add \raw: prefix for escape-expanded REPL input in debug mode
 - Add Per-Monitor V2 DPI awareness with manifest, visual styles, and UTF-8 code page
 - Suppress RichEdit UIA provider during menu bar navigation for correct NVDA system menu announcement
+- Extract shared helpers to deduplicate history, date/time, and settings code
+- Add RichEdit wrappers and table-drive fallback cascades
 
 ## v2.9.0 (2026-03-26)
 

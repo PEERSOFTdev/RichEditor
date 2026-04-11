@@ -465,6 +465,33 @@ static inline int ScaleDpi(int value, UINT dpi) {
 }
 
 //============================================================================
+// RichEdit helper wrappers — reduce boilerplate across 70+ call sites
+//============================================================================
+static inline LONG RE_GetTextLen(HWND h) {
+    GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};
+    return (LONG)SendMessage(h, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+}
+
+static inline CHARRANGE RE_GetSel(HWND h) {
+    CHARRANGE cr;
+    SendMessage(h, EM_EXGETSEL, 0, (LPARAM)&cr);
+    return cr;
+}
+
+static inline void RE_SetSel(HWND h, LONG cpMin, LONG cpMax) {
+    CHARRANGE cr = {cpMin, cpMax};
+    SendMessage(h, EM_EXSETSEL, 0, (LPARAM)&cr);
+}
+
+static inline int RE_GetTextRange(HWND h, LONG cpMin, LONG cpMax, LPWSTR buf) {
+    TEXTRANGE tr;
+    tr.chrg.cpMin = cpMin;
+    tr.chrg.cpMax = cpMax;
+    tr.lpstrText = buf;
+    return (int)SendMessage(h, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+}
+
+//============================================================================
 // Search System (Phase 2.9)
 //============================================================================
 #define MAX_FIND_HISTORY 20
@@ -1614,17 +1641,13 @@ LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset)
                         continue;
                     } else if (wcscmp(szVarName, L"selection") == 0) {
                         // %selection% - Insert current selection
-                        CHARRANGE cr;
-                        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                        CHARRANGE cr = RE_GetSel(g_hWndEdit);
                         
                         if (cr.cpMin != cr.cpMax) {
                             int selLen = cr.cpMax - cr.cpMin;
                             LPWSTR pszSel = (LPWSTR)malloc((selLen + 1) * sizeof(WCHAR));
                             if (pszSel) {
-                                TEXTRANGE tr;
-                                tr.chrg = cr;
-                                tr.lpstrText = pszSel;
-                                SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                                RE_GetTextRange(g_hWndEdit, cr.cpMin, cr.cpMax, pszSel);
                                 pszSel[selLen] = L'\0';
                                 
                                 // Copy selection to output
@@ -1784,18 +1807,15 @@ void InsertTemplate(int nTemplateIndex)
     if (!pszExpanded) return;
     
     // Get current selection
-    CHARRANGE crOriginal;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crOriginal);
+    CHARRANGE crOriginal = RE_GetSel(g_hWndEdit);
     
     // Replace selection with expanded template
     SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
     
     // Position cursor if %cursor% was found
     if (nCursorOffset >= 0) {
-        CHARRANGE crNew;
-        crNew.cpMin = crOriginal.cpMin + nCursorOffset;
-        crNew.cpMax = crNew.cpMin;
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crNew);
+        LONG cpCursor = crOriginal.cpMin + nCursorOffset;
+        RE_SetSel(g_hWndEdit, cpCursor, cpCursor);
     }
     
     free(pszExpanded);
@@ -1992,8 +2012,7 @@ void ShowTemplatePickerMenu(HWND hwnd)
     }
     
     // Get cursor position in RichEdit
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
     POINTL ptlEdit = {0, 0};
     SendMessage(g_hWndEdit, EM_POSFROMCHAR, (WPARAM)&ptlEdit, cr.cpMin);
     
@@ -2256,8 +2275,7 @@ LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord,
     }
     
     // Get document length
-    GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};  // UTF-16LE
-    int nDocLen = (int)SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    int nDocLen = (int)RE_GetTextLen(g_hWndEdit);
     
     // Setup search range and flags
     FINDTEXTEXW ft;
@@ -2288,7 +2306,7 @@ LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord,
         
         if (g_bSelectAfterFind) {
             // Select the found text
-            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            RE_SetSel(g_hWndEdit, cr.cpMin, cr.cpMax);
         } else {
             // Position cursor based on search direction
             if (bSearchDown) {
@@ -2298,7 +2316,7 @@ LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord,
                 // Backward search: position cursor before match (allows Shift+F3 to continue backward)
                 cr.cpMax = cr.cpMin;
             }
-            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            RE_SetSel(g_hWndEdit, cr.cpMin, cr.cpMax);
         }
         
         // Scroll into view
@@ -2343,8 +2361,7 @@ BOOL DoFind(BOOL bSearchDown, BOOL bSilent)
     }
     
     // Get current selection to start search after/before it
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
     
     LONG nStartPos = bSearchDown ? cr.cpMax : cr.cpMin;
     
@@ -2453,10 +2470,7 @@ INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
                     return TRUE;
                 }
 
-                CHARRANGE cr;
-                cr.cpMin = nCharPos;
-                cr.cpMax = nCharPos;
-                SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+                RE_SetSel(g_hWndEdit, nCharPos, nCharPos);
                 SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
                 SetFocus(g_hWndEdit);
 
@@ -2778,8 +2792,7 @@ void DoReplace()
     if (g_szFindWhat[0] == L'\0') return;  // Empty find text
     
     // Get current selection
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
     
     // If no selection, find first occurrence then replace it immediately.
     // Without this, the first press would only locate the match and the
@@ -2788,8 +2801,7 @@ void DoReplace()
         DoFind(TRUE);  // Search down — selects the match if found
         // If DoFind found and selected a match, replace it right away so
         // that a single button press both replaces and advances to next.
-        CHARRANGE crFound;
-        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crFound);
+        CHARRANGE crFound = RE_GetSel(g_hWndEdit);
         if (crFound.cpMax - crFound.cpMin > 0) {
             DoReplace();  // Selection now matches; replaces + finds next
         }
@@ -2801,10 +2813,7 @@ void DoReplace()
     LPWSTR pszSelection = (LPWSTR)malloc((nSelLen + 1) * sizeof(WCHAR));
     if (!pszSelection) return;
     
-    TEXTRANGEW tr;
-    tr.chrg = cr;
-    tr.lpstrText = pszSelection;
-    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    RE_GetTextRange(g_hWndEdit, cr.cpMin, cr.cpMax, pszSelection);
     
     // Parse Find What (apply escape sequences if enabled)
     LPWSTR pszFindParsed = g_bFindUseEscapes 
@@ -2939,8 +2948,7 @@ void DoReplaceAll()
     
     // Unified fast in-memory replacement with optional whole-word checking
     // Get all text from RichEdit
-    GETTEXTLENGTHEX gtl = {GTL_DEFAULT, 1200};  // UTF-16LE
-    int nLen = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    int nLen = RE_GetTextLen(g_hWndEdit);
     
     if (nLen <= 0) {
         free(pszFindParsed);
@@ -3356,8 +3364,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 if (!g_bSettingText) {
                     int currentLen = GetWindowTextLength(g_hWndEdit);
                     int delta = currentLen - g_nLastTextLen;
-                    CHARRANGE cr;
-                    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                    CHARRANGE cr = RE_GetSel(g_hWndEdit);
                     if (g_nLastTextLen > 0) {
                         LONG editPos = cr.cpMin;
                         if (delta > 0) {
@@ -3679,12 +3686,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                             if (pEnLink->msg == WM_LBUTTONUP) {
                                 // Mouse click on URL - open it
                                 WCHAR szURL[2048];
-                                TEXTRANGE tr;
-                                tr.chrg = pEnLink->chrg;
-                                tr.lpstrText = szURL;
                                 
-                                if (tr.chrg.cpMax - tr.chrg.cpMin < 2048) {
-                                    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                                if (pEnLink->chrg.cpMax - pEnLink->chrg.cpMin < 2048) {
+                                    RE_GetTextRange(g_hWndEdit, pEnLink->chrg.cpMin, pEnLink->chrg.cpMax, szURL);
                                     OpenURL(hwnd, szURL);
                                 }
                                 
@@ -3744,8 +3748,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     // Re-enable editing operations when not in read-only mode
                     // (UpdateMenuUndoRedo already handles Undo/Redo based on availability)
                     BOOL canPaste = SendMessage(g_hWndEdit, EM_CANPASTE, 0, 0);
-                    CHARRANGE cr;
-                    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                    CHARRANGE cr = RE_GetSel(g_hWndEdit);
                     BOOL hasSelection = (cr.cpMin != cr.cpMax);
                     
                     EnableMenuItem(hMenu, ID_EDIT_CUT, hasSelection ? MF_ENABLED : MF_GRAYED);
@@ -3801,8 +3804,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     if (xPos == -1 && yPos == -1) {
                         // Keyboard context menu (Shift+F10 or context menu key)
                         // Use current cursor position
-                        CHARRANGE cr;
-                        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                        CHARRANGE cr = RE_GetSel(g_hWndEdit);
                         cursorPos = cr.cpMin;
                     } else {
                         // Mouse right-click - convert screen coords to client
@@ -3892,8 +3894,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     BOOL canUndo = SendMessage(g_hWndEdit, EM_CANUNDO, 0, 0);
                     BOOL canPaste = SendMessage(g_hWndEdit, EM_CANPASTE, 0, 0);
                     
-                    CHARRANGE cr;
-                    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                    CHARRANGE cr = RE_GetSel(g_hWndEdit);
                     BOOL hasSelection = (cr.cpMin != cr.cpMax);
                     
                     WCHAR szUndo[32], szCut[32], szCopy[32], szPaste[32], szSelectAll[32];
@@ -4282,8 +4283,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             // If in REPL mode: Enter sends command if on a line with prompt, or at end of document
             if (g_bREPLMode) {
                 // Get current cursor position
-                CHARRANGE cr;
-                SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+                CHARRANGE cr = RE_GetSel(g_hWndEdit);
                 
                 // Get current line number
                 LONG lineIndex = SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
@@ -4293,17 +4293,11 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
                 if (lineEnd == -1) {
                     // Last line - get document length
-                    GETTEXTLENGTHEX gtl;
-                    gtl.flags = GTL_DEFAULT;
-                    gtl.codepage = 1200; // Unicode
-                    lineEnd = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+                    lineEnd = RE_GetTextLen(g_hWndEdit);
                 }
                 
                 // Check if we're at the very end of the document (safety: send empty line to recall prompt)
-                GETTEXTLENGTHEX gtl;
-                gtl.flags = GTL_DEFAULT;
-                gtl.codepage = 1200;
-                LONG docLength = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+                LONG docLength = RE_GetTextLen(g_hWndEdit);
                 if (cr.cpMin >= docLength) {
                     // At end of document - send to REPL (empty line or whatever is on current line)
                     SendLineToREPL();
@@ -4315,11 +4309,7 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 if (lineLen > 0) {
                     LPWSTR pszLine = (LPWSTR)malloc((lineLen + 1) * sizeof(WCHAR));
                     if (pszLine) {
-                        TEXTRANGE tr;
-                        tr.chrg.cpMin = lineStart;
-                        tr.chrg.cpMax = lineEnd;
-                        tr.lpstrText = pszLine;
-                        SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                        RE_GetTextRange(g_hWndEdit, lineStart, lineEnd, pszLine);
                         
                         // Check if line contains prompt
                         int inputStart = 0;
@@ -4994,8 +4984,7 @@ BOOL PerformElevatedSave(LPCWSTR pszTargetPath)
 BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
 {
     // Get current cursor position
-    CHARRANGE savedSel;
-    SendMessage(hWndEdit, EM_EXGETSEL, 0, (LPARAM)&savedSel);
+    CHARRANGE savedSel = RE_GetSel(hWndEdit);
     LONG cursorPos = savedSel.cpMin;
     
     // Fast path: Check if cursor is within cached URL range from EN_LINK
@@ -5004,12 +4993,8 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
         cursorPos < g_lastURLRange.cpMax) {
         
         // Extract URL from known range (instant)
-        TEXTRANGE tr;
-        tr.chrg = g_lastURLRange;
-        tr.lpstrText = pszURL;
-        
-        if (tr.chrg.cpMax - tr.chrg.cpMin < cchMax) {
-            SendMessage(hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+        if (g_lastURLRange.cpMax - g_lastURLRange.cpMin < cchMax) {
+            RE_GetTextRange(hWndEdit, g_lastURLRange.cpMin, g_lastURLRange.cpMax, pszURL);
             if (pRange) {
                 *pRange = g_lastURLRange;
             }
@@ -5031,11 +5016,11 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     CHARRANGE cr;
     cr.cpMin = cursorPos;
     cr.cpMax = cursorPos + 1;
-    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+    RE_SetSel(hWndEdit, cr.cpMin, cr.cpMax);
     SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
     
     if (!(cf.dwEffects & CFE_LINK)) {
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+        RE_SetSel(hWndEdit, savedSel.cpMin, savedSel.cpMax);
         SendMessage(hWndEdit, WM_SETREDRAW, TRUE, 0);
         return FALSE;  // Not in URL
     }
@@ -5053,7 +5038,7 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     for (LONG pos = cursorPos - 1; pos >= 0; pos--) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        RE_SetSel(hWndEdit, cr.cpMin, cr.cpMax);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
             wordLeft = pos;
@@ -5063,15 +5048,12 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     }
     
     // Scan forward from cursorPos to find URL end
-    GETTEXTLENGTHEX gtl;
-    gtl.flags = GTL_DEFAULT;
-    gtl.codepage = 1200;
-    LONG docLen = SendMessage(hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+    LONG docLen = RE_GetTextLen(hWndEdit);
     LONG wordRight = cursorPos;
     for (LONG pos = cursorPos; pos < docLen; pos++) {
         cr.cpMin = pos;
         cr.cpMax = pos + 1;
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        RE_SetSel(hWndEdit, cr.cpMin, cr.cpMax);
         SendMessage(hWndEdit, EM_GETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         if (cf.dwEffects & CFE_LINK) {
             wordRight = pos + 1;
@@ -5083,16 +5065,12 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     // Extract URL text
     int urlLen = wordRight - wordLeft;
     if (urlLen <= 0 || urlLen >= cchMax) {
-        SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+        RE_SetSel(hWndEdit, savedSel.cpMin, savedSel.cpMax);
         SendMessage(hWndEdit, WM_SETREDRAW, TRUE, 0);
         return FALSE;
     }
     
-    TEXTRANGE tr;
-    tr.chrg.cpMin = wordLeft;
-    tr.chrg.cpMax = wordRight;
-    tr.lpstrText = pszURL;
-    SendMessage(hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    RE_GetTextRange(hWndEdit, wordLeft, wordRight, pszURL);
     
     if (pRange) {
         pRange->cpMin = wordLeft;
@@ -5104,7 +5082,7 @@ BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange)
     g_lastURLRange.cpMax = wordRight;
     
     // Restore selection (single restore at end)
-    SendMessage(hWndEdit, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+    RE_SetSel(hWndEdit, savedSel.cpMin, savedSel.cpMax);
     SendMessage(hWndEdit, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(hWndEdit, NULL, FALSE);
     
@@ -5268,63 +5246,22 @@ HWND CreateRichEditControl(HWND hwndParent)
     
     // Fallback chain for v8.0+ if primary class (RichEditD2DPT) failed
     // This gracefully handles cases where D2DPT isn't available
-    if (!hwndEdit && g_fRichEditVersion >= 8.0f) {
-        // Try RichEditD2D (Direct2D without Paint Through)
+    static const struct { float minVer; LPCWSTR cls; } kFallbacks[] = {
+        { 8.0f, L"RichEditD2D"  },
+        { 6.0f, L"RichEdit60W"  },
+        { 5.0f, L"RichEdit20W"  },
+        { 4.0f, L"RICHEDIT50W"  },
+        { 0.0f, L"RICHEDIT"     },  // v1.0 final fallback
+    };
+    for (size_t i = 0; !hwndEdit && i < _countof(kFallbacks); i++) {
+        if (g_fRichEditVersion < kFallbacks[i].minVer) continue;
         hwndEdit = CreateWindowEx(
-            WS_EX_CLIENTEDGE, L"RichEditD2D", L"", style,
+            WS_EX_CLIENTEDGE, kFallbacks[i].cls, L"", style,
             0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
             GetModuleHandle(NULL), NULL
         );
         if (hwndEdit) {
-            wcscpy(g_szRichEditClassName, L"RichEditD2D");
-        }
-    }
-    
-    if (!hwndEdit && g_fRichEditVersion >= 6.0f) {
-        // Try RichEdit60W (older Office versions)
-        hwndEdit = CreateWindowEx(
-            WS_EX_CLIENTEDGE, L"RichEdit60W", L"", style,
-            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
-            GetModuleHandle(NULL), NULL
-        );
-        if (hwndEdit) {
-            wcscpy(g_szRichEditClassName, L"RichEdit60W");
-        }
-    }
-    
-    if (!hwndEdit && g_fRichEditVersion >= 5.0f) {
-        // Try RichEdit20W (universal fallback for modern DLLs)
-        hwndEdit = CreateWindowEx(
-            WS_EX_CLIENTEDGE, L"RichEdit20W", L"", style,
-            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
-            GetModuleHandle(NULL), NULL
-        );
-        if (hwndEdit) {
-            wcscpy(g_szRichEditClassName, L"RichEdit20W");
-        }
-    }
-    
-    if (!hwndEdit && g_fRichEditVersion >= 4.0f) {
-        // Try RICHEDIT50W (MSFTEDIT.DLL)
-        hwndEdit = CreateWindowEx(
-            WS_EX_CLIENTEDGE, L"RICHEDIT50W", L"", style,
-            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
-            GetModuleHandle(NULL), NULL
-        );
-        if (hwndEdit) {
-            wcscpy(g_szRichEditClassName, L"RICHEDIT50W");
-        }
-    }
-    
-    if (!hwndEdit) {
-        // Final fallback: Try ancient RICHEDIT (v1.0)
-        hwndEdit = CreateWindowEx(
-            WS_EX_CLIENTEDGE, L"RICHEDIT", L"", style,
-            0, 0, 0, 0, hwndParent, (HMENU)IDC_RICHEDIT,
-            GetModuleHandle(NULL), NULL
-        );
-        if (hwndEdit) {
-            wcscpy(g_szRichEditClassName, L"RICHEDIT");
+            wcscpy(g_szRichEditClassName, kFallbacks[i].cls);
         }
     }
     
@@ -5474,24 +5411,15 @@ void ExecuteFilterDisplayPane(LPCWSTR pszOutput, BOOL bAppend, BOOL bFocus, BOOL
     LONG nCaretPos = 0;
     if (bAppend) {
         // Save pre-append length; used by bStart to position caret at chunk start
-        GETTEXTLENGTHEX gtl;
-        gtl.flags = GTL_DEFAULT;
-        gtl.codepage = 1200;
-        LONG nPreAppendLen = (LONG)SendMessage(g_hWndOutputPane, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
-        CHARRANGE cr;
-        cr.cpMin = nPreAppendLen;
-        cr.cpMax = nPreAppendLen;
-        SendMessage(g_hWndOutputPane, EM_EXSETSEL, 0, (LPARAM)&cr);
+        LONG nPreAppendLen = RE_GetTextLen(g_hWndOutputPane);
+        RE_SetSel(g_hWndOutputPane, nPreAppendLen, nPreAppendLen);
         SendMessage(g_hWndOutputPane, EM_REPLACESEL, FALSE, (LPARAM)pszOutput);
         if (bStart) {
             // Place caret at start of newly appended chunk
             nCaretPos = nPreAppendLen;
         } else {
             // Default: caret at end of all content
-            GETTEXTLENGTHEX gtl2;
-            gtl2.flags = GTL_DEFAULT;
-            gtl2.codepage = 1200;
-            nCaretPos = (LONG)SendMessage(g_hWndOutputPane, EM_GETTEXTLENGTHEX, (WPARAM)&gtl2, 0);
+            nCaretPos = RE_GetTextLen(g_hWndOutputPane);
         }
     } else {
         SetWindowText(g_hWndOutputPane, pszOutput);
@@ -5587,11 +5515,7 @@ static void RebuildLineIndex()
     int pos = 0;
     while (pos < totalLen) {
         int end = (pos + CHUNK < totalLen) ? pos + CHUNK : totalLen;
-        TEXTRANGE tr;
-        tr.chrg.cpMin = pos;
-        tr.chrg.cpMax = end;
-        tr.lpstrText = buf;
-        int got = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+        int got = RE_GetTextRange(g_hWndEdit, pos, end, buf);
         if (got <= 0) break;
 
         for (int i = 0; i < got; i++) {
@@ -5624,8 +5548,7 @@ void UpdateStatusBar()
     if (!g_hWndStatus || !g_hWndEdit) return;
     
     // Get cursor position
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
     
     int visualLine, visualCol;
     int physicalLine, physicalCol;
@@ -5647,11 +5570,7 @@ void UpdateStatusBar()
         if (charCount > 0) {
             LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
             if (lineText) {
-                TEXTRANGE tr;
-                tr.chrg.cpMin = lineStart;
-                tr.chrg.cpMax = charPos;
-                tr.lpstrText = lineText;
-                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                int retrieved = RE_GetTextRange(g_hWndEdit, lineStart, charPos, lineText);
                 *outCol = (retrieved > 0) ? CalculateTabAwareColumn(lineText, charCount) : 1;
                 free(lineText);
             } else {
@@ -5704,11 +5623,7 @@ void UpdateStatusBar()
             // Get line text from currentLineStart to cursor
             LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
             if (lineText) {
-                TEXTRANGE tr;
-                tr.chrg.cpMin = currentLineStart;
-                tr.chrg.cpMax = cr.cpMin;
-                tr.lpstrText = lineText;
-                int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                int retrieved = RE_GetTextRange(g_hWndEdit, currentLineStart, cr.cpMin, lineText);
                 if (retrieved > 0) {
                     visualCol = CalculateTabAwareColumn(lineText, charCount);
                 } else {
@@ -5743,11 +5658,7 @@ void UpdateStatusBar()
                 // Get line text from lineStart to cursor
                 LPWSTR lineText = (LPWSTR)malloc((charCount + 1) * sizeof(WCHAR));
                 if (lineText) {
-                    TEXTRANGE tr;
-                    tr.chrg.cpMin = lineStart;
-                    tr.chrg.cpMax = cr.cpMin;
-                    tr.lpstrText = lineText;
-                    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+                    int retrieved = RE_GetTextRange(g_hWndEdit, lineStart, cr.cpMin, lineText);
                     if (retrieved > 0) {
                         visualCol = CalculateTabAwareColumn(lineText, charCount);
                     } else {
@@ -5790,12 +5701,8 @@ void UpdateStatusBar()
 
     if (caretPos < textLen) {
         // Get up to 2 WCHARs to handle surrogate pairs
-        TEXTRANGE tr;
         WCHAR buffer[3] = {0};
-        tr.chrg.cpMin = caretPos;
-        tr.chrg.cpMax = caretPos + 2;
-        tr.lpstrText = buffer;
-        int charsRead = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+        int charsRead = RE_GetTextRange(g_hWndEdit, caretPos, caretPos + 2, buffer);
         
         WCHAR firstChar = buffer[0];
         
@@ -6113,8 +6020,7 @@ void UpdateMenuUndoRedo(HMENU hMenu)
     // (Same logic as context menu for consistency)
     BOOL canPaste = SendMessage(g_hWndEdit, EM_CANPASTE, 0, 0);
     
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
     BOOL hasSelection = (cr.cpMin != cr.cpMax);
     
     // Update Cut - enabled only if there's a selection
@@ -6654,8 +6560,7 @@ static int GetLineIndexWrapAwareFromChar(LONG charPos)
 
 static int GetCurrentLineIndexWrapAware()
 {
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
     return GetLineIndexWrapAwareFromChar(cr.cpMin);
 }
 
@@ -6674,11 +6579,7 @@ static void GetLineContextFromCharPos(LONG charPos, WCHAR* pszOut, int cchOut)
         copyLen = BOOKMARK_CONTEXT_LEN - 1;
     }
 
-    TEXTRANGE tr;
-    tr.chrg.cpMin = lineStart;
-    tr.chrg.cpMax = lineStart + copyLen;
-    tr.lpstrText = pszOut;
-    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    RE_GetTextRange(g_hWndEdit, lineStart, lineStart + copyLen, pszOut);
     pszOut[copyLen] = L'\0';
 }
 
@@ -6852,12 +6753,8 @@ static BOOL BookmarkContextMatchesAt(LONG charPos, const WCHAR* context)
     int ctxLen = (int)wcslen(context);
     if (ctxLen <= 0) return FALSE;
 
-    TEXTRANGE tr;
     WCHAR buffer[BOOKMARK_CONTEXT_LEN + 1];
-    tr.chrg.cpMin = charPos;
-    tr.chrg.cpMax = charPos + ctxLen;
-    tr.lpstrText = buffer;
-    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    int retrieved = RE_GetTextRange(g_hWndEdit, charPos, charPos + ctxLen, buffer);
     if (retrieved <= 0) return FALSE;
 
     buffer[ctxLen] = L'\0';
@@ -6885,11 +6782,7 @@ static LONG FindContextNearPos(LONG charPos, const WCHAR* context, int windowSiz
     WCHAR* buffer = (WCHAR*)malloc((rangeLen + 1) * sizeof(WCHAR));
     if (!buffer) return -1;
 
-    TEXTRANGE tr;
-    tr.chrg.cpMin = start;
-    tr.chrg.cpMax = end;
-    tr.lpstrText = buffer;
-    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    int retrieved = RE_GetTextRange(g_hWndEdit, start, end, buffer);
     if (retrieved <= 0) {
         free(buffer);
         return -1;
@@ -6918,11 +6811,7 @@ static LONG FindContextInDocument(const WCHAR* context)
     WCHAR* buffer = (WCHAR*)malloc((textLen + 1) * sizeof(WCHAR));
     if (!buffer) return -1;
 
-    TEXTRANGE tr;
-    tr.chrg.cpMin = 0;
-    tr.chrg.cpMax = textLen;
-    tr.lpstrText = buffer;
-    int retrieved = (int)SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    int retrieved = RE_GetTextRange(g_hWndEdit, 0, textLen, buffer);
     if (retrieved <= 0) {
         free(buffer);
         return -1;
@@ -6990,9 +6879,6 @@ void ToggleBookmark()
         RefreshBookmarkLineIndices();
     }
 
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
-
     int currentLineIndex = GetCurrentLineIndexWrapAware();
     LONG lineStart = GetBookmarkLineStart(currentLineIndex);
     if (lineStart < 0) return;
@@ -7021,8 +6907,7 @@ void ToggleBookmark()
 
 static void RefreshBookmarkLineIndices()
 {
-    CHARRANGE crOriginal;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crOriginal);
+    CHARRANGE crOriginal = RE_GetSel(g_hWndEdit);
 
     for (int i = 0; i < MAX_BOOKMARKS; i++) {
         if (!g_Bookmarks[i].active) continue;
@@ -7036,17 +6921,14 @@ static void RefreshBookmarkLineIndices()
             }
         }
         if (g_bWordWrap) {
-            CHARRANGE cr;
-            cr.cpMin = g_Bookmarks[i].charPos;
-            cr.cpMax = g_Bookmarks[i].charPos;
-            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+            RE_SetSel(g_hWndEdit, g_Bookmarks[i].charPos, g_Bookmarks[i].charPos);
             g_Bookmarks[i].lineIndex = GetCurrentLineIndexWrapAware();
         } else {
             g_Bookmarks[i].lineIndex = (int)SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, g_Bookmarks[i].charPos);
         }
     }
 
-    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crOriginal);
+    RE_SetSel(g_hWndEdit, crOriginal.cpMin, crOriginal.cpMax);
 
     g_bBookmarksDirty = FALSE;
 }
@@ -7065,8 +6947,7 @@ void NextBookmark(BOOL bForward)
         RefreshBookmarkLineIndices();
     }
 
-    CHARRANGE crOriginal;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crOriginal);
+    CHARRANGE crOriginal = RE_GetSel(g_hWndEdit);
 
     int currentLine = GetCurrentLineIndexWrapAware();
     Bookmark* sorted[MAX_BOOKMARKS];
@@ -7100,14 +6981,11 @@ void NextBookmark(BOOL bForward)
 
     if (targetIndex >= 0 && targetIndex < sortedCount) {
         LONG pos = sorted[targetIndex]->charPos;
-        CHARRANGE cr;
-        cr.cpMin = pos;
-        cr.cpMax = pos;
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        RE_SetSel(g_hWndEdit, pos, pos);
         SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
         SetFocus(g_hWndEdit);
     } else {
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crOriginal);
+        RE_SetSel(g_hWndEdit, crOriginal.cpMin, crOriginal.cpMax);
     }
 }
 
@@ -7325,47 +7203,20 @@ BOOL LoadRichEditLibrary()
     }
     
     // Fallback cascade: MSFTEDIT.DLL → RICHED20.DLL → RICHED32.DLL
-    
-    // Try MSFTEDIT.DLL (RichEdit 4.1+, Windows Vista+)
-    g_hRichEditLib = LoadLibrary(L"MSFTEDIT.DLL");
-    if (g_hRichEditLib) {
-        g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
-        
-        // Check for INI class name override (Phase 2.8.5)
-        if (g_szRichEditClassNameINI[0] != L'\0') {
-            wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
-        } else {
-            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+    static const LPCWSTR kFallbackDLLs[] = {
+        L"MSFTEDIT.DLL", L"RICHED20.DLL", L"RICHED32.DLL"
+    };
+    for (size_t i = 0; i < _countof(kFallbackDLLs); i++) {
+        g_hRichEditLib = LoadLibrary(kFallbackDLLs[i]);
+        if (g_hRichEditLib) {
+            g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
+            if (g_szRichEditClassNameINI[0] != L'\0') {
+                wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
+            } else {
+                wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
+            }
+            return TRUE;
         }
-        return TRUE;
-    }
-    
-    // Try RICHED20.DLL (RichEdit 2.0-6.0, Windows 2000+)
-    g_hRichEditLib = LoadLibrary(L"RICHED20.DLL");
-    if (g_hRichEditLib) {
-        g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
-        
-        // Check for INI class name override (Phase 2.8.5)
-        if (g_szRichEditClassNameINI[0] != L'\0') {
-            wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
-        } else {
-            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
-        }
-        return TRUE;
-    }
-    
-    // Try RICHED32.DLL (RichEdit 1.0, legacy fallback)
-    g_hRichEditLib = LoadLibrary(L"RICHED32.DLL");
-    if (g_hRichEditLib) {
-        g_fRichEditVersion = GetRichEditVersion(g_hRichEditLib, g_szRichEditLibPath, MAX_PATH);
-        
-        // Check for INI class name override (Phase 2.8.5)
-        if (g_szRichEditClassNameINI[0] != L'\0') {
-            wcscpy(g_szRichEditClassName, g_szRichEditClassNameINI);
-        } else {
-            wcscpy(g_szRichEditClassName, GetRichEditClassName(g_fRichEditVersion));
-        }
-        return TRUE;
     }
     
     // Total failure - no RichEdit library available
@@ -8020,10 +7871,7 @@ void FileNewFromTemplate(int nTemplateIndex)
     
     // Position cursor if %cursor% was found
     if (nCursorOffset >= 0) {
-        CHARRANGE cr;
-        cr.cpMin = nCursorOffset;
-        cr.cpMax = nCursorOffset;
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+        RE_SetSel(g_hWndEdit, nCursorOffset, nCursorOffset);
         SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);  // Scroll cursor into view
     } else {
         // No cursor marker - position at start
@@ -8703,8 +8551,7 @@ void EditPaste()
     // No need to track - RichEdit reports this via EM_GETUNDONAME
     
     // Get selection before paste
-    CHARRANGE crBefore;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crBefore);
+    CHARRANGE crBefore = RE_GetSel(g_hWndEdit);
     
     // Perform paste
     SendMessage(g_hWndEdit, WM_PASTE, 0, 0);
@@ -8712,14 +8559,10 @@ void EditPaste()
     // If SelectAfterPaste is enabled, select the pasted text
     if (g_bSelectAfterPaste) {
         // Get selection after paste (cursor will be at end of pasted text)
-        CHARRANGE crAfter;
-        SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crAfter);
+        CHARRANGE crAfter = RE_GetSel(g_hWndEdit);
         
         // Select from start of paste to end
-        CHARRANGE crSelect;
-        crSelect.cpMin = crBefore.cpMin;
-        crSelect.cpMax = crAfter.cpMax;
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSelect);
+        RE_SetSel(g_hWndEdit, crBefore.cpMin, crAfter.cpMax);
     }
 }
 
@@ -8728,10 +8571,7 @@ void EditPaste()
 //============================================================================
 void EditSelectAll()
 {
-    CHARRANGE cr;
-    cr.cpMin = 0;
-    cr.cpMax = -1; // -1 means end of text
-    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+    RE_SetSel(g_hWndEdit, 0, -1);
 }
 
 //============================================================================
@@ -9113,6 +8953,15 @@ bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8,
     return true;
 }
 
+static inline void StripTrailingNewline(LPWSTR psz) {
+    size_t len = wcslen(psz);
+    if (len > 0 && psz[len - 1] == L'\n') {
+        psz[len - 1] = L'\0';
+        if (len > 1 && psz[len - 2] == L'\r')
+            psz[len - 2] = L'\0';
+    }
+}
+
 //============================================================================
 // ExecuteFilterInsert - Handle insert action (replace, below, append)
 //============================================================================
@@ -9127,13 +8976,7 @@ void ExecuteFilterInsert(const std::string& outputData, CHARRANGE crSel)
     if (!pszOutput) return;
     
     // Strip trailing newline from filter output
-    size_t len = wcslen(pszOutput);
-    if (len > 0 && pszOutput[len - 1] == L'\n') {
-        pszOutput[len - 1] = L'\0';
-        if (len > 1 && pszOutput[len - 2] == L'\r') {
-            pszOutput[len - 2] = L'\0';
-        }
-    }
+    StripTrailingNewline(pszOutput);
     
     FilterInsertMode insertMode = g_Filters[g_nCurrentFilter].insertMode;
     
@@ -9144,13 +8987,13 @@ void ExecuteFilterInsert(const std::string& outputData, CHARRANGE crSel)
     } else if (insertMode == FILTER_INSERT_APPEND) {
         // Append: Move to end of selection and append
         crSel.cpMin = crSel.cpMax;
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+        RE_SetSel(g_hWndEdit, crSel.cpMin, crSel.cpMax);
         SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
         
     } else {  // FILTER_INSERT_BELOW (default)
         // Below: Position cursor at end of selection, add newline, then output
         crSel.cpMin = crSel.cpMax;
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+        RE_SetSel(g_hWndEdit, crSel.cpMin, crSel.cpMax);
         
         // Insert newline
         WCHAR szNewline[] = L"\r\n";
@@ -9174,13 +9017,7 @@ void ExecuteFilterDisplay(const std::string& outputData)
     if (!pszOutput) return;
     
     // Strip trailing newline
-    size_t len = wcslen(pszOutput);
-    if (len > 0 && pszOutput[len - 1] == L'\n') {
-        pszOutput[len - 1] = L'\0';
-        if (len > 1 && pszOutput[len - 2] == L'\r') {
-            pszOutput[len - 2] = L'\0';
-        }
-    }
+    StripTrailingNewline(pszOutput);
     
     FilterDisplayMode displayMode = g_Filters[g_nCurrentFilter].displayMode;
     
@@ -9233,13 +9070,7 @@ void ExecuteFilterClipboard(const std::string& outputData)
     if (!pszOutput) return;
     
     // Strip trailing newline
-    size_t len = wcslen(pszOutput);
-    if (len > 0 && pszOutput[len - 1] == L'\n') {
-        pszOutput[len - 1] = L'\0';
-        if (len > 1 && pszOutput[len - 2] == L'\r') {
-            pszOutput[len - 2] = L'\0';
-        }
-    }
+    StripTrailingNewline(pszOutput);
     
     FilterClipboardMode clipboardMode = g_Filters[g_nCurrentFilter].clipboardMode;
     
@@ -9476,8 +9307,7 @@ void ExecuteFilter()
     }
     
     // Get selected text range
-    CHARRANGE crSel;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&crSel);
+    CHARRANGE crSel = RE_GetSel(g_hWndEdit);
     
     // If no selection, select current line (excluding newline)
     if (crSel.cpMin == crSel.cpMax) {
@@ -9491,7 +9321,7 @@ void ExecuteFilter()
         crSel.cpMin = lineStart;
         crSel.cpMax = lineStart + lineLength;
         // Apply the selection to the editor
-        SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crSel);
+        RE_SetSel(g_hWndEdit, crSel.cpMin, crSel.cpMax);
     }
     
     // Get selected text
@@ -9507,10 +9337,7 @@ void ExecuteFilter()
     LPWSTR pszInput = (LPWSTR)malloc((textLen + 1) * sizeof(WCHAR));
     if (!pszInput) return;
     
-    TEXTRANGE tr;
-    tr.chrg = crSel;
-    tr.lpstrText = pszInput;
-    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    RE_GetTextRange(g_hWndEdit, crSel.cpMin, crSel.cpMax, pszInput);
     pszInput[textLen] = L'\0';
 
     // script: prefix — run via embedded JScript engine (Phase 2.12)
@@ -11694,10 +11521,6 @@ void InsertREPLOutput(LPCWSTR pszOutput)
         return;
     }
     
-    // Get current selection
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
-    
     // Replace selection with output (cursor moves to end)
     SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszOutput);
     // Scroll to cursor
@@ -11781,8 +11604,7 @@ void SendLineToREPL()
     }
     
     // Get current line text
-    CHARRANGE cr;
-    SendMessage(g_hWndEdit, EM_EXGETSEL, 0, (LPARAM)&cr);
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
     
     // Get line number
     LONG lineIndex = SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
@@ -11792,10 +11614,7 @@ void SendLineToREPL()
     LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
     if (lineEnd == -1) {
         // Last line - get document length
-        GETTEXTLENGTHEX gtl;
-        gtl.flags = GTL_DEFAULT;
-        gtl.codepage = 1200; // Unicode
-        lineEnd = SendMessage(g_hWndEdit, EM_GETTEXTLENGTHEX, (WPARAM)&gtl, 0);
+        lineEnd = RE_GetTextLen(g_hWndEdit);
     }
     
     // Extract line text
@@ -11809,11 +11628,7 @@ void SendLineToREPL()
         return;
     }
     
-    TEXTRANGE tr;
-    tr.chrg.cpMin = lineStart;
-    tr.chrg.cpMax = lineEnd;
-    tr.lpstrText = pszLine;
-    SendMessage(g_hWndEdit, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    RE_GetTextRange(g_hWndEdit, lineStart, lineEnd, pszLine);
     
     // Try to detect prompt and extract input after it
     int inputStart = 0;
@@ -11846,10 +11661,7 @@ void SendLineToREPL()
                 free(pszExpanded);
             }
             free(pszLine);
-            CHARRANGE crEnd;
-            crEnd.cpMin = lineEnd;
-            crEnd.cpMax = lineEnd;
-            SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crEnd);
+            RE_SetSel(g_hWndEdit, lineEnd, lineEnd);
             SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\n");
             return;
         }
@@ -11894,10 +11706,7 @@ void SendLineToREPL()
     
     // Move cursor to end of current line and insert newline
     // This ensures the shell's output appears right after the command line
-    CHARRANGE crEnd;
-    crEnd.cpMin = lineEnd;
-    crEnd.cpMax = lineEnd;
-    SendMessage(g_hWndEdit, EM_EXSETSEL, 0, (LPARAM)&crEnd);
+    RE_SetSel(g_hWndEdit, lineEnd, lineEnd);
     SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\n");
 }
 
