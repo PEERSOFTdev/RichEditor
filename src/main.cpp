@@ -714,6 +714,16 @@ BOOL DetectPrompt(LPCWSTR pszLine, LPCWSTR pszPromptEnd, int* pInputStart);
 void StripANSIEscapes(LPWSTR pszText);
 
 //============================================================================
+// MsgBoxRes — load two resource strings and show a MessageBox in one call
+//============================================================================
+static inline int MsgBoxRes(HWND hParent, UINT uMsgID, UINT uTitleID, UINT uFlags) {
+    WCHAR szMsg[512], szTitle[128];
+    LoadStringResource(uMsgID, szMsg, 512);
+    LoadStringResource(uTitleID, szTitle, 128);
+    return MessageBox(hParent, szMsg, szTitle, uFlags);
+}
+
+//============================================================================
 // InitDpiApis - Load DPI functions at runtime for graceful fallback
 //============================================================================
 static void InitDpiApis()
@@ -818,10 +828,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     
     // Load RichEdit library (uses custom path from INI if specified)
     if (!LoadRichEditLibrary()) {
-        WCHAR szError[256], szTitle[64];
-        LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_LOAD_FAILED, szError, 256);
-        LoadString(GetModuleHandle(NULL), IDS_ERROR, szTitle, 64);
-        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
+        MsgBoxRes(NULL, IDS_RICHEDIT_LOAD_FAILED, IDS_ERROR, MB_ICONERROR);
         return 1;
     }
 
@@ -839,10 +846,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
     
     if (!RegisterClassEx(&wc)) {
-        WCHAR szError[256], szTitle[64];
-        LoadStringResource(IDS_WINDOW_REG_FAILED, szError, 256);
-        LoadStringResource(IDS_ERROR, szTitle, 64);
-        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
+        MsgBoxRes(NULL, IDS_WINDOW_REG_FAILED, IDS_ERROR, MB_ICONERROR);
         return 1;
     }
     
@@ -882,10 +886,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     );
     
     if (!g_hWndMain) {
-        WCHAR szError[256], szTitle[64];
-        LoadStringResource(IDS_WINDOW_CREATE_FAILED, szError, 256);
-        LoadStringResource(IDS_ERROR, szTitle, 64);
-        MessageBox(NULL, szError, szTitle, MB_ICONERROR);
+        MsgBoxRes(NULL, IDS_WINDOW_CREATE_FAILED, IDS_ERROR, MB_ICONERROR);
         return 1;
     }
     
@@ -2327,6 +2328,22 @@ LONG FindTextInDocument(LPCWSTR pszSearchText, BOOL bMatchCase, BOOL bWholeWord,
 }
 
 //============================================================================
+// ShowFindNotFound — display localized "Cannot find ..." message
+//============================================================================
+static void ShowFindNotFound()
+{
+    // Note: Don't use swprintf() with user-provided Unicode text
+    // Use wcscpy/wcscat pattern to avoid UTF-16 issues
+    WCHAR szMsg[512], szTitle[64], szPrefix[256];
+    LoadStringResource(IDS_FIND_NOTFOUND_PREFIX, szPrefix, 256);  // "Cannot find \""
+    LoadStringResource(IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
+    wcscpy(szMsg, szPrefix);
+    wcscat(szMsg, g_szFindWhat);
+    wcscat(szMsg, L"\"");
+    MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
+}
+
+//============================================================================
 // DoFind - Perform find operation with current settings
 // Called by Find Next/Previous buttons and F3/Shift+F3 shortcuts
 // Returns: TRUE if found, FALSE if not found
@@ -2374,19 +2391,7 @@ BOOL DoFind(BOOL bSearchDown, BOOL bSilent)
     if (nPos == -1) {
         // Not found - show message (unless caller requested silent mode)
         if (!bSilent) {
-            // Note: Don't use swprintf() with user-provided Unicode text
-            // Use wcscpy/wcscat pattern to avoid UTF-16 issues
-            WCHAR szMsg[512], szTitle[64];
-            WCHAR szPrefix[256];
-            LoadStringResource(IDS_FIND_NOTFOUND_PREFIX, szPrefix, 256);  // "Cannot find \""
-            LoadStringResource(IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
-            
-            wcscpy(szMsg, szPrefix);
-            wcscat(szMsg, g_szFindWhat);
-            wcscat(szMsg, L"\"");
-            
-            MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, 
-                      MB_ICONINFORMATION);
+            ShowFindNotFound();
         }
         return FALSE;
     }
@@ -2444,29 +2449,18 @@ INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
             if (LOWORD(wParam) == IDOK) {
                 BOOL bTranslated = FALSE;
                 UINT nLine = GetDlgItemInt(hDlg, IDC_GOTO_LINE, &bTranslated, FALSE);
-                if (!bTranslated || nLine < 1) {
-                    WCHAR szMsg[128], szTitle[64];
-                    LoadStringResource(IDS_GOTO_INVALID_LINE, szMsg, 128);
-                    LoadStringResource(IDS_GOTO_TITLE, szTitle, 64);
-                    MessageBox(hDlg, szMsg, szTitle, MB_ICONEXCLAMATION);
-                    return TRUE;
-                }
+                LONG nTotalLines, nCharPos;
+                if (!bTranslated || nLine < 1)
+                    goto goto_invalid;
 
-                LONG nTotalLines = SendMessage(g_hWndEdit, EM_GETLINECOUNT, 0, 0);
-                if (nLine > (UINT)nTotalLines) {
-                    WCHAR szMsg[128], szTitle[64];
-                    LoadStringResource(IDS_GOTO_INVALID_LINE, szMsg, 128);
-                    LoadStringResource(IDS_GOTO_TITLE, szTitle, 64);
-                    MessageBox(hDlg, szMsg, szTitle, MB_ICONEXCLAMATION);
-                    return TRUE;
-                }
+                nTotalLines = SendMessage(g_hWndEdit, EM_GETLINECOUNT, 0, 0);
+                if (nLine > (UINT)nTotalLines)
+                    goto goto_invalid;
 
-                LONG nCharPos = SendMessage(g_hWndEdit, EM_LINEINDEX, nLine - 1, 0);
+                nCharPos = SendMessage(g_hWndEdit, EM_LINEINDEX, nLine - 1, 0);
                 if (nCharPos < 0) {
-                    WCHAR szMsg[128], szTitle[64];
-                    LoadStringResource(IDS_GOTO_INVALID_LINE, szMsg, 128);
-                    LoadStringResource(IDS_GOTO_TITLE, szTitle, 64);
-                    MessageBox(hDlg, szMsg, szTitle, MB_ICONEXCLAMATION);
+                goto_invalid:
+                    MsgBoxRes(hDlg, IDS_GOTO_INVALID_LINE, IDS_GOTO_TITLE, MB_ICONEXCLAMATION);
                     return TRUE;
                 }
 
@@ -3067,40 +3061,16 @@ void DoReplaceAll()
         g_bLastOperationWasReplace = TRUE;
         
         // Show completion message using localized format string
-        WCHAR szMsgFormat[128];
-        LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_MSG, szMsgFormat, 128);
-        
-        WCHAR szMsg[256];
-        WCHAR szCount[32];
-        _itow(nReplacedCount, szCount, 10);
-        
-        wcscpy(szMsg, L"");
-        WCHAR *pFormat = wcsstr(szMsgFormat, L"%d");
-        if (pFormat) {
-            size_t nBeforeLen = pFormat - szMsgFormat;
-            wcsncpy(szMsg, szMsgFormat, nBeforeLen);
-            szMsg[nBeforeLen] = L'\0';
-            wcscat(szMsg, szCount);
-            wcscat(szMsg, pFormat + 2);
-        } else {
-            wcscpy(szMsg, szMsgFormat);
-            wcscat(szMsg, L" ");
-            wcscat(szMsg, szCount);
-        }
-        
-        WCHAR szTitle[64];
-        LoadString(GetModuleHandle(NULL), IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
+        WCHAR szMsgFormat[128], szMsg[256], szTitle[64];
+        LoadStringResource(IDS_REPLACE_COMPLETE_MSG, szMsgFormat, 128);
+        _snwprintf(szMsg, 256, szMsgFormat, nReplacedCount);
+        szMsg[255] = L'\0';
+        LoadStringResource(IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
         
         MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
     } else {
         // No matches — show the same "Cannot find" message as plain Find/Replace
-        WCHAR szMsg[512], szTitle[64], szPrefix[256];
-        LoadStringResource(IDS_FIND_NOTFOUND_PREFIX, szPrefix, 256);
-        LoadStringResource(IDS_FIND_NOTFOUND_TITLE, szTitle, 64);
-        wcscpy(szMsg, szPrefix);
-        wcscat(szMsg, g_szFindWhat);
-        wcscat(szMsg, L"\"");
-        MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
+        ShowFindNotFound();
     }
     
     // Cleanup
@@ -3608,11 +3578,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                     // Selecting a REPL filter
                                     // If another REPL is already running, prompt to exit
                                     if (g_bREPLMode && filterIdx != g_nCurrentREPLFilter) {
-                                        WCHAR szPrompt[512], szTitle[128];
-                                        LoadStringResource(IDS_REPL_SWITCH_PROMPT, szPrompt, 512);
-                                        LoadStringResource(IDS_CONFIRM, szTitle, 128);
-                                        
-                                        int result = MessageBox(hwnd, szPrompt, szTitle, 
+                                        int result = MsgBoxRes(hwnd, IDS_REPL_SWITCH_PROMPT, IDS_CONFIRM,
                                                                MB_YESNO | MB_ICONQUESTION);
                                         if (result == IDYES) {
                                             ExitREPLMode();
@@ -3705,12 +3671,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     case EN_STOPNOUNDO:
                         // Undo buffer is full - notify user
                         {
-                            WCHAR szTitle[128];
-                            WCHAR szMessage[256];
-                            LoadStringResource(IDS_UNDO_BUFFER_FULL_TITLE, szTitle, 128);
-                            LoadStringResource(IDS_UNDO_BUFFER_FULL_MESSAGE, szMessage, 256);
-                            
-                            int result = MessageBox(hwnd, szMessage, szTitle, 
+                            int result = MsgBoxRes(hwnd, IDS_UNDO_BUFFER_FULL_MESSAGE,
+                                                   IDS_UNDO_BUFFER_FULL_TITLE,
                                                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON1);
                             
                             if (result == IDNO) {
@@ -3959,11 +3921,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
                 // Check if REPL is active and prompt user
                 if (g_bREPLMode) {
-                    WCHAR szPrompt[512], szTitle[128];
-                    LoadStringResource(IDS_REPL_CLOSE_PROMPT, szPrompt, 512);
-                    LoadStringResource(IDS_CONFIRM, szTitle, 128);
-                    
-                    int result = MessageBox(hwnd, szPrompt, szTitle, 
+                    int result = MsgBoxRes(hwnd, IDS_REPL_CLOSE_PROMPT, IDS_CONFIRM,
                                            MB_YESNO | MB_ICONQUESTION);
                     if (result != IDYES) {
                         return 0; // Cancel close
@@ -4065,10 +4023,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             
             // Only show exit notification if it was NOT an intentional exit
             if (!g_bREPLIntentionalExit) {
-                WCHAR szMsg[256], szTitle[64];
-                LoadStringResource(IDS_REPL_EXITED, szMsg, 256);
-                LoadStringResource(IDS_INFORMATION, szTitle, 64);
-                MessageBox(hwnd, szMsg, szTitle, MB_ICONINFORMATION);
+                MsgBoxRes(hwnd, IDS_REPL_EXITED, IDS_INFORMATION, MB_ICONINFORMATION);
             }
             
             // Reset flag for next REPL session
@@ -4925,13 +4880,8 @@ static void RestoreForegroundAfterElevation()
 //============================================================================
 BOOL PerformElevatedSave(LPCWSTR pszTargetPath)
 {
-    WCHAR szPrompt[256];
-    LoadStringResource(IDS_ELEVATE_SAVE_PROMPT, szPrompt, 256);
-
-    WCHAR szTitle[64];
-    LoadStringResource(IDS_CONFIRM, szTitle, 64);
-
-    int result = MessageBox(g_hWndMain, szPrompt, szTitle, MB_YESNOCANCEL | MB_ICONQUESTION);
+    int result = MsgBoxRes(g_hWndMain, IDS_ELEVATE_SAVE_PROMPT, IDS_CONFIRM,
+                           MB_YESNOCANCEL | MB_ICONQUESTION);
     if (result != IDYES) {
         return FALSE;
     }
@@ -6936,10 +6886,7 @@ static void RefreshBookmarkLineIndices()
 void NextBookmark(BOOL bForward)
 {
     if (g_nBookmarkCount <= 0) {
-        WCHAR szMsg[128], szTitle[64];
-        LoadStringResource(IDS_NO_BOOKMARKS, szMsg, 128);
-        LoadStringResource(IDS_INFORMATION, szTitle, 64);
-        MessageBox(g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
+        MsgBoxRes(g_hWndMain, IDS_NO_BOOKMARKS, IDS_INFORMATION, MB_ICONINFORMATION);
         return;
     }
 
@@ -7002,6 +6949,25 @@ void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax)
     if (LoadString(GetModuleHandle(NULL), uID, lpBuffer, cchBufferMax) == 0) {
         // Fallback to empty string if resource not found
         lpBuffer[0] = L'\0';
+    }
+}
+
+//============================================================================
+// FormatResWithPath - Load a resource string and replace {PATH} placeholder
+//============================================================================
+static void FormatResWithPath(UINT uID, LPCWSTR pszPath, LPWSTR pszOut, size_t /*cchOut*/)
+{
+    WCHAR szTemplate[512];
+    LoadStringResource(uID, szTemplate, 512);
+    WCHAR* p = wcsstr(szTemplate, L"{PATH}");
+    if (p) {
+        size_t prefixLen = p - szTemplate;
+        wcsncpy(pszOut, szTemplate, prefixLen);
+        pszOut[prefixLen] = L'\0';
+        wcscat(pszOut, pszPath);
+        wcscat(pszOut, p + 6);  // Skip "{PATH}"
+    } else {
+        wcscpy(pszOut, szTemplate);
     }
 }
 
@@ -7175,29 +7141,9 @@ BOOL LoadRichEditLibrary()
             return TRUE;
         } else {
             // Custom load failed - show warning
-            // Load localized template from resources and replace {PATH} placeholder
-            WCHAR szTemplate[512], szMsg[768], szTitle[64];
-            LoadString(GetModuleHandle(NULL), IDS_RICHEDIT_LOAD_FAILED, szTemplate, 512);
-            
-            // Find {PATH} placeholder and replace with actual path
-            WCHAR* pPlaceholder = wcsstr(szTemplate, L"{PATH}");
-            if (pPlaceholder) {
-                // Copy part before placeholder
-                size_t prefixLen = pPlaceholder - szTemplate;
-                wcsncpy(szMsg, szTemplate, prefixLen);
-                szMsg[prefixLen] = L'\0';
-                
-                // Append the actual path
-                wcscat(szMsg, szFullPath);
-                
-                // Append part after placeholder
-                wcscat(szMsg, pPlaceholder + 6);  // Skip "{PATH}"
-            } else {
-                // Fallback if placeholder not found (shouldn't happen)
-                wcscpy(szMsg, szTemplate);
-            }
-            
-            LoadString(GetModuleHandle(NULL), IDS_ERROR, szTitle, 64);
+            WCHAR szMsg[768], szTitle[64];
+            FormatResWithPath(IDS_RICHEDIT_LOAD_FAILED, szFullPath, szMsg, 768);
+            LoadStringResource(IDS_ERROR, szTitle, 64);
             MessageBox(NULL, szMsg, szTitle, MB_OK | MB_ICONWARNING);
         }
     }
@@ -8208,27 +8154,8 @@ BOOL FileSave()
     
     // If this is a resumed saved file, ask user where to save
     if (g_bIsResumedFile && g_szOriginalFilePath[0] != L'\0') {
-        // Load localized template and replace {PATH} placeholder
-        WCHAR szTemplate[512], szPrompt[768];
-        LoadString(GetModuleHandle(NULL), IDS_RESUME_SAVE_PROMPT, szTemplate, 512);
-        
-        // Find {PATH} placeholder and replace with actual path
-        WCHAR* pPlaceholder = wcsstr(szTemplate, L"{PATH}");
-        if (pPlaceholder) {
-            // Copy part before placeholder
-            size_t prefixLen = pPlaceholder - szTemplate;
-            wcsncpy(szPrompt, szTemplate, prefixLen);
-            szPrompt[prefixLen] = L'\0';
-            
-            // Append the actual path
-            wcscat(szPrompt, g_szOriginalFilePath);
-            
-            // Append part after placeholder
-            wcscat(szPrompt, pPlaceholder + 6);  // Skip "{PATH}"
-        } else {
-            // Fallback if placeholder not found
-            wcscpy(szPrompt, szTemplate);
-        }
+        WCHAR szPrompt[768];
+        FormatResWithPath(IDS_RESUME_SAVE_PROMPT, g_szOriginalFilePath, szPrompt, 768);
         
         int result = MessageBox(g_hWndMain, szPrompt, L"RichEditor",
                                MB_YESNOCANCEL | MB_ICONQUESTION);
@@ -8839,10 +8766,7 @@ bool RunFilterCommand(const WCHAR* pszCommand, const char* pszInputUTF8,
     if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0) ||
         !CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0) ||
         !CreatePipe(&hStderrRead, &hStderrWrite, &sa, 0)) {
-        WCHAR szError[256], szTitle[64];
-        LoadStringResource(IDS_PIPE_CREATE_FAILED, szError, 256);
-        LoadStringResource(IDS_ERROR, szTitle, 64);
-        MessageBox(g_hWndMain, szError, szTitle, MB_ICONERROR);
+        MsgBoxRes(g_hWndMain, IDS_PIPE_CREATE_FAILED, IDS_ERROR, MB_ICONERROR);
         return false;
     }
     
@@ -9294,10 +9218,7 @@ void ExecuteFilter()
 {
     // Check if a filter is selected
     if (g_nCurrentFilter < 0 || g_nCurrentFilter >= g_nFilterCount) {
-        WCHAR szMessage[256], szTitle[64];
-        LoadStringResource(IDS_NO_FILTER_SELECTED_MSG, szMessage, 256);
-        LoadStringResource(IDS_NO_FILTER_SELECTED, szTitle, 64);
-        MessageBox(g_hWndMain, szMessage, szTitle, MB_ICONEXCLAMATION);
+        MsgBoxRes(g_hWndMain, IDS_NO_FILTER_SELECTED_MSG, IDS_NO_FILTER_SELECTED, MB_ICONEXCLAMATION);
         return;
     }
     
@@ -9327,10 +9248,7 @@ void ExecuteFilter()
     // Get selected text
     int textLen = crSel.cpMax - crSel.cpMin;
     if (textLen <= 0) {
-        WCHAR szError[256], szTitle[64];
-        LoadStringResource(IDS_NO_TEXT_TO_PROCESS, szError, 256);
-        LoadStringResource(IDS_FILTER_EXECUTION, szTitle, 64);
-        MessageBox(g_hWndMain, szError, szTitle, MB_ICONEXCLAMATION);
+        MsgBoxRes(g_hWndMain, IDS_NO_TEXT_TO_PROCESS, IDS_FILTER_EXECUTION, MB_ICONEXCLAMATION);
         return;
     }
     
@@ -11229,11 +11147,7 @@ void StartREPLFilter(int filterIndex)
     
     // Create stdout pipe
     if (!CreatePipe(&hStdoutRead, &hStdoutWrite, &sa, 0)) {
-        WCHAR szError[256];
-        WCHAR szErrorTitle[64];
-        LoadStringResource(IDS_REPL_FAILED_PIPE_STDOUT, szError, 256);
-        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
-        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
+        MsgBoxRes(g_hWndMain, IDS_REPL_FAILED_PIPE_STDOUT, IDS_ERROR, MB_ICONERROR);
         return;
     }
     SetHandleInformation(hStdoutRead, HANDLE_FLAG_INHERIT, 0);
@@ -11242,11 +11156,7 @@ void StartREPLFilter(int filterIndex)
     if (!CreatePipe(&hStdinRead, &hStdinWrite, &sa, 0)) {
         CloseHandle(hStdoutRead);
         CloseHandle(hStdoutWrite);
-        WCHAR szError[256];
-        WCHAR szErrorTitle[64];
-        LoadStringResource(IDS_REPL_FAILED_PIPE_STDIN, szError, 256);
-        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
-        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
+        MsgBoxRes(g_hWndMain, IDS_REPL_FAILED_PIPE_STDIN, IDS_ERROR, MB_ICONERROR);
         return;
     }
     SetHandleInformation(hStdinWrite, HANDLE_FLAG_INHERIT, 0);
@@ -11257,11 +11167,7 @@ void StartREPLFilter(int filterIndex)
         CloseHandle(hStdoutWrite);
         CloseHandle(hStdinRead);
         CloseHandle(hStdinWrite);
-        WCHAR szError[256];
-        WCHAR szErrorTitle[64];
-        LoadStringResource(IDS_REPL_FAILED_PIPE_STDERR, szError, 256);
-        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
-        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
+        MsgBoxRes(g_hWndMain, IDS_REPL_FAILED_PIPE_STDERR, IDS_ERROR, MB_ICONERROR);
         return;
     }
     SetHandleInformation(hStderrRead, HANDLE_FLAG_INHERIT, 0);
@@ -11333,22 +11239,14 @@ void StartREPLFilter(int filterIndex)
     g_hREPLStdoutThread = CreateThread(NULL, 0, REPLStdoutThread, NULL, 0, &g_dwREPLStdoutThreadId);
     if (g_hREPLStdoutThread == NULL) {
         ExitREPLMode();
-        WCHAR szError[256];
-        WCHAR szErrorTitle[64];
-        LoadStringResource(IDS_REPL_FAILED_THREAD_STDOUT, szError, 256);
-        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
-        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
+        MsgBoxRes(g_hWndMain, IDS_REPL_FAILED_THREAD_STDOUT, IDS_ERROR, MB_ICONERROR);
         return;
     }
     
     g_hREPLStderrThread = CreateThread(NULL, 0, REPLStderrThread, NULL, 0, &g_dwREPLStderrThreadId);
     if (g_hREPLStderrThread == NULL) {
         ExitREPLMode();
-        WCHAR szError[256];
-        WCHAR szErrorTitle[64];
-        LoadStringResource(IDS_REPL_FAILED_THREAD_STDERR, szError, 256);
-        LoadStringResource(IDS_ERROR, szErrorTitle, 64);
-        MessageBox(g_hWndMain, szError, szErrorTitle, MB_ICONERROR);
+        MsgBoxRes(g_hWndMain, IDS_REPL_FAILED_THREAD_STDERR, IDS_ERROR, MB_ICONERROR);
         return;
     }
     

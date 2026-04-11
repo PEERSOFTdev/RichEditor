@@ -13,7 +13,7 @@ repeat the research; consult this document instead.
 | Build | Size |
 |---|---|
 | MinGW debug (with `-g`) | ~1,005 KB |
-| MinGW stripped (`make strip`) | **348,160 bytes (340 KB)** |
+| MinGW stripped (`make strip`) | **359,936 bytes (351.5 KB)** |
 | MSVC release (`build_msvc.bat`) | ~294.5 KB |
 
 ### Why MSVC is ~46 KB smaller
@@ -186,7 +186,7 @@ than anything available in GNU ld.
 
 ## Code-Level Opportunities
 
-### Applied refactors — 2,048 bytes saved (362,496 → 360,448 stripped)
+### Applied refactors — 2,560 bytes saved (362,496 → 359,936 stripped)
 
 #### Batch 1 — 512 bytes (362,496 → 361,984)
 
@@ -207,6 +207,16 @@ than anything available in GNU ld.
 | Strip trailing newline (3 identical 7-line blocks) | Extracted `StripTrailingNewline()` helper | ~14 |
 | `LoadRichEditLibrary()` 3 DLL fallback blocks | Table-driven loop over DLL names | ~25 |
 | `CreateRichEditControl()` 5 class fallback blocks | Table-driven loop with version thresholds | ~40 |
+
+#### Batch 3 — 512 bytes (360,448 → 359,936)
+
+| Pattern | Action | Lines removed |
+|---|---|---|
+| Load-two-strings + MessageBox boilerplate (18 sites) | Added `MsgBoxRes()` inline helper | ~90 |
+| `{PATH}` placeholder substitution (2 sites) | Added `FormatResWithPath()` helper | ~26 |
+| "Cannot find" concatenation (2 sites in DoFind/DoReplaceAll) | Added `ShowFindNotFound()` helper | ~10 |
+| `DlgGotoProc` triple-identical 4-line error block | Collapsed to single block via `goto` label | ~8 |
+| DoReplaceAll manual `%d` wcsstr/wcsncpy/wcscat substitution | Replaced with direct `_snwprintf` call | ~11 |
 
 ### Remaining opportunities (estimated, not yet implemented)
 

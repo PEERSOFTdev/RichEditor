@@ -21,6 +21,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Suppress RichEdit UIA provider during menu bar navigation for correct NVDA system menu announcement
 - Extract shared helpers to deduplicate history, date/time, and settings code
 - Add RichEdit wrappers and table-drive fallback cascades
+- Deduplicate MessageBox, path-template, and find-not-found patterns
 
 ## v2.9.0 (2026-03-26)
 
