@@ -1637,85 +1637,35 @@ LPWSTR ExpandTemplateVariables(LPCWSTR pszTemplate, LONG* pCursorOffset)
                         }
                         p = pVarEnd + 1;
                         continue;
-                    } else if (wcscmp(szVarName, L"shortdate") == 0) {
-                        // %shortdate% - System short date format (Phase 2.10, ToDo #3)
-                        SYSTEMTIME st;
-                        GetLocalTime(&st);
-                        WCHAR szDate[128];
-                        FormatDateByFlag(&st, DATE_SHORTDATE, szDate, 128);
-                        
-                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
-                            pszOutput[outIdx++] = *pd;
+                    } else {
+                        // Table-driven date/time variables (Phase 2.10, ToDo #3)
+                        typedef void (*FmtFunc)(SYSTEMTIME*, DWORD, WCHAR*, size_t);
+                        static const struct { const WCHAR* name; FmtFunc fn; DWORD flags; } dtVars[] = {
+                            { L"shortdate", FormatDateByFlag, DATE_SHORTDATE },
+                            { L"longdate",  FormatDateByFlag, DATE_LONGDATE  },
+                            { L"yearmonth", FormatDateByFlag, DATE_YEARMONTH },
+                            { L"monthday",  FormatDateByFlag, DATE_MONTHDAY  },
+                            { L"longtime",  FormatTimeByFlag, 0              },
+                            { L"shorttime", FormatTimeByFlag, TIME_NOSECONDS },
+                        };
+                        BOOL bHandled = FALSE;
+                        for (size_t dti = 0; dti < _countof(dtVars); dti++) {
+                            if (wcscmp(szVarName, dtVars[dti].name) == 0) {
+                                SYSTEMTIME st;
+                                GetLocalTime(&st);
+                                WCHAR szBuf[128];
+                                dtVars[dti].fn(&st, dtVars[dti].flags, szBuf, 128);
+                                for (const WCHAR* ps = szBuf; *ps && outIdx < MAX_EXPANDED - 1; ps++)
+                                    pszOutput[outIdx++] = *ps;
+                                p = pVarEnd + 1;
+                                bHandled = TRUE;
+                                break;
+                            }
                         }
-                        p = pVarEnd + 1;
-                        continue;
-                        
-                    } else if (wcscmp(szVarName, L"longdate") == 0) {
-                        // %longdate% - System long date format (Phase 2.10, ToDo #3)
-                        SYSTEMTIME st;
-                        GetLocalTime(&st);
-                        WCHAR szDate[128];
-                        FormatDateByFlag(&st, DATE_LONGDATE, szDate, 128);
-                        
-                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
-                            pszOutput[outIdx++] = *pd;
-                        }
-                        p = pVarEnd + 1;
-                        continue;
+                        if (bHandled) continue;
+                    }
 
-                    } else if (wcscmp(szVarName, L"yearmonth") == 0) {
-                        // %yearmonth% - Year and month (Phase 2.10, ToDo #3)
-                        SYSTEMTIME st;
-                        GetLocalTime(&st);
-                        WCHAR szDate[128];
-                        FormatDateByFlag(&st, DATE_YEARMONTH, szDate, 128);
-                        
-                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
-                            pszOutput[outIdx++] = *pd;
-                        }
-                        p = pVarEnd + 1;
-                        continue;
-
-                    } else if (wcscmp(szVarName, L"monthday") == 0) {
-                        // %monthday% - Month and day (Phase 2.10, ToDo #3)
-                        SYSTEMTIME st;
-                        GetLocalTime(&st);
-                        WCHAR szDate[128];
-                        FormatDateByFlag(&st, DATE_MONTHDAY, szDate, 128);
-                        
-                        for (const WCHAR* pd = szDate; *pd && outIdx < MAX_EXPANDED - 1; pd++) {
-                            pszOutput[outIdx++] = *pd;
-                        }
-                        p = pVarEnd + 1;
-                        continue;
-
-                    } else if (wcscmp(szVarName, L"longtime") == 0) {
-                        // %longtime% - Time with seconds (Phase 2.10, ToDo #3)
-                        SYSTEMTIME st;
-                        GetLocalTime(&st);
-                        WCHAR szTime[128];
-                        FormatTimeByFlag(&st, 0, szTime, 128);  // 0 = include seconds
-                        
-                        for (const WCHAR* pt = szTime; *pt && outIdx < MAX_EXPANDED - 1; pt++) {
-                            pszOutput[outIdx++] = *pt;
-                        }
-                        p = pVarEnd + 1;
-                        continue;
-
-                    } else if (wcscmp(szVarName, L"shorttime") == 0) {
-                        // %shorttime% - Time without seconds (Phase 2.10, ToDo #3)
-                        SYSTEMTIME st;
-                        GetLocalTime(&st);
-                        WCHAR szTime[128];
-                        FormatTimeByFlag(&st, TIME_NOSECONDS, szTime, 128);
-                        
-                        for (const WCHAR* pt = szTime; *pt && outIdx < MAX_EXPANDED - 1; pt++) {
-                            pszOutput[outIdx++] = *pt;
-                        }
-                        p = pVarEnd + 1;
-                        continue;
-                        
-                    } else if (wcscmp(szVarName, L"date") == 0) {
+                    if (wcscmp(szVarName, L"date") == 0) {
                         // %date% - Configurable date format (Phase 2.10, ToDo #3)
                         // Uses DateFormat INI setting (can be internal variable or custom format)
                         SYSTEMTIME st;
@@ -2698,42 +2648,38 @@ void SaveFindOptions()
 }
 
 //============================================================================
-// AddToFindHistory - Add item to history (most recent first)
+// AddToHistory - Generic MRU history helper (most recent first)
+//
+// Shared implementation for find and replace histories.
 //============================================================================
-void AddToFindHistory(LPCWSTR pszText)
+static void AddToHistory(WCHAR history[][MAX_SEARCH_TEXT], int* pCount,
+                         int maxCount, LPCWSTR pszText)
 {
     if (!pszText || !pszText[0]) return;
     
-    // Check if already in history
-    for (int i = 0; i < g_nFindHistoryCount; i++) {
-        if (wcscmp(g_szFindHistory[i], pszText) == 0) {
-            // Already exists - move to top
+    // Check if already in history — move to top if found
+    for (int i = 0; i < *pCount; i++) {
+        if (wcscmp(history[i], pszText) == 0) {
             WCHAR szTemp[MAX_SEARCH_TEXT];
-            wcscpy(szTemp, g_szFindHistory[i]);
-            
-            // Shift items down
-            for (int j = i; j > 0; j--) {
-                wcscpy(g_szFindHistory[j], g_szFindHistory[j - 1]);
-            }
-            
-            // Put at top
-            wcscpy(g_szFindHistory[0], szTemp);
+            wcscpy(szTemp, history[i]);
+            for (int j = i; j > 0; j--)
+                wcscpy(history[j], history[j - 1]);
+            wcscpy(history[0], szTemp);
             return;
         }
     }
     
-    // Not in history - add to top
-    if (g_nFindHistoryCount < MAX_FIND_HISTORY) {
-        g_nFindHistoryCount++;
-    }
-    
-    // Shift items down
-    for (int i = g_nFindHistoryCount - 1; i > 0; i--) {
-        wcscpy(g_szFindHistory[i], g_szFindHistory[i - 1]);
-    }
-    
-    // Add new item at top
-    wcscpy(g_szFindHistory[0], pszText);
+    // Not in history — shift down and insert at top
+    if (*pCount < maxCount)
+        (*pCount)++;
+    for (int i = *pCount - 1; i > 0; i--)
+        wcscpy(history[i], history[i - 1]);
+    wcscpy(history[0], pszText);
+}
+
+void AddToFindHistory(LPCWSTR pszText)
+{
+    AddToHistory(g_szFindHistory, &g_nFindHistoryCount, MAX_FIND_HISTORY, pszText);
 }
 
 //============================================================================
@@ -3174,38 +3120,7 @@ void SaveReplaceHistory()
 
 void AddToReplaceHistory(LPCWSTR pszText)
 {
-    if (!pszText || !pszText[0]) return;
-    
-    // Check if already in history
-    for (int i = 0; i < g_nReplaceHistoryCount; i++) {
-        if (wcscmp(g_szReplaceHistory[i], pszText) == 0) {
-            // Already exists - move to top
-            WCHAR szTemp[MAX_SEARCH_TEXT];
-            wcscpy(szTemp, g_szReplaceHistory[i]);
-            
-            // Shift items down
-            for (int j = i; j > 0; j--) {
-                wcscpy(g_szReplaceHistory[j], g_szReplaceHistory[j - 1]);
-            }
-            
-            // Put at top
-            wcscpy(g_szReplaceHistory[0], szTemp);
-            return;
-        }
-    }
-    
-    // Not in history - add to top
-    if (g_nReplaceHistoryCount < MAX_FIND_HISTORY) {
-        g_nReplaceHistoryCount++;
-    }
-    
-    // Shift items down
-    for (int i = g_nReplaceHistoryCount - 1; i > 0; i--) {
-        wcscpy(g_szReplaceHistory[i], g_szReplaceHistory[i - 1]);
-    }
-    
-    // Add new item at top
-    wcscpy(g_szReplaceHistory[0], pszText);
+    AddToHistory(g_szReplaceHistory, &g_nReplaceHistoryCount, MAX_FIND_HISTORY, pszText);
 }
 
 //============================================================================
@@ -10142,6 +10057,58 @@ void CreateDefaultINI()
 }
 
 //============================================================================
+// LoadSettings helpers — reduce repetitive read-or-write-default blocks
+//============================================================================
+static void LoadSettingBool(LPCWSTR pszIniPath, LPCWSTR pszKey,
+                            BOOL* pVar, BOOL bDefault)
+{
+    WCHAR sz[256];
+    ReadINIValue(pszIniPath, L"Settings", pszKey, sz, 256, L"");
+    if (sz[0] == L'\0') {
+        WriteINIValue(pszIniPath, L"Settings", pszKey, bDefault ? L"1" : L"0");
+        *pVar = bDefault;
+    } else {
+        *pVar = ReadINIInt(pszIniPath, L"Settings", pszKey, bDefault);
+    }
+}
+
+static void LoadSettingInt(LPCWSTR pszIniPath, LPCWSTR pszKey,
+                           int* pVar, int nDefault, int nMin, int nMax)
+{
+    WCHAR sz[256];
+    ReadINIValue(pszIniPath, L"Settings", pszKey, sz, 256, L"");
+    if (sz[0] == L'\0') {
+        WCHAR szDef[32];
+        swprintf(szDef, 32, L"%d", nDefault);
+        WriteINIValue(pszIniPath, L"Settings", pszKey, szDef);
+        *pVar = nDefault;
+    } else {
+        int v = ReadINIInt(pszIniPath, L"Settings", pszKey, nDefault);
+        if (v < nMin || v > nMax) {
+            v = nDefault;
+            WCHAR szDef[32];
+            swprintf(szDef, 32, L"%d", nDefault);
+            WriteINIValue(pszIniPath, L"Settings", pszKey, szDef);
+        }
+        *pVar = v;
+    }
+}
+
+static void LoadSettingString(LPCWSTR pszIniPath, LPCWSTR pszKey,
+                              LPWSTR pszVar, size_t cchVar, LPCWSTR pszDefault)
+{
+    WCHAR sz[256];
+    ReadINIValue(pszIniPath, L"Settings", pszKey, sz, 256, L"");
+    if (sz[0] == L'\0') {
+        WriteINIValue(pszIniPath, L"Settings", pszKey, pszDefault);
+        wcscpy(pszVar, pszDefault);
+    } else {
+        wcsncpy(pszVar, sz, cchVar - 1);
+        pszVar[cchVar - 1] = L'\0';
+    }
+}
+
+//============================================================================
 // LoadSettings - Load application settings from INI file
 //============================================================================
 void LoadSettings()
@@ -10153,205 +10120,62 @@ void LoadSettings()
     // Load settings from [Settings] section using direct file reading
     // Also ensure each setting exists in the INI file with its default value
     
-    // Check if settings exist; if not, write defaults
-    WCHAR szValue[256];
-    
-    // WordWrap
-    ReadINIValue(szIniPath, L"Settings", L"WordWrap", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"WordWrap", L"1");
-        g_bWordWrap = TRUE;
-    } else {
-        g_bWordWrap = ReadINIInt(szIniPath, L"Settings", L"WordWrap", 1);
-    }
+    LoadSettingBool(szIniPath, L"WordWrap",               &g_bWordWrap, TRUE);
     
     // RichEditLibraryPath (Phase 2.8) - optional custom RichEdit DLL path
+    // Don't auto-write — optional and well-documented in CreateDefaultINI comments
     WCHAR szRichEditPath[MAX_PATH];
     ReadINIValue(szIniPath, L"Settings", L"RichEditLibraryPath", szRichEditPath, MAX_PATH, L"");
-    // Store in global (even if empty) - LoadRichEditLibrary() checks if empty
     wcscpy(g_szRichEditLibPathINI, szRichEditPath);
-    // Don't auto-write this setting - it's optional and well-documented in CreateDefaultINI comments
     
     // RichEditClassName (Phase 2.8.5) - optional window class override
+    // Don't auto-write — optional and well-documented in CreateDefaultINI comments
     WCHAR szClassName[64];
     ReadINIValue(szIniPath, L"Settings", L"RichEditClassName", szClassName, 64, L"");
-    // Store in global (even if empty) - LoadRichEditLibrary() checks if empty
     wcscpy(g_szRichEditClassNameINI, szClassName);
-    // Don't auto-write this setting - it's optional and well-documented in CreateDefaultINI comments
     
-    // AutosaveEnabled
-    ReadINIValue(szIniPath, L"Settings", L"AutosaveEnabled", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"AutosaveEnabled", L"1");
-        g_bAutosaveEnabled = TRUE;
-    } else {
-        g_bAutosaveEnabled = ReadINIInt(szIniPath, L"Settings", L"AutosaveEnabled", 1);
-    }
+    LoadSettingBool(szIniPath, L"AutosaveEnabled",        &g_bAutosaveEnabled, TRUE);
+    LoadSettingInt (szIniPath, L"AutosaveIntervalMinutes", (int*)&g_nAutosaveIntervalMinutes, 1, 1, 1440);
+    LoadSettingBool(szIniPath, L"AutosaveOnFocusLoss",    &g_bAutosaveOnFocusLoss, TRUE);
+    LoadSettingBool(szIniPath, L"ShowMenuDescriptions",   &g_bShowMenuDescriptions, TRUE);
+    LoadSettingBool(szIniPath, L"SelectAfterPaste",       &g_bSelectAfterPaste, FALSE);
+    LoadSettingBool(szIniPath, L"AutoSaveUntitledOnClose", &g_bAutoSaveUntitledOnClose, FALSE);
+    LoadSettingBool(szIniPath, L"DetectURLs",             &g_bAutoURLEnabled, TRUE);
+    LoadSettingInt (szIniPath, L"TabSize",                 (int*)&g_nTabSize, 8, 1, 32);
+    LoadSettingInt (szIniPath, L"Zoom",                    &g_nZoomPercent, 100, 1, 6400);
+    LoadSettingBool(szIniPath, L"SelectAfterFind",        &g_bSelectAfterFind, TRUE);
+    LoadSettingBool(szIniPath, L"FindMatchCase",          &g_bFindMatchCase, FALSE);
+    LoadSettingBool(szIniPath, L"FindWholeWord",          &g_bFindWholeWord, FALSE);
+    LoadSettingBool(szIniPath, L"FindUseEscapes",         &g_bFindUseEscapes, FALSE);
     
-    // AutosaveIntervalMinutes
-    ReadINIValue(szIniPath, L"Settings", L"AutosaveIntervalMinutes", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"AutosaveIntervalMinutes", L"1");
-        g_nAutosaveIntervalMinutes = 1;
-    } else {
-        g_nAutosaveIntervalMinutes = ReadINIInt(szIniPath, L"Settings", L"AutosaveIntervalMinutes", 1);
-    }
-    
-    // AutosaveOnFocusLoss
-    ReadINIValue(szIniPath, L"Settings", L"AutosaveOnFocusLoss", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"AutosaveOnFocusLoss", L"1");
-        g_bAutosaveOnFocusLoss = TRUE;
-    } else {
-        g_bAutosaveOnFocusLoss = ReadINIInt(szIniPath, L"Settings", L"AutosaveOnFocusLoss", 1);
-    }
-    
-    // ShowMenuDescriptions
-    ReadINIValue(szIniPath, L"Settings", L"ShowMenuDescriptions", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"ShowMenuDescriptions", L"1");
-        g_bShowMenuDescriptions = TRUE;
-    } else {
-        g_bShowMenuDescriptions = ReadINIInt(szIniPath, L"Settings", L"ShowMenuDescriptions", 1);
-    }
-    
-    // SelectAfterPaste
-    ReadINIValue(szIniPath, L"Settings", L"SelectAfterPaste", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"SelectAfterPaste", L"0");
-        g_bSelectAfterPaste = FALSE;
-    } else {
-        g_bSelectAfterPaste = ReadINIInt(szIniPath, L"Settings", L"SelectAfterPaste", 0);
-    }
-    
-    // AutoSaveUntitledOnClose
-    ReadINIValue(szIniPath, L"Settings", L"AutoSaveUntitledOnClose", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"AutoSaveUntitledOnClose", L"0");
-        g_bAutoSaveUntitledOnClose = FALSE;
-    } else {
-        g_bAutoSaveUntitledOnClose = ReadINIInt(szIniPath, L"Settings", L"AutoSaveUntitledOnClose", 0);
-    }
-
-    // DetectURLs - enable AURL_ENABLEURL for URL highlighting and accessibility.
-    // Set to 0 for large-file sessions where cursor-movement lag is a problem.
-    ReadINIValue(szIniPath, L"Settings", L"DetectURLs", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"DetectURLs", L"1");
-        g_bAutoURLEnabled = TRUE;
-    } else {
-        g_bAutoURLEnabled = ReadINIInt(szIniPath, L"Settings", L"DetectURLs", 1);
-    }
-    
-    // TabSize
-    ReadINIValue(szIniPath, L"Settings", L"TabSize", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"TabSize", L"8");
-        g_nTabSize = 8;
-    } else {
-        int tabSize = ReadINIInt(szIniPath, L"Settings", L"TabSize", 8);
-        // Validate tab size (1-32 is reasonable range)
-        if (tabSize < 1 || tabSize > 32) {
-            tabSize = 8;
-            WriteINIValue(szIniPath, L"Settings", L"TabSize", L"8");
-        }
-        g_nTabSize = tabSize;
-    }
-    
-    // Zoom (UR-001) - persist zoom level as integer percentage
-    ReadINIValue(szIniPath, L"Settings", L"Zoom", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"Zoom", L"100");
-        g_nZoomPercent = 100;
-    } else {
-        int z = ReadINIInt(szIniPath, L"Settings", L"Zoom", 100);
-        // Clamp to RichEdit supported range (1%-6400%)
-        if (z < 1)    z = 1;
-        if (z > 6400) z = 6400;
-        g_nZoomPercent = z;
-    }
-
-    // SelectAfterFind (Phase 2.9.1)
-    ReadINIValue(szIniPath, L"Settings", L"SelectAfterFind", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"SelectAfterFind", L"1");
-        g_bSelectAfterFind = TRUE;
-    } else {
-        g_bSelectAfterFind = ReadINIInt(szIniPath, L"Settings", L"SelectAfterFind", 1);
-    }
-    
-    // FindMatchCase (Phase 2.9.1) - Persist checkbox state
-    ReadINIValue(szIniPath, L"Settings", L"FindMatchCase", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"FindMatchCase", L"0");
-        g_bFindMatchCase = FALSE;
-    } else {
-        g_bFindMatchCase = ReadINIInt(szIniPath, L"Settings", L"FindMatchCase", 0);
-    }
-    
-    // FindWholeWord (Phase 2.9.1) - Persist checkbox state
-    ReadINIValue(szIniPath, L"Settings", L"FindWholeWord", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"FindWholeWord", L"0");
-        g_bFindWholeWord = FALSE;
-    } else {
-        g_bFindWholeWord = ReadINIInt(szIniPath, L"Settings", L"FindWholeWord", 0);
-    }
-    
-    // FindUseEscapes (Phase 2.9.1) - Persist checkbox state
-    ReadINIValue(szIniPath, L"Settings", L"FindUseEscapes", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"FindUseEscapes", L"0");
-        g_bFindUseEscapes = FALSE;
-    } else {
-        g_bFindUseEscapes = ReadINIInt(szIniPath, L"Settings", L"FindUseEscapes", 0);
-    }
-    
-    // DateTimeTemplate (Phase 2.10, ToDo #3) - F5 key / Edit→Time/Date insertion format
-    ReadINIValue(szIniPath, L"Settings", L"DateTimeTemplate", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"DateTimeTemplate", L"%shortdate% %shorttime%");
-        wcscpy(g_szDateTimeTemplate, L"%shortdate% %shorttime%");
-    } else {
-        wcscpy(g_szDateTimeTemplate, szValue);
-    }
-    
-    // DateFormat (Phase 2.10, ToDo #3) - Custom format for %date% variable
-    ReadINIValue(szIniPath, L"Settings", L"DateFormat", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"DateFormat", L"%shortdate%");
-        wcscpy(g_szDateFormat, L"%shortdate%");
-    } else {
-        wcscpy(g_szDateFormat, szValue);
-    }
-    
-    // TimeFormat (Phase 2.10, ToDo #3) - Custom format for %time% variable
-    ReadINIValue(szIniPath, L"Settings", L"TimeFormat", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"TimeFormat", L"HH:mm");
-        wcscpy(g_szTimeFormat, L"HH:mm");
-    } else {
-        wcscpy(g_szTimeFormat, szValue);
-    }
+    LoadSettingString(szIniPath, L"DateTimeTemplate", g_szDateTimeTemplate,
+                      _countof(g_szDateTimeTemplate), L"%shortdate% %shorttime%");
+    LoadSettingString(szIniPath, L"DateFormat", g_szDateFormat,
+                      _countof(g_szDateFormat), L"%shortdate%");
+    LoadSettingString(szIniPath, L"TimeFormat", g_szTimeFormat,
+                      _countof(g_szTimeFormat), L"HH:mm");
 
     // OutputPaneLines - output pane height as integer lines or percentage (e.g. "5" or "20%")
-    ReadINIValue(szIniPath, L"Settings", L"OutputPaneLines", szValue, 256, L"");
-    if (szValue[0] == L'\0') {
-        WriteINIValue(szIniPath, L"Settings", L"OutputPaneLines", L"5");
-        g_nOutputPaneSizeValue     = 5;
-        g_bOutputPaneSizeIsPercent = FALSE;
-    } else {
-        int nLen = (int)wcslen(szValue);
-        if (nLen > 0 && szValue[nLen - 1] == L'%') {
-            g_bOutputPaneSizeIsPercent = TRUE;
-            g_nOutputPaneSizeValue = _wtoi(szValue);
-            if (g_nOutputPaneSizeValue < 1)  g_nOutputPaneSizeValue = 1;
-            if (g_nOutputPaneSizeValue > 90) g_nOutputPaneSizeValue = 90;
-        } else {
+    {
+        WCHAR szValue[256];
+        ReadINIValue(szIniPath, L"Settings", L"OutputPaneLines", szValue, 256, L"");
+        if (szValue[0] == L'\0') {
+            WriteINIValue(szIniPath, L"Settings", L"OutputPaneLines", L"5");
+            g_nOutputPaneSizeValue     = 5;
             g_bOutputPaneSizeIsPercent = FALSE;
-            g_nOutputPaneSizeValue = _wtoi(szValue);
-            if (g_nOutputPaneSizeValue < 1)  g_nOutputPaneSizeValue = 1;
-            if (g_nOutputPaneSizeValue > 200) g_nOutputPaneSizeValue = 200;
+        } else {
+            int nLen = (int)wcslen(szValue);
+            if (nLen > 0 && szValue[nLen - 1] == L'%') {
+                g_bOutputPaneSizeIsPercent = TRUE;
+                g_nOutputPaneSizeValue = _wtoi(szValue);
+                if (g_nOutputPaneSizeValue < 1)  g_nOutputPaneSizeValue = 1;
+                if (g_nOutputPaneSizeValue > 90) g_nOutputPaneSizeValue = 90;
+            } else {
+                g_bOutputPaneSizeIsPercent = FALSE;
+                g_nOutputPaneSizeValue = _wtoi(szValue);
+                if (g_nOutputPaneSizeValue < 1)  g_nOutputPaneSizeValue = 1;
+                if (g_nOutputPaneSizeValue > 200) g_nOutputPaneSizeValue = 200;
+            }
         }
     }
 

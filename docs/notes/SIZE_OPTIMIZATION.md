@@ -184,19 +184,21 @@ than anything available in GNU ld.
 
 ---
 
-## Code-Level Opportunities (estimated, not yet implemented)
+## Code-Level Opportunities
 
-These would require source code changes and have not been tested.  Estimates
-are based on code analysis.
+### Applied refactors — 512 bytes saved (362,496 → 361,984 stripped)
 
-### Duplicated code blocks — estimated 5-10 KB
+| Pattern | Action | Lines removed |
+|---|---|---|
+| `AddToFindHistory()` / `AddToReplaceHistory()` identical logic | Extracted shared `AddToHistory()` helper | ~35 |
+| Template variable expansion (6 date/time format blocks in `ExpandTemplateVariables`) | Replaced with table-driven loop using function pointer | ~60 |
+| `LoadSettings()` read-default-parse pattern | Added `LoadSettingBool`, `LoadSettingInt`, `LoadSettingString` helpers | ~80 |
+
+### Remaining opportunities (estimated, not yet implemented)
 
 | Pattern | Repetitions | Est. Savings |
 |---|---|---|
-| Template variable expansion (date/time format blocks in `ExpandTemplateVariables`) | 8 nearly identical blocks | 2-3 KB |
-| `LoadSettings()` read-default-parse pattern | ~20 repetitions | 1-2 KB |
 | `CreateRichEditControl()` DLL fallback blocks | 5 similar blocks | 1-2 KB |
-| `AddToFindHistory()` / `AddToReplaceHistory()` identical logic | 2 copies | 0.5 KB |
 | Strip trailing newline pattern | 3 copies | 0.3 KB |
 
 ### SendMessage wrapper functions — estimated 2-4 KB
