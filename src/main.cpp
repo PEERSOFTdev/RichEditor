@@ -150,6 +150,7 @@ const UINT_PTR IDT_AUTOSAVE = 1;             // Timer ID for autosave
 const UINT_PTR IDT_FILTER_STATUSBAR = 2;     // Timer ID for filter status bar display
 const UINT_PTR IDT_AUTOSAVE_FLASH = 3;       // Timer ID for "[Autosaved]" status bar flash
 const UINT_PTR IDT_FOCUS_RESTORE = 4;        // Timer ID for deferred focus restore after MRU load
+const UINT_PTR IDT_REPL_TAB = 5;            // Timer ID for REPL tab completion timeout
 
 // Accessibility settings
 BOOL g_bShowMenuDescriptions = TRUE;         // Show filter descriptions in menus (for accessibility)
@@ -427,6 +428,13 @@ DWORD g_dwREPLStdoutThreadId = 0;      // Stdout thread ID
 HANDLE g_hREPLStderrThread = NULL;     // Background thread for reading stderr
 DWORD g_dwREPLStderrThreadId = 0;      // Stderr thread ID
 BOOL g_bREPLIntentionalExit = FALSE;   // TRUE when user intentionally exits REPL (suppress notification)
+BOOL g_bREPLTabPending = FALSE;          // TRUE while waiting for tab completion response
+BOOL g_bREPLTabRedrawPending = FALSE;    // TRUE after completion applied; absorbs conhost screen redraw
+WCHAR g_szREPLEchoExpected[4096] = L""; // Text we expect the child to echo back
+int   g_nREPLEchoMatched = 0;           // How many chars of expected echo matched so far
+BOOL  g_bREPLEchoActive = FALSE;        // TRUE while echo cancellation is in progress
+BOOL  g_bREPLEchoFromTab = FALSE;       // TRUE if echo was triggered by Tab (vs Enter)
+LONG  g_nREPLSyncPos = -1;              // Editor pos up to which child received input; -1 = no sync
 
 // Status bar filter display
 WCHAR g_szFilterStatusBarText[512] = L"";
@@ -489,6 +497,65 @@ static inline int RE_GetTextRange(HWND h, LONG cpMin, LONG cpMax, LPWSTR buf) {
     tr.chrg.cpMax = cpMax;
     tr.lpstrText = buf;
     return (int)SendMessage(h, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+}
+
+// Find the physical paragraph (line delimited by \r or document start/end)
+// containing character position 'pos'.  Returns start and end via out-params.
+// RichEdit stores paragraphs separated by \r internally.
+static inline void RE_GetParagraphRange(HWND h, LONG pos, LONG* pStart, LONG* pEnd) {
+    LONG docLen = RE_GetTextLen(h);
+    if (pos < 0) pos = 0;
+    if (pos > docLen) pos = docLen;
+
+    // Search backward for \r (or document start)
+    LONG start = pos;
+    if (start > 0) {
+        // Read a chunk before pos to find the \r.  REPL prompt lines are
+        // rarely longer than 1024 chars, but allow up to 4096 for safety.
+        LONG chunkStart = (start > 4096) ? start - 4096 : 0;
+        int chunkLen = (int)(start - chunkStart);
+        LPWSTR pszChunk = (LPWSTR)malloc((chunkLen + 1) * sizeof(WCHAR));
+        if (pszChunk) {
+            RE_GetTextRange(h, chunkStart, start, pszChunk);
+            // Walk backward from end of chunk
+            for (int i = chunkLen - 1; i >= 0; i--) {
+                if (pszChunk[i] == L'\r') {
+                    start = chunkStart + i + 1;  // paragraph starts after \r
+                    free(pszChunk);
+                    goto found_start;
+                }
+            }
+            // No \r found in chunk — paragraph starts at chunkStart (or 0)
+            start = chunkStart;
+            free(pszChunk);
+        }
+    }
+found_start:
+
+    // Search forward for \r (or document end)
+    LONG end = pos;
+    if (end < docLen) {
+        LONG chunkEnd = (end + 4096 < docLen) ? end + 4096 : docLen;
+        int chunkLen = (int)(chunkEnd - end);
+        LPWSTR pszChunk = (LPWSTR)malloc((chunkLen + 1) * sizeof(WCHAR));
+        if (pszChunk) {
+            RE_GetTextRange(h, end, chunkEnd, pszChunk);
+            for (int i = 0; i < chunkLen; i++) {
+                if (pszChunk[i] == L'\r') {
+                    end = end + i;  // paragraph ends before \r
+                    free(pszChunk);
+                    goto found_end;
+                }
+            }
+            // No \r found — paragraph extends to chunkEnd (or docLen)
+            end = chunkEnd;
+            free(pszChunk);
+        }
+    }
+found_end:
+
+    *pStart = start;
+    *pEnd = end;
 }
 
 //============================================================================
@@ -706,7 +773,9 @@ BOOL ElevatedSaveWorker(LPCWSTR pszStagingPath, LPCWSTR pszTargetPath);
 void StartREPLFilter(int filterIndex);
 void ExitREPLMode();
 void SendLineToREPL();
+void SendTabToREPL();
 void InsertREPLOutput(LPCWSTR pszOutput);
+void ReplaceREPLInput(LPCWSTR pszCompletion);
 DWORD WINAPI REPLStdoutThread(LPVOID lpParam);
 DWORD WINAPI REPLStderrThread(LPVOID lpParam);
 REPLEOLMode DetectEOL(LPCSTR pszOutput, size_t len);
@@ -3326,6 +3395,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
                 }
             }
+            else if (wParam == IDT_REPL_TAB) {
+                // Tab completion timeout — no response from child process
+                KillTimer(hwnd, IDT_REPL_TAB);
+                g_bREPLTabPending = FALSE;
+                g_bREPLTabRedrawPending = FALSE;
+                g_bREPLEchoActive = FALSE;
+                g_bREPLEchoFromTab = FALSE;
+                g_nREPLEchoMatched = 0;
+            }
             return 0;
             
         case WM_COMMAND:
@@ -3993,7 +4071,77 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // REPL output received from background thread
             LPWSTR pszOutput = (LPWSTR)lParam;
             if (pszOutput) {
-                InsertREPLOutput(pszOutput);
+                if (g_bREPLTabRedrawPending) {
+                    // Conhost screen-redraw chunk after tab completion — discard
+                    g_bREPLTabRedrawPending = FALSE;
+                } else if (g_bREPLEchoActive) {
+                    // Multi-chunk echo cancellation: walk output char-by-char
+                    // against the expected echo string
+                    LPCWSTR pSrc = pszOutput;
+                    size_t expectedLen = wcslen(g_szREPLEchoExpected);
+
+                    while (*pSrc && (size_t)g_nREPLEchoMatched < expectedLen) {
+                        if (*pSrc == g_szREPLEchoExpected[g_nREPLEchoMatched]) {
+                            g_nREPLEchoMatched++;
+                            pSrc++;
+                        } else {
+                            // Mismatch — echo expectation was wrong; flush
+                            // entire original output as normal content and
+                            // abandon echo cancellation
+                            g_bREPLEchoActive = FALSE;
+                            g_nREPLEchoMatched = 0;
+                            if (g_bREPLEchoFromTab) {
+                                // Tab was pending but echo didn't match —
+                                // treat whole output as completion response
+                                KillTimer(hwnd, IDT_REPL_TAB);
+                                g_bREPLTabPending = FALSE;
+                                g_bREPLEchoFromTab = FALSE;
+                                ReplaceREPLInput(pszOutput);
+                                g_bREPLTabRedrawPending = TRUE;
+                            } else {
+                                InsertREPLOutput(pszOutput);
+                            }
+                            pSrc = NULL;  // signal: already handled
+                            break;
+                        }
+                    }
+
+                    if (pSrc) {
+                        if ((size_t)g_nREPLEchoMatched >= expectedLen) {
+                            // Echo fully matched — remaining content is real
+                            g_bREPLEchoActive = FALSE;
+                            g_nREPLEchoMatched = 0;
+                            if (g_bREPLEchoFromTab) {
+                                g_bREPLEchoFromTab = FALSE;
+                                if (*pSrc != L'\0') {
+                                    // Completion arrived in same chunk as echo tail
+                                    KillTimer(hwnd, IDT_REPL_TAB);
+                                    g_bREPLTabPending = FALSE;
+                                    ReplaceREPLInput(pSrc);
+                                    g_bREPLTabRedrawPending = TRUE;
+                                }
+                                // else: echo consumed entire chunk; completion
+                                // will arrive in a later chunk — keep
+                                // g_bREPLTabPending TRUE so the next
+                                // WM_REPL_OUTPUT routes to ReplaceREPLInput
+                            } else {
+                                // Remaining text is normal command output
+                                if (*pSrc != L'\0')
+                                    InsertREPLOutput(pSrc);
+                            }
+                        }
+                        // else: chunk ended before echo fully matched —
+                        // stay active with updated match count, discard chunk
+                    }
+                } else if (g_bREPLTabPending) {
+                    // Tab completion response (no echo expected) — replace input
+                    KillTimer(hwnd, IDT_REPL_TAB);
+                    g_bREPLTabPending = FALSE;
+                    ReplaceREPLInput(pszOutput);
+                    g_bREPLTabRedrawPending = TRUE;
+                } else {
+                    InsertREPLOutput(pszOutput);
+                }
                 free(pszOutput);  // Free memory allocated by thread
             }
             return 0;
@@ -4080,6 +4228,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             KillTimer(hwnd, IDT_AUTOSAVE);
             KillTimer(hwnd, IDT_FILTER_STATUSBAR);
             KillTimer(hwnd, IDT_AUTOSAVE_FLASH);
+            KillTimer(hwnd, IDT_REPL_TAB);
             // Release TOM interface
             if (g_pTextDoc) { g_pTextDoc->Release(); g_pTextDoc = NULL; }
             // Save current zoom level before flushing INI
@@ -4197,6 +4346,11 @@ LRESULT CALLBACK OutputPaneSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 //============================================================================
 LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    // Track when VK_TAB was intercepted for REPL tab completion so the
+    // subsequent WM_CHAR can be suppressed regardless of whether
+    // SendTabToREPL actually armed g_bREPLTabPending.
+    static BOOL s_bSuppressNextTabChar = FALSE;
+
     // Suppress the RichEdit UIA provider while the menu bar is active.
     // Modern RichEdit (Office/Win11, v8.0+) exposes a native UIA provider that
     // can confuse NVDA's hybrid MSAA+UIA bridge during menu bar navigation,
@@ -4228,6 +4382,35 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             return 0; // Prevent default behavior
         }
         
+        // Tab completion in REPL mode: send partial input + \t to child process
+        if (wParam == VK_TAB && g_bREPLMode && !g_bREPLTabPending) {
+            // Only intercept on a prompt line; otherwise fall through to insert literal tab
+            CHARRANGE cr = RE_GetSel(g_hWndEdit);
+            LONG lineStart, lineEnd;
+            RE_GetParagraphRange(g_hWndEdit, cr.cpMin, &lineStart, &lineEnd);
+            int lineLen = lineEnd - lineStart;
+            if (lineLen > 0) {
+                LPWSTR pszLine = (LPWSTR)malloc((lineLen + 1) * sizeof(WCHAR));
+                if (pszLine) {
+                    RE_GetTextRange(g_hWndEdit, lineStart, lineEnd, pszLine);
+                    int inputStart = 0;
+                    BOOL bPrompt = DetectPrompt(pszLine, g_szREPLPromptEnd, &inputStart);
+                    if (bPrompt) {
+                        free(pszLine);
+                        SendTabToREPL();
+                        s_bSuppressNextTabChar = TRUE;
+                        return 0;  // Suppress default Tab (literal tab insertion)
+                    }
+                    free(pszLine);
+                }
+            }
+            // No prompt — fall through to default Tab behavior (insert literal tab)
+        } else if (wParam == VK_TAB && g_bREPLMode && g_bREPLTabPending) {
+            // Tab pressed while previous completion still pending — suppress
+            s_bSuppressNextTabChar = TRUE;
+            return 0;
+        }
+        
         if (wParam == VK_RETURN) {
             // Check if Shift is held: Shift+Enter always inserts newline
             if (GetKeyState(VK_SHIFT) & 0x8000) {
@@ -4240,16 +4423,9 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 // Get current cursor position
                 CHARRANGE cr = RE_GetSel(g_hWndEdit);
                 
-                // Get current line number
-                LONG lineIndex = SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
-                
-                // Get line start/end
-                LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex, 0);
-                LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
-                if (lineEnd == -1) {
-                    // Last line - get document length
-                    lineEnd = RE_GetTextLen(g_hWndEdit);
-                }
+                // Get paragraph (physical line) boundaries
+                LONG lineStart, lineEnd;
+                RE_GetParagraphRange(g_hWndEdit, cr.cpMin, &lineStart, &lineEnd);
                 
                 // Check if we're at the very end of the document (safety: send empty line to recall prompt)
                 LONG docLength = RE_GetTextLen(g_hWndEdit);
@@ -4295,6 +4471,11 @@ LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     
     // Suppress WM_CHAR for Ctrl+Shift+I and Ctrl+Shift+Q to prevent TAB insertion
     if (msg == WM_CHAR) {
+        // Block Tab character when we intercepted VK_TAB for REPL completion
+        if (wParam == L'\t' && s_bSuppressNextTabChar) {
+            s_bSuppressNextTabChar = FALSE;
+            return 0;
+        }
         if ((wParam == '\t' || wParam == 'I' || wParam == 'i') && 
             (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
             return 0; // Block the character from being inserted
@@ -11429,6 +11610,95 @@ void InsertREPLOutput(LPCWSTR pszOutput)
 }
 
 //============================================================================
+// ReplaceREPLInput - Apply tab-completion response
+//
+// Finds the overlap between the text before the caret and the beginning of
+// pszCompletion (case-insensitive), selects only that overlapping portion,
+// and replaces it with the full completion text.  Text after the caret is
+// left intact.
+//============================================================================
+void ReplaceREPLInput(LPCWSTR pszCompletion)
+{
+    if (!pszCompletion || !g_hWndEdit) return;
+
+    // Work on a mutable copy so we can strip trailing newline
+    size_t len = wcslen(pszCompletion);
+    LPWSTR pszComp = (LPWSTR)malloc((len + 1) * sizeof(WCHAR));
+    if (!pszComp) return;
+    wcscpy(pszComp, pszCompletion);
+
+    // Strip trailing \r\n or \n
+    while (len > 0 && (pszComp[len - 1] == L'\n' || pszComp[len - 1] == L'\r')) {
+        pszComp[--len] = L'\0';
+    }
+
+    if (len == 0) { free(pszComp); return; }
+
+    // Get caret position — should still be where user pressed Tab
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
+    LONG caretPos = cr.cpMin;
+
+    LONG lineStart, lineEnd;
+    RE_GetParagraphRange(g_hWndEdit, caretPos, &lineStart, &lineEnd);
+
+    // Find where user input begins (after the prompt)
+    int lineLen = lineEnd - lineStart;
+    int inputStartOff = 0;  // offset within line
+    if (lineLen > 0) {
+        LPWSTR pszLine = (LPWSTR)malloc((lineLen + 1) * sizeof(WCHAR));
+        if (pszLine) {
+            RE_GetTextRange(g_hWndEdit, lineStart, lineEnd, pszLine);
+            DetectPrompt(pszLine, g_szREPLPromptEnd, &inputStartOff);
+            free(pszLine);
+        }
+    }
+
+    LONG absInputStart = lineStart + inputStartOff;
+    if (caretPos < absInputStart) { free(pszComp); return; }
+
+    // Extract the text between inputStart and the caret
+    int prefixLen = caretPos - absInputStart;
+    if (prefixLen > 0) {
+        LPWSTR pszPrefix = (LPWSTR)malloc((prefixLen + 1) * sizeof(WCHAR));
+        if (pszPrefix) {
+            RE_GetTextRange(g_hWndEdit, absInputStart, caretPos, pszPrefix);
+
+            // Find the longest suffix of pszPrefix that case-insensitively
+            // matches a prefix of pszComp.  Walk from the full prefix down
+            // to length 1.
+            int overlap = 0;
+            for (int tryLen = prefixLen; tryLen >= 1; tryLen--) {
+                if ((size_t)tryLen <= len &&
+                    _wcsnicmp(pszPrefix + (prefixLen - tryLen), pszComp, tryLen) == 0) {
+                    overlap = tryLen;
+                    break;
+                }
+            }
+
+            free(pszPrefix);
+
+            // Select from (caret - overlap) to caret and replace
+            RE_SetSel(g_hWndEdit, caretPos - overlap, caretPos);
+        }
+    } else {
+        // No text before caret — just insert at caret position
+        RE_SetSel(g_hWndEdit, caretPos, caretPos);
+    }
+
+    SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)pszComp);
+    SendMessage(g_hWndEdit, EM_SCROLLCARET, 0, 0);
+
+    // Advance sync point: the child now has input up to the end of the
+    // completion text.  Get the new caret position after the replacement.
+    CHARRANGE crAfter = RE_GetSel(g_hWndEdit);
+    g_nREPLSyncPos = crAfter.cpMin;
+
+    UpdateStatusBar();
+
+    free(pszComp);
+}
+
+//============================================================================
 // ExitREPLMode - Exit REPL mode and cleanup resources
 //============================================================================
 void ExitREPLMode()
@@ -11482,6 +11752,16 @@ void ExitREPLMode()
     g_dwREPLStderrThreadId = 0;
     // Note: g_bREPLIntentionalExit is NOT reset here - it's checked in WM_REPL_EXITED handler
     
+    // Reset tab completion and echo cancellation state
+    KillTimer(g_hWndMain, IDT_REPL_TAB);
+    g_bREPLTabPending = FALSE;
+    g_bREPLTabRedrawPending = FALSE;
+    g_bREPLEchoActive = FALSE;
+    g_bREPLEchoFromTab = FALSE;
+    g_nREPLEchoMatched = 0;
+    g_szREPLEchoExpected[0] = L'\0';
+    g_nREPLSyncPos = -1;
+    
     // Update title bar to remove Interactive Mode indicator
     UpdateTitle(g_hWndMain);
     
@@ -11504,16 +11784,9 @@ void SendLineToREPL()
     // Get current line text
     CHARRANGE cr = RE_GetSel(g_hWndEdit);
     
-    // Get line number
-    LONG lineIndex = SendMessage(g_hWndEdit, EM_EXLINEFROMCHAR, 0, cr.cpMin);
-    
-    // Get line start/end
-    LONG lineStart = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex, 0);
-    LONG lineEnd = SendMessage(g_hWndEdit, EM_LINEINDEX, lineIndex + 1, 0);
-    if (lineEnd == -1) {
-        // Last line - get document length
-        lineEnd = RE_GetTextLen(g_hWndEdit);
-    }
+    // Get paragraph (physical line) boundaries
+    LONG lineStart, lineEnd;
+    RE_GetParagraphRange(g_hWndEdit, cr.cpMin, &lineStart, &lineEnd);
     
     // Extract line text
     int lineLen = lineEnd - lineStart;
@@ -11565,25 +11838,37 @@ void SendLineToREPL()
         }
     }
     
-    // Convert to UTF-8
-    LPSTR pszInputUTF8 = UTF16ToUTF8(pszInput);
-    if (pszInputUTF8) {
-        // Append EOL based on detected mode
-        const char* eol;
-        if (g_REPLEOLMode == REPL_EOL_CRLF) {
-            eol = "\r\n";
-        } else if (g_REPLEOLMode == REPL_EOL_CR) {
-            eol = "\r";
-        } else {
-            // Default to LF for AUTO and LF modes
-            // LF works for most interactive shells (bash, python, node, etc.)
-            // PowerShell also accepts LF even though it outputs CRLF
-            eol = "\n";
-        }
-        
+    // Determine the effective send start: if sync point is valid and falls
+    // within this prompt line's input region, send only from the sync point
+    // (the child already has everything before it).  Otherwise send the full
+    // input after the prompt.
+    LONG absInputStart = lineStart + inputStart;
+    LPCWSTR pszSend = pszInput;  // default: full input
+    if (g_nREPLSyncPos >= 0 && g_nREPLSyncPos >= absInputStart && g_nREPLSyncPos <= lineEnd) {
+        int syncOffset = (int)(g_nREPLSyncPos - lineStart);
+        pszSend = pszLine + syncOffset;
+    }
+
+    // Determine EOL bytes
+    const char* eol;
+    const wchar_t* weol;
+    if (g_REPLEOLMode == REPL_EOL_CRLF) {
+        eol = "\r\n"; weol = L"\r\n";
+    } else if (g_REPLEOLMode == REPL_EOL_CR) {
+        eol = "\r";   weol = L"\r";
+    } else {
+        // Default to LF for AUTO and LF modes
+        // LF works for most interactive shells (bash, python, node, etc.)
+        // PowerShell also accepts LF even though it outputs CRLF
+        eol = "\n";   weol = L"\n";
+    }
+
+    // Convert to UTF-8 and send
+    LPSTR pszSendUTF8 = UTF16ToUTF8(pszSend);
+    if (pszSendUTF8) {
         // Send input + EOL to stdin
         DWORD dwWritten;
-        WriteFile(g_hREPLStdin, pszInputUTF8, strlen(pszInputUTF8), &dwWritten, NULL);
+        WriteFile(g_hREPLStdin, pszSendUTF8, strlen(pszSendUTF8), &dwWritten, NULL);
         WriteFile(g_hREPLStdin, eol, strlen(eol), &dwWritten, NULL);
         
         // Flush the pipe
@@ -11592,12 +11877,27 @@ void SendLineToREPL()
         // Debug: log sent input
         if (g_bFilterDebug) {
             WCHAR szLog[2048];
-            _snwprintf(szLog, _countof(szLog), L"[REPL] >> %s\r\n", pszInput);
+            _snwprintf(szLog, _countof(szLog), L"[REPL] >> %s\r\n", pszSend);
             szLog[_countof(szLog) - 1] = L'\0';
             LogFilterDebug(szLog);
         }
 
-        free(pszInputUTF8);
+        // Set up echo cancellation: expect the child to echo back the text
+        // we actually sent (pszSend — may be a sync-point delta) plus EOL.
+        size_t sendLen = wcslen(pszSend);
+        if (sendLen > 0) {
+            wcsncpy(g_szREPLEchoExpected, pszSend, _countof(g_szREPLEchoExpected) - 3);
+            g_szREPLEchoExpected[_countof(g_szREPLEchoExpected) - 3] = L'\0';
+            wcscat(g_szREPLEchoExpected, weol);
+            g_nREPLEchoMatched = 0;
+            g_bREPLEchoActive = TRUE;
+            g_bREPLEchoFromTab = FALSE;
+        }
+
+        // Reset sync point — new prompt cycle after Enter
+        g_nREPLSyncPos = -1;
+
+        free(pszSendUTF8);
     }
     
     free(pszLine);
@@ -11606,6 +11906,95 @@ void SendLineToREPL()
     // This ensures the shell's output appears right after the command line
     RE_SetSel(g_hWndEdit, lineEnd, lineEnd);
     SendMessage(g_hWndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"\n");
+}
+
+//============================================================================
+// SendTabToREPL - Send partial input + \t for tab completion
+//
+// Sends text from the detected prompt to the caret position, followed by a
+// tab character (no newline).  Sets g_bREPLTabPending so the next
+// WM_REPL_OUTPUT is treated as a completion response.
+//============================================================================
+void SendTabToREPL()
+{
+    if (!g_bREPLMode || !g_hREPLStdin) return;
+
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
+
+    LONG lineStart, lineEnd;
+    RE_GetParagraphRange(g_hWndEdit, cr.cpMin, &lineStart, &lineEnd);
+
+    int lineLen = lineEnd - lineStart;
+    if (lineLen <= 0) return;
+
+    LPWSTR pszLine = (LPWSTR)malloc((lineLen + 1) * sizeof(WCHAR));
+    if (!pszLine) return;
+
+    RE_GetTextRange(g_hWndEdit, lineStart, lineEnd, pszLine);
+
+    int inputStart = 0;
+    DetectPrompt(pszLine, g_szREPLPromptEnd, &inputStart);
+
+    // Extract text from inputStart to the caret position (not end-of-line)
+    LONG caretOffset = cr.cpMin - lineStart;
+    if (caretOffset <= inputStart) {
+        // Caret is at or before the prompt end — nothing to complete
+        free(pszLine);
+        return;
+    }
+
+    // Isolate the partial input up to the caret
+    WCHAR chSave = pszLine[caretOffset];
+    pszLine[caretOffset] = L'\0';
+    LPCWSTR pszPartial = pszLine + inputStart;
+
+    // Determine effective send start: if sync point is valid and within this
+    // line's input region, send only from sync pos to caret (child already has
+    // everything before sync pos).
+    LONG absInputStart = lineStart + inputStart;
+    LPCWSTR pszSend = pszPartial;  // default: full partial from prompt
+    if (g_nREPLSyncPos >= 0 && g_nREPLSyncPos >= absInputStart && g_nREPLSyncPos <= cr.cpMin) {
+        int syncOffset = (int)(g_nREPLSyncPos - lineStart);
+        pszSend = pszLine + syncOffset;
+    }
+
+    LPSTR pszUTF8 = UTF16ToUTF8(pszSend);
+
+    if (pszUTF8) {
+        DWORD dwWritten;
+        WriteFile(g_hREPLStdin, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
+        WriteFile(g_hREPLStdin, "\t", 1, &dwWritten, NULL);
+        FlushFileBuffers(g_hREPLStdin);
+
+        if (g_bFilterDebug) {
+            WCHAR szLog[2048];
+            _snwprintf(szLog, _countof(szLog), L"[REPL] >> (tab) %s\\t\r\n", pszSend);
+            szLog[_countof(szLog) - 1] = L'\0';
+            LogFilterDebug(szLog);
+        }
+
+        // Set up echo cancellation: the child will echo back the text we
+        // actually sent (pszSend — may be a sync-point delta, not the full
+        // partial input).  No tab char or newline in the echo.
+        wcsncpy(g_szREPLEchoExpected, pszSend, _countof(g_szREPLEchoExpected) - 1);
+        g_szREPLEchoExpected[_countof(g_szREPLEchoExpected) - 1] = L'\0';
+        g_nREPLEchoMatched = 0;
+        g_bREPLEchoActive = TRUE;
+        g_bREPLEchoFromTab = TRUE;
+
+        // Arm the tab-completion state; next WM_REPL_OUTPUT (after echo is
+        // consumed) will be treated as completion response
+        g_bREPLTabPending = TRUE;
+        SetTimer(g_hWndMain, IDT_REPL_TAB, 3000, NULL);
+
+        // Set sync point to caret — child now has input up to here
+        g_nREPLSyncPos = cr.cpMin;
+
+        free(pszUTF8);
+    }
+
+    pszLine[caretOffset] = chSave;  // restore before free
+    free(pszLine);
 }
 
 //============================================================================

@@ -161,6 +161,7 @@ Last updated: 2026‑02‑19.
   - `Ctrl+Shift+I`: Start interactive mode with selected REPL filter
   - `Ctrl+Shift+Q`: Exit interactive mode
   - `Enter`: Send command to REPL (when on line with prompt or at document end)
+  - `Tab`: Tab completion — sends partial input to child process; replaces the typed prefix with the completion response (requires child cooperation, see below)
   - `Shift+Enter`: Always inserts newline (bypass REPL mode)
 - Title bar shows "[Interactive Mode]" when active
 - Prompt detection system:
@@ -210,6 +211,42 @@ Last updated: 2026‑02‑19.
 **Phase 2.5.3 (WSL Bash Integration):**
 - EOL auto detection tuned for WSL/bash behavior
 - WSL bash PTY handling and echo behavior documented
+
+**Tab Completion:**
+- Pressing `Tab` on a REPL prompt line sends the text from the prompt end to the
+  caret position, followed by a tab character (`\t`) — no newline is appended.
+- If a sync point exists from a previous tab completion, only the text typed after
+  the sync point is sent (the child already has everything before it).
+- The child process must detect the `\t` terminator and respond with the completed
+  text on stdout.  ReadLine-based applications (bash, Python readline, etc.) handle
+  this natively when running behind a pipe.
+- Echo cancellation is active during tab completion: the child typically echoes back
+  the input text before sending the completion response.  The echo is accumulated
+  across multiple output chunks and stripped automatically.
+- Once the echo is consumed, the next output is treated as the completion response.
+  RichEditor finds the longest case-insensitive overlap between the text before the
+  caret and the beginning of the response, then replaces only that overlap — text
+  after the caret is preserved.
+- After a successful completion, the sync point advances to the end of the inserted
+  text.  Subsequent Tab presses or Enter sends only the delta since the sync point.
+- If no response arrives within 3 seconds, the pending state is silently cleared.
+- On non-prompt lines, Tab inserts a literal tab character as normal.
+
+**Echo Cancellation:**
+- When the user presses Enter or Tab, the expected echo text is stored and
+  character-by-character matching begins on subsequent stdout chunks.
+- For Enter: the expected echo is the full input text plus the EOL sequence.
+- For Tab: the expected echo is the partial input text (from prompt to caret, no
+  tab character or newline).
+- Echo matching accumulates across multiple output chunks.  Each chunk is walked
+  character-by-character against the expected text; matching characters are consumed
+  and the chunk is discarded.  When all expected characters are matched, the
+  remaining output in that chunk (if any) is treated as real content.
+- If a character does not match, the echo expectation is abandoned and the entire
+  original chunk is passed through as normal output.
+- This suppresses the unwanted input echo produced by ReadLine-based or PTY-wrapped
+  child processes.  The user already sees their typed command in the editor, so the
+  echo would be a duplicate.
 
 **Supported REPL Environments:**
 - **PowerShell** (`powershell.exe` or `pwsh.exe`)
@@ -312,7 +349,7 @@ ContextMenu=0
 
 **Troubleshooting:**
 - **No prompt appears**: Check `Command` path is valid and executable
-- **Command echo appears twice**: Normal PTY behavior with WSL bash
+- **Command echo appears twice**: Echo cancellation removes the first echoed line automatically; if duplicates persist, the child may emit extra output that doesn't match the sent input exactly
 - **Wrong line endings**: Adjust `EOLDetection` setting (try auto or lf)
 - **Garbled output**: ANSI codes should be stripped automatically
 - **Process won't start**: Check command-line arguments and permissions
