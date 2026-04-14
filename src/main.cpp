@@ -2409,7 +2409,8 @@ static void ShowFindNotFound()
     wcscpy(szMsg, szPrefix);
     wcscat(szMsg, g_szFindWhat);
     wcscat(szMsg, L"\"");
-    MessageBox(g_hDlgFind ? g_hDlgFind : g_hWndMain, szMsg, szTitle, MB_ICONINFORMATION);
+    HWND hOwner = (g_hDlgFind && IsWindowVisible(g_hDlgFind)) ? g_hDlgFind : g_hWndMain;
+    MessageBox(hOwner, szMsg, szTitle, MB_ICONINFORMATION);
 }
 
 //============================================================================
@@ -3136,7 +3137,8 @@ void DoReplaceAll()
         szMsg[255] = L'\0';
         LoadStringResource(IDS_REPLACE_COMPLETE_TITLE, szTitle, 64);
         
-        MessageBox(g_hDlgFind, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
+        HWND hOwner = (g_hDlgFind && IsWindowVisible(g_hDlgFind)) ? g_hDlgFind : g_hWndMain;
+        MessageBox(hOwner, szMsg, szTitle, MB_OK | MB_ICONINFORMATION);
     } else {
         // No matches — show the same "Cannot find" message as plain Find/Replace
         ShowFindNotFound();
