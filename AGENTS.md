@@ -143,13 +143,53 @@ user-facing or architectural changes, prepend the new entries under `## Unreleas
 
 - **Sections:** newest first — `## Unreleased` at the top, then versions descending.
 - **Entries within a section:** chronological, oldest-to-newest commit order.
-- **Entry format:** `- <commit subject verbatim>` — one line per commit, no hash, no date.
+- **Entry format:** human-readable prose (see Writing style below), with commit hashes
+  appended in parentheses for traceability, e.g. `(\`abc1234\`)`.
+- **Grouping:** tightly related commits (e.g. a feature + its follow-up fixes) should be
+  consolidated into a single entry. List all relevant hashes together.
 - **Version header format:** `## vX.Y.Z (YYYY-MM-DD)` where the date is the date of the
   first commit that belongs to that version.
 - **Unreleased header:** `## Unreleased` with no date.
 - **Only a human developer may release a version** (rename `## Unreleased` to
   `## vX.Y.Z (YYYY-MM-DD)` and open a fresh `## Unreleased` above it). Same rule as
   version number bumps.
+
+### Writing style
+
+The changelog is read by users, not developers. Every entry must be understandable by
+someone who has never seen the source code.
+
+1. **Write from the user's perspective:** describe what changed in terms of visible
+   behaviour, menus, shortcuts, dialogs, or settings — not function names, data
+   structures, or internal mechanisms.
+2. **For bug fixes, describe the symptom and trigger**, not the root cause.
+   Good: "Fixed the Replace All message box appearing behind the main window when the
+   Find dialog had been closed before pressing F3."
+   Bad: "Fix MessageBox owner HWND falling through to NULL when hDlgFind is hidden."
+3. **Avoid developer/internal jargon.** Do not use terms like: uninitialized buffer,
+   bounds check, format placeholder, access violation, format specifier, UIA provider,
+   child process's working directory, exit code, stderr, stdout, stdin, sync-point
+   mechanism, output chunks, NULL, HWND, subclass procedure, EM\_\* messages, etc.
+   If a technical detail genuinely helps the user, explain it briefly in plain language.
+4. **For internal-only changes** (refactoring with no user-visible effect), keep entries
+   short: "Internal code reorganisation; no user-visible behavior change."
+5. **Keep entries concise** — aim for one or two sentences. Add a third only when the
+   context would be unclear otherwise (e.g. explaining what the old behaviour was).
+
+Example of a good entry:
+
+```
+- The Open dialog now offers an "All Supported Types" filter that combines every
+  registered file extension into a single entry, making it easier to browse
+  mixed-content folders. The Save As dialog is unaffected. (`6e50787`)
+```
+
+Example of a bad entry (too technical):
+
+```
+- Add BuildCombinedFilterString() helper; populate nFilterIndex for OFN struct
+  in FileOpen() using aggregated extension list from g_Templates[]. (`6e50787`)
+```
 
 ### How version boundaries are identified
 
@@ -204,9 +244,14 @@ When in doubt, include the entry — it is easier to prune later than to reconst
 
 ### Adding entries for new work
 
-1. Run `git log --oneline <last-recorded-hash>..HEAD` to list new commits.
+1. Run `git log <last-recorded-hash>..HEAD` (without `--oneline`) to get full commit
+   messages (subject + body). The body often contains intent, user-visible impact, and
+   context that the subject alone omits — use all of it when writing entries.
 2. Filter using the keep/drop rules above.
-3. Prepend the kept subjects (oldest-to-newest) under `## Unreleased` in
+3. Rewrite each kept commit into human-readable prose following the Writing style rules,
+   drawing on the full commit message for context.
+4. Consolidate tightly related commits into single entries where appropriate.
+5. Prepend the new entries (oldest-to-newest) under `## Unreleased` in
    `docs/CHANGELOG.md`.
 
 ## Quick Build
