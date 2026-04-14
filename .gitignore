@@ -51,3 +51,6 @@ addons/
 
 # OpenCode workspace
 .opencode/
+
+# My ToDo file
+ToDo.txt

@@ -23,6 +23,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Add RichEdit wrappers and table-drive fallback cascades
 - Deduplicate MessageBox, path-template, and find-not-found patterns
 - Add REPL tab completion and echo cancellation
+- Fix MessageBox owner when Find dialog is hidden
 
 ## v2.9.0 (2026-03-26)
 
