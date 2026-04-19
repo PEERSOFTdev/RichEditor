@@ -1,7 +1,9 @@
 # Executable Size Optimization — Reference
 
 Comprehensive analysis of RichEditor binary size, performed March 2026.
-All measurements use the MXE cross-compiler (GCC 11.5.0, x86_64-w64-mingw32.static).
+Original measurements used the MXE cross-compiler (GCC 11.5.0,
+x86_64-w64-mingw32.static); April 2026 update adds distro-packaged MinGW-w64
+measurements (Ubuntu 24.04, win32 threading model).
 
 This document is the definitive reference for size-related decisions.  Do not
 repeat the research; consult this document instead.
@@ -13,18 +15,20 @@ repeat the research; consult this document instead.
 | Build | Size |
 |---|---|
 | MinGW debug (with `-g`) | ~1,005 KB |
-| MinGW stripped (`make strip`) | **359,936 bytes (351.5 KB)** |
-| MSVC release (`build_msvc.bat`) | ~294.5 KB |
+| MinGW stripped, win32 threads (Ubuntu default) | **342,016 bytes (~334 KB)** |
+| MinGW stripped, posix threads (MXE) | **361,984 bytes (~354 KB)** |
+| MSVC release (`build_msvc.bat`) | **321,024 bytes (~314 KB)** |
 
-### Why MSVC is ~46 KB smaller
+### Why MSVC is smaller
 
 1. **`/OPT:ICF`** (Identical COMDAT Folding) — MSVC's linker merges
    byte-identical functions.  GNU ld has no equivalent.
 2. **No pthread overhead** — MSVC uses native Win32 threading.  MXE's GCC
    links ~12 KB of libwinpthread because it was built with
-   `--enable-threads=posix`.
+   `--enable-threads=posix`.  Distro MinGW-w64 with win32 threads avoids
+   this cost entirely, narrowing the gap to ~21 KB.
 3. **Leaner CRT** — MSVC's static CRT (`/MT`) is smaller than MinGW's
-   libstdc++ + libgcc + libwinpthread combination.
+   libstdc++ + libgcc combination.
 4. **More aggressive LTO** — MSVC's `/LTCG` + `/OPT:REF` + `/OPT:ICF`
    eliminates more dead code than GCC's `-flto` + `--gc-sections`.
 
@@ -123,15 +127,46 @@ the x64 ABI contract.
 
 **Verdict:** Not recommended unless binary size is critically constrained.
 
-### Eliminate pthread overhead — saves ~12 KB (not actionable)
+### Eliminate pthread overhead — saves ~12 KB (actionable on Ubuntu/Debian)
 
-MXE's GCC was built with `--enable-threads=posix`, which statically links
-libwinpthread (~12 KB of `.text`).  The application is single-threaded and does
-not need POSIX threads.
+MinGW-w64 compilers come in two threading variants: **posix** (links
+libwinpthread, ~12 KB overhead) and **win32** (uses native Win32 threads,
+zero overhead).  RichEditor is single-threaded and does not need POSIX
+threads, so the win32 variant produces a smaller binary with no downside.
 
-**Cannot be fixed with compiler flags.**  Would require rebuilding the
-cross-compiler with `--enable-threads=win32`, or using a different MinGW-w64
-distribution.  Not actionable within the current toolchain.
+**Ubuntu 24.04** (and the GitHub Actions `ubuntu-latest` runner) ships both
+variants.  The default symlink for `x86_64-w64-mingw32-g++` points to the
+**win32** variant, producing ~334 KB stripped binaries out of the box.  The
+Makefile default `CROSS` is `x86_64-w64-mingw32-` to match, so most users
+get the smaller build automatically.
+
+**MXE** uses `--enable-threads=posix` by default and rebuilding with win32
+threads is not straightforward (see [mxe/mxe#2258](https://github.com/mxe/mxe/issues/2258)).
+Treat MXE as posix-only; the ~12 KB overhead is the cost of using MXE.
+MXE users override the default with `make CROSS=x86_64-w64-mingw32.static-`.
+
+#### Checking your variant
+
+```bash
+# Show which variant the symlink points to:
+update-alternatives --display x86_64-w64-mingw32-g++
+
+# Or check directly:
+ls -l $(which x86_64-w64-mingw32-g++)
+# ...g++-win32  → win32 variant (smaller, recommended)
+# ...g++-posix  → posix variant (links libwinpthread)
+```
+
+#### Switching from posix to win32
+
+If your distribution defaults to the posix variant:
+
+```bash
+sudo update-alternatives --set x86_64-w64-mingw32-g++ \
+    /usr/bin/x86_64-w64-mingw32-g++-win32
+```
+
+Also switch `windres` and `ld` if separate alternatives exist for them.
 
 ### Replace std::wstring / std::vector with C equivalents — saves ~20-40 KB
 
@@ -252,10 +287,11 @@ already merges them (LTO may handle this).
 7. **`--gc-sections` must be in LDFLAGS, not CFLAGS.**  The linker flag is
    ignored during compilation (`-c`).
 
-8. **The MSVC build is the size reference.**  At ~294.5 KB it represents the
-   practical floor for this codebase.  The ~46 KB gap from MinGW is structural
-   (pthread, libstdc++, no ICF) and cannot be closed without changing the
-   cross-compiler or rewriting C++ standard library usage.
+8. **The MSVC build is the size reference.**  At ~314 KB it represents the
+   practical floor for this codebase.  The gap from MinGW is ~21 KB with
+   win32 threads (Ubuntu default) or ~40 KB with posix threads (MXE).  The
+   remaining gap is structural (libstdc++, no ICF) and cannot be closed
+   without rewriting C++ standard library usage.
 
 ---
 

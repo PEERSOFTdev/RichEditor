@@ -22,7 +22,7 @@ DIST_NAME = RichEditor-v$(VERSION)-$(DIST_VARIANT)
 DIST_DIR = dist/$(DIST_NAME)
 
 # Default cross-compiler prefix (can be overridden)
-CROSS ?= x86_64-w64-mingw32.static-
+CROSS ?= x86_64-w64-mingw32-
 
 # Compiler and tools
 CXX = $(CROSS)g++
@@ -133,9 +133,9 @@ help:
 	@echo "  make help               - Show this help"
 	@echo ""
 	@echo "Cross-compilation:"
-	@echo "  make CROSS=x86_64-w64-mingw32.static-   - 64-bit MXE static (default)"
+	@echo "  make CROSS=x86_64-w64-mingw32-          - 64-bit native MinGW-w64 (default)"
+	@echo "  make CROSS=x86_64-w64-mingw32.static-   - 64-bit MXE static"
 	@echo "  make CROSS=i686-w64-mingw32.static-     - 32-bit MXE static"
-	@echo "  make CROSS=x86_64-w64-mingw32-          - 64-bit native MinGW-w64"
 	@echo ""
 	@echo "Build sizes:"
 	@echo "  make        - Debug build with symbols (~875KB)"
