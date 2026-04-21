@@ -904,6 +904,76 @@ addons/
 
 **Binary size delta (with DPI):** 359 936 → 362 496 bytes (+2 560 bytes)
 
+### Phase 2.14 — Autocorrection Tables
+
+**Autocorrection tables** let users define search → replace pairs applied in up to three modes: while typing, on incoming REPL output, or manually via the menu.
+
+**INI format (`autocorrections.ini` in addon packs, or sections in `RichEditor.ini`):**
+
+```ini
+[AutocorrectionTables]
+Count=1                    ; optional; if absent, sections are probed sequentially
+
+[AutocorrectionTable1]
+Name=Emoticons
+Name.cs=Emotikony
+Description=Replaces ASCII emoticons with Unicode emoji
+
+[Emoticons]
+:-)=☺
+:-(=☹
+:-D=😀
+```
+
+- Search and replace values both support escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`.
+- Replace values also support `%0` (matched text) and `%%` (literal `%`), consistent with the existing Find & Replace placeholder convention.
+- Entries within a section are matched and applied top-to-bottom.
+
+**Activation (`[AutocorrectionSettings]` in `RichEditor.ini` only):**
+
+```ini
+[AutocorrectionSettings]
+Emoticons=typing,repl
+```
+
+Values: `typing`, `repl`, or both. Tables not listed are available for manual use only.
+
+**Typing mode:**
+
+- After every `WM_CHAR`, `ApplyTypingAutocorrectionAtCaret` fetches the last `g_nMaxTypingSearchLen` characters before the caret and walks the pre-sorted index (longest search string first).
+- First match at the caret triggers `EM_SETSEL` + `EM_REPLACESEL(TRUE, …)` — a single undoable operation.
+- Skipped when the editor is read-only or when a non-empty selection exists.
+- Applies in REPL prompt text too (the hook is in `EditSubclassProc`, not restricted by mode).
+
+**REPL mode:**
+
+- `ApplyReplAutocorrections` is called in both `REPLStdoutThread` and `REPLStderrThread` **before** `StripANSIEscapes`, so tables see the raw output including embedded escape sequences.
+
+**Manual mode:**
+
+- `Tools → Apply Autocorrections → _Table name_` calls `ApplyAutocorrectionTable(idx)`.
+- Replaces the current selection (or the whole document if nothing is selected) via `EM_SETTEXTEX ST_SELECTION|ST_KEEPUNDO` — one undoable step.
+- The submenu is rebuilt by `BuildAutocorrectionMenu` on startup and after every `Reload Addons`.
+- The submenu is greyed out when no tables are loaded or when the editor is in read-only mode.
+
+**Pre-sorted typing index:**
+
+- `g_TypingAutocorrectionIndex` (vector of `{tableIdx, entryIdx, searchLen}`) is rebuilt by `RebuildTypingAutocorrectionIndex` after each load, sorted longest-to-shortest.
+- `g_nMaxTypingSearchLen` caches the maximum search length for the lookback fetch.
+
+**Addon loading:**
+
+- `LoadAddons` now scans each addon pack for `autocorrections.ini` in addition to `filters.ini` and `templates.ini`.
+- `[AutocorrectionSettings]` is always read from the main INI cache; addon files cannot override activation.
+- If an addon table has the same `Name=` as an existing one, the addon version wins (last-loaded overwrites). Override is logged to the output pane.
+- `g_AutocorrectionTables` is cleared before each `LoadAutocorrectionTables` call to prevent duplicates on reload.
+
+**GCC LTO workaround:**
+
+- `LoadAddons` carries `__attribute__((optimize("O1")))` to suppress a GCC LTO/DSE internal compiler error that fires at `-Os` when the function contains three parallel vectors of the same structural shape. No behaviour change.
+
+**Binary size delta:** 891 280 → 912 337 bytes (+21 057 bytes)
+
 ## Building
 
 ### Option 1: MSVC Build (Recommended for Windows) ✅

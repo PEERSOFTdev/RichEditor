@@ -55,6 +55,8 @@
 #define ID_TOOLS_SHOW_TEMPLATE_DESCRIPTIONS 1204  // Toggle template descriptions in menu
 #define ID_TOOLS_TEMPLATE_BASE          7000  // Base for template menu items (7000-7099)
 #define ID_TOOLS_RELOAD_ADDONS          1205  // Reload Addons (Phase 2.14)
+#define ID_TOOLS_APPLY_AUTOCORRECTIONS  1210  // Apply Autocorrections submenu
+#define ID_TOOLS_AUTOCORRECTION_BASE    10000 // Base for dynamic autocorrection menu items (10000-10099)
 
 // File menu - MRU list
 #define ID_FILE_MRU_BASE                6000  // Base for MRU menu items (6000-6009)
@@ -276,5 +278,9 @@
 #define IDS_TEMPLATE                    2182  // "template" / "šablona"
 #define IDS_FILTER                     2183  // "filter" / "filtr"
 #define IDS_ADDON_OVERRIDE_TPL         2184  // "[Addons] template/šablona overridden (with fileext)"
+
+// Autocorrection system strings (2185-2187)
+#define IDS_NO_AUTOCORRECTIONS          2185  // "(No autocorrections configured)"
+#define IDS_ADDON_OVERRIDE_AC           2186  // "[Addons] autocorrection overridden" log message
 
 #endif // RESOURCE_H

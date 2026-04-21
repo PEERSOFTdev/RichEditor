@@ -103,7 +103,7 @@ Pokročilé: šablony lze upravovat v `RichEditor.ini` (konfigurační soubor). 
 
 ## Doplňky (balíčky filtrů a šablon)
 
-RichEditor lze rozšířit umístěním balíčků doplňků do složky `addons` vedle spustitelného souboru. Každý doplněk je podadresář obsahující `filters.ini` a/nebo `templates.ini`.
+RichEditor lze rozšířit umístěním balíčků doplňků do složky `addons` vedle spustitelného souboru. Každý doplněk je podadresář obsahující `filters.ini`, `templates.ini` a/nebo `autocorrections.ini`.
 
 Příklad rozložení:
 
@@ -116,6 +116,8 @@ addons/
       myfilter.exe
   snippets/
     templates.ini
+  my-corrections/
+    autocorrections.ini
 ```
 
 - Soubory INI doplňků používají stejný formát sekcí `[Filter1]`/`[Template1]` jako hlavní `RichEditor.ini`. Klíč `Count=` je volitelný; pokud chybí, sekce se načítají postupně.
@@ -123,6 +125,18 @@ addons/
 - Pokud doplněk definuje filtr nebo šablonu se stejným `Name=` jako existující položka, verze z doplňku ji přepíše (poslední načtený vyhrává). Přepsání se zaznamenává do panelu výstupu.
 - Příkazy filtrů z doplňků se spouštějí s adresářem doplňku jako pracovním adresářem, takže relativní cesty k přibaleným nástrojům fungují.
 - Pomocí `Nástroje -> Znovu načíst doplňky` lze znovu načíst všechny doplňky bez restartu.
+
+## Tabulky automatických oprav
+
+Tabulky automatických oprav definují dvojice hledaný text → náhrada, které lze aplikovat při psaní, na výstup REPLu nebo ručně přes nabídku.
+
+**Ruční použití:** `Nástroje → Použít automatické opravy → _název tabulky_` aplikuje vybranou tabulku na aktuální výběr, nebo na celý dokument, není-li nic vybráno. Operace lze vrátit zpět. Podnabídka je zašedlá, pokud nejsou načteny žádné tabulky nebo je editor v režimu pouze pro čtení.
+
+**Při psaní:** Tabulky označené `typing` v sekci `[AutocorrectionSettings]` se vyhodnocují po každém stisknutí klávesy. Znaky bezprostředně před kurzorem se porovnají se všemi záznamy (nejprve nejdelší hledaný řetězec); první shoda se nahradí jako jedna vrátitelná akce.
+
+**Výstup REPLu:** Tabulky označené `repl` se aplikují na každý přijatý blok textu od REPLu, ještě před odstraněním ANSI barevných kódů.
+
+Tabulky se definují v souborech `autocorrections.ini` uvnitř balíčků doplňků nebo přímo v `RichEditor.ini`. Aktivace se řídí sekcí `[AutocorrectionSettings]` v hlavním `RichEditor.ini` (nikdy v souborech doplňků). Viz `docs/autocorrection_tables.md` pro úplný popis formátu INI.
 
 ## Adresy URL
 
@@ -242,6 +256,23 @@ Každý `[TemplateN]` definuje jednu šablonu:
 ### [MRU]
 
 MRU je seznam naposledy použitých souborů. `File1` je nejnovější položka, poté `File2`, `File3` atd. Délka seznamu závisí na použití.
+
+### [AutocorrectionSettings]
+
+Určuje, které tabulky automatických oprav se aplikují automaticky. Každý klíč je název tabulky (odpovídající `Name=` v příslušné sekci `[AutocorrectionTableN]`); hodnotou je čárkami oddělený seznam režimů:
+
+- `typing` – aplikovat po každém stisknutí klávesy.
+- `repl` – aplikovat na příchozí výstup REPLu před odstraněním ANSI barev.
+
+Příklad:
+
+```ini
+[AutocorrectionSettings]
+Emotikony=typing,repl
+Zkratky=typing
+```
+
+Tabulky, které zde nejsou uvedeny, jsou dostupné pouze pro ruční použití přes podnabídku `Nástroje → Použít automatické opravy`.
 
 ### [FindHistory] / [ReplaceHistory]
 

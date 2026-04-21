@@ -209,8 +209,13 @@ BOOL g_bLastOperationWasReplace = FALSE; // TRUE if last operation was Replace A
 #define ID_TOOLS_TEMPLATE_BASE 7000      // Base ID for template menu items (7000-7099)
 #define ID_FILE_NEW_TEMPLATE_BASE 8000   // Base ID for File→New submenu (8000-8031)
 
-#define ID_TOOLS_TEMPLATE_BASE 7000      // Base ID for template menu items (7000-7099)
-#define ID_FILE_NEW_TEMPLATE_BASE 8000   // Base ID for File→New submenu (8000-8031)
+//============================================================================
+// Autocorrection System
+//============================================================================
+#define MAX_AUTOCORRECTION_TABLES 100
+#define MAX_AUTOCORRECTION_NAME   64
+#define MAX_AUTOCORRECTION_DESC   256
+#define ID_TOOLS_AUTOCORRECTION_BASE 10000  // Base ID for autocorrection menu items (10000-10099)
 
 //============================================================================
 // Keyboard Shortcut Support for Templates
@@ -401,6 +406,38 @@ int g_nTemplateCount = 0;
 
 // Current file extension for template filtering
 WCHAR g_szCurrentFileExtension[MAX_TEMPLATE_FILEEXT] = L"txt";
+
+//============================================================================
+// Autocorrection System
+//============================================================================
+
+struct AutocorrectionEntry {
+    std::wstring search;   // parsed (escape sequences already expanded)
+    std::wstring replace;  // parsed (escape sequences already expanded)
+};
+
+struct AutocorrectionTable {
+    WCHAR szName[MAX_AUTOCORRECTION_NAME];
+    WCHAR szLocalizedName[MAX_AUTOCORRECTION_NAME];
+    WCHAR szDescription[MAX_AUTOCORRECTION_DESC];
+    WCHAR szLocalizedDescription[MAX_AUTOCORRECTION_DESC];
+    BOOL  bTyping;   // apply on every WM_CHAR keystroke
+    BOOL  bRepl;     // apply to incoming REPL output (before ANSI stripping)
+    std::vector<AutocorrectionEntry> entries;  // ordered top-to-bottom
+    WCHAR szSourceDir[MAX_PATH];               // empty for main INI tables
+};
+
+std::vector<AutocorrectionTable> g_AutocorrectionTables;
+
+// Pre-sorted index for typing autocorrection: longest search string first.
+// Each entry points into g_AutocorrectionTables[tableIdx].entries[entryIdx].
+struct AutocorrectionTypingEntry {
+    int tableIdx;
+    int entryIdx;
+    int searchLen;  // cached length for fast comparison
+};
+std::vector<AutocorrectionTypingEntry> g_TypingAutocorrectionIndex;
+int g_nMaxTypingSearchLen = 0;  // max search length across all typing entries
 
 // File type tracking for File→New submenu
 struct FileTypeInfo {
@@ -704,6 +741,15 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu);  // Helper: populate
 void ShowTemplatePickerMenu(HWND hwnd);
 void BuildTemplateMenu(HWND hwnd);
 void BuildFileNewMenu(HWND hwnd);
+
+// Autocorrection system functions
+void LoadAutocorrectionTables();
+void LoadAutocorrectionTables(const std::vector<INISource>& sources);
+void RebuildTypingAutocorrectionIndex();
+void ApplyAutocorrectionTable(int tableIdx);
+void ApplyTypingAutocorrectionAtCaret(HWND hwnd);
+void ApplyReplAutocorrections(LPWSTR& pszText);
+void BuildAutocorrectionMenu(HWND hwnd);
 
 // Date/Time formatting functions (Phase 2.10, ToDo #3)
 void FormatDateByFlag(SYSTEMTIME* pst, DWORD dwFlags, WCHAR* pszOutput, size_t cchMax);
@@ -1148,9 +1194,6 @@ BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers)
     return FALSE;
 }
 
-//============================================================================
-// UnescapeTemplateString - Convert escape sequences like \n, \t, \\ to actual characters
-//============================================================================
 //============================================================================
 // ParseEscapeSequences - Convert C-style escape sequences to actual characters
 // Input: pszInput - String with escape sequences (\n, \t, \xNN, \uNNNN)
@@ -3226,11 +3269,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Update status bar
             UpdateStatusBar();
             
-            // Load filters, templates, and addons (settings already loaded in wWinMain)
-            LoadAddons();  // Loads main INI + addon packs, builds source lists
-            BuildFilterMenu(hwnd);
-            BuildTemplateMenu(hwnd);  // Build template submenu
-            BuildFileNewMenu(hwnd);   // Build File→New submenu
+             // Load filters, templates, and addons (settings already loaded in wWinMain)
+             LoadAddons();  // Loads main INI + addon packs, builds source lists
+             BuildFilterMenu(hwnd);
+             BuildTemplateMenu(hwnd);  // Build template submenu
+             BuildFileNewMenu(hwnd);   // Build File→New submenu
+             BuildAutocorrectionMenu(hwnd);  // Build autocorrection submenu
             UpdateFilterDisplay();
             UpdateMenuStates(hwnd);
             
@@ -3686,6 +3730,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 }
                             }
                         }
+                        // Handle autocorrection table items from Tools menu
+                        else if (wmId >= ID_TOOLS_AUTOCORRECTION_BASE && wmId < ID_TOOLS_AUTOCORRECTION_BASE + MAX_AUTOCORRECTION_TABLES) {
+                            int acIdx = wmId - ID_TOOLS_AUTOCORRECTION_BASE;
+                            if (acIdx >= 0 && acIdx < (int)g_AutocorrectionTables.size()) {
+                                ApplyAutocorrectionTable(acIdx);
+                            }
+                        }
                         // Handle filter execution from context menu
                         else if (wmId >= ID_CONTEXT_FILTER_BASE && wmId < ID_CONTEXT_FILTER_BASE + 100) {
                             int filterIdx = wmId - ID_CONTEXT_FILTER_BASE;
@@ -3804,6 +3855,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 // Disable Insert Template in read-only mode
                 EnableMenuItem(hMenu, ID_TOOLS_INSERT_TEMPLATE, 
                               g_bReadOnly ? MF_GRAYED : MF_ENABLED);
+                // Disable Apply Autocorrections when read-only or no tables loaded
+                EnableMenuItem(hMenu, ID_TOOLS_APPLY_AUTOCORRECTIONS,
+                              (g_bReadOnly || g_AutocorrectionTables.empty()) ? MF_GRAYED : MF_ENABLED);
             }
             // Update View menu when opened
             if (LOWORD(lParam) == 3) {  // View menu is at position 3
@@ -4507,6 +4561,14 @@ if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
     return lResult;
 }
     
+    // Typing autocorrection: after each character is inserted, check for matches
+    if (msg == WM_CHAR && !g_bReadOnly && !g_TypingAutocorrectionIndex.empty())
+    {
+        LRESULT lr = CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
+        ApplyTypingAutocorrectionAtCaret(hwnd);
+        return lr;
+    }
+
     // Call original window procedure for all other messages
     return CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
 }
@@ -9441,7 +9503,7 @@ void ExecuteFilter()
     RE_GetTextRange(g_hWndEdit, crSel.cpMin, crSel.cpMax, pszInput);
     pszInput[textLen] = L'\0';
 
-    // script: prefix — run via embedded JScript engine (Phase 2.12)
+    // script: prefix — run via embedded JScript engine (Phase 2.12, ToDo #4)
     if (wcsncmp(g_Filters[g_nCurrentFilter].szCommand, L"script:", 7) == 0) {
         const WCHAR* szExpr = g_Filters[g_nCurrentFilter].szCommand + 7;
         std::wstring wsResult;
@@ -10430,11 +10492,557 @@ void LoadFilters()
 }
 
 //============================================================================
+//============================================================================
+// Autocorrection System — Loading and Application
+//============================================================================
+
+// LoadAutocorrectionTables - Load autocorrection tables from one or more INI sources.
+// Each source provides [AutocorrectionTables] + [AutocorrectionTableN] metadata sections
+// and a [<TableName>] section with search=replace pairs.
+// After all tables are loaded, [AutocorrectionSettings] in the main INI cache is read
+// to set the bTyping and bRepl flags, then the typing index is rebuilt.
+void LoadAutocorrectionTables(const std::vector<INISource>& sources)
+{
+    for (size_t s = 0; s < sources.size(); s++) {
+        const WCHAR* pszData = sources[s].pszData;
+        if (!pszData) continue;
+
+        // Read table count; fall back to probe mode if absent/zero
+        WCHAR szCountStr[16] = L"";
+        ReadINIValueFromData(pszData, L"AutocorrectionTables", L"Count", szCountStr, 16, L"0");
+        int nCount = _wtoi(szCountStr);
+        BOOL bProbeMode = (nCount <= 0);
+        if (bProbeMode) nCount = MAX_AUTOCORRECTION_TABLES;
+
+        for (int idx = 1; idx <= nCount; idx++) {
+            WCHAR szSection[64];
+            _snwprintf(szSection, 64, L"AutocorrectionTable%d", idx);
+            szSection[63] = L'\0';
+
+            // Read canonical name
+            WCHAR szName[MAX_AUTOCORRECTION_NAME] = L"";
+            ReadINIValueFromData(pszData, szSection, L"Name", szName, MAX_AUTOCORRECTION_NAME, L"");
+            if (szName[0] == L'\0') {
+                if (bProbeMode) break;
+                continue;
+            }
+
+            // Check for duplicate by name — if found, overwrite (addon override logic)
+            int targetIdx = -1;
+            for (int i = 0; i < (int)g_AutocorrectionTables.size(); i++) {
+                if (_wcsicmp(g_AutocorrectionTables[i].szName, szName) == 0) {
+                    targetIdx = i;
+                    break;
+                }
+            }
+
+            AutocorrectionTable tbl;
+            ZeroMemory(&tbl, sizeof(AutocorrectionTable) - sizeof(tbl.entries) - sizeof(tbl.szSourceDir));
+            tbl.bTyping = FALSE;
+            tbl.bRepl   = FALSE;
+            wcscpy_s(tbl.szSourceDir, MAX_PATH, sources[s].szSourceDir);
+
+            wcscpy_s(tbl.szName, MAX_AUTOCORRECTION_NAME, szName);
+
+            // Localized name
+            WCHAR szLangCode[8] = L"";
+            GetSystemLanguageCode(szLangCode, 8);
+            if (szLangCode[0] != L'\0') {
+                WCHAR szLocalKey[MAX_AUTOCORRECTION_NAME + 8];
+                _snwprintf(szLocalKey, MAX_AUTOCORRECTION_NAME + 8, L"Name.%s", szLangCode);
+                szLocalKey[MAX_AUTOCORRECTION_NAME + 7] = L'\0';
+                ReadINIValueFromData(pszData, szSection, szLocalKey,
+                                     tbl.szLocalizedName, MAX_AUTOCORRECTION_NAME, szName);
+            } else {
+                wcscpy_s(tbl.szLocalizedName, MAX_AUTOCORRECTION_NAME, szName);
+            }
+
+            // Description
+            ReadINIValueFromData(pszData, szSection, L"Description",
+                                 tbl.szDescription, MAX_AUTOCORRECTION_DESC, L"");
+
+            // Localized description
+            if (szLangCode[0] != L'\0') {
+                WCHAR szLocalKey[MAX_AUTOCORRECTION_DESC + 8];
+                _snwprintf(szLocalKey, MAX_AUTOCORRECTION_DESC + 8, L"Description.%s", szLangCode);
+                szLocalKey[MAX_AUTOCORRECTION_DESC + 7] = L'\0';
+                ReadINIValueFromData(pszData, szSection, szLocalKey,
+                                     tbl.szLocalizedDescription, MAX_AUTOCORRECTION_DESC,
+                                     tbl.szDescription);
+            } else {
+                wcscpy_s(tbl.szLocalizedDescription, MAX_AUTOCORRECTION_DESC, tbl.szDescription);
+            }
+
+            // Load search=replace pairs from [<TableName>] section
+            // Walk lines manually because pairs can share keys (same search string twice is
+            // unusual but the format allows it — we load in order as specified)
+            const WCHAR* p = pszData;
+            // Find [TableName] section header
+            WCHAR szTableHeader[MAX_AUTOCORRECTION_NAME + 4];
+            _snwprintf(szTableHeader, MAX_AUTOCORRECTION_NAME + 4, L"[%s]", szName);
+            szTableHeader[MAX_AUTOCORRECTION_NAME + 3] = L'\0';
+            const WCHAR* pSection = wcsstr(p, szTableHeader);
+            if (pSection) {
+                pSection += wcslen(szTableHeader);
+                // Skip to end of line
+                while (*pSection && *pSection != L'\n') pSection++;
+                if (*pSection == L'\n') pSection++;
+
+                while (*pSection) {
+                    // Stop at next section header
+                    if (*pSection == L'[') break;
+
+                    // Skip blank lines and comment lines
+                    if (*pSection == L'\r' || *pSection == L'\n' ||
+                        *pSection == L';'  || *pSection == L'#') {
+                        while (*pSection && *pSection != L'\n') pSection++;
+                        if (*pSection == L'\n') pSection++;
+                        continue;
+                    }
+
+                    // Find '=' separator
+                    const WCHAR* pEq = pSection;
+                    while (*pEq && *pEq != L'=' && *pEq != L'\r' && *pEq != L'\n') pEq++;
+                    if (*pEq != L'=') {
+                        // No '=' on this line — skip
+                        while (*pSection && *pSection != L'\n') pSection++;
+                        if (*pSection == L'\n') pSection++;
+                        continue;
+                    }
+
+                    // Extract raw search key (everything before '=')
+                    int keyLen = (int)(pEq - pSection);
+                    if (keyLen <= 0 || keyLen >= 512) {
+                        while (*pSection && *pSection != L'\n') pSection++;
+                        if (*pSection == L'\n') pSection++;
+                        continue;
+                    }
+                    WCHAR szKeyRaw[512];
+                    wcsncpy_s(szKeyRaw, 512, pSection, keyLen);
+                    szKeyRaw[keyLen] = L'\0';
+                    // Trim trailing whitespace from key
+                    int k = keyLen - 1;
+                    while (k >= 0 && (szKeyRaw[k] == L' ' || szKeyRaw[k] == L'\t')) szKeyRaw[k--] = L'\0';
+
+                    // Extract raw replace value (everything after '=' to EOL, strip inline comments)
+                    const WCHAR* pVal = pEq + 1;
+                    const WCHAR* pEnd = pVal;
+                    while (*pEnd && *pEnd != L'\r' && *pEnd != L'\n') pEnd++;
+                    int valLen = (int)(pEnd - pVal);
+                    WCHAR szValRaw[4096] = L"";
+                    if (valLen > 0 && valLen < 4096) {
+                        wcsncpy_s(szValRaw, 4096, pVal, valLen);
+                        szValRaw[valLen] = L'\0';
+                        // Strip inline comment: "; " preceded by space/tab (AGENTS.md rule)
+                        for (int vi = 1; szValRaw[vi]; vi++) {
+                            if (szValRaw[vi] == L';' &&
+                                (szValRaw[vi-1] == L' ' || szValRaw[vi-1] == L'\t')) {
+                                szValRaw[vi-1] = L'\0';
+                                break;
+                            }
+                        }
+                        // Trim trailing whitespace from value
+                        int vi = (int)wcslen(szValRaw) - 1;
+                        while (vi >= 0 && (szValRaw[vi] == L' ' || szValRaw[vi] == L'\t')) szValRaw[vi--] = L'\0';
+                    }
+
+                    // Parse escape sequences in both key and value
+                    LPWSTR pszSearch  = ParseEscapeSequences(szKeyRaw);
+                    LPWSTR pszReplace = ParseEscapeSequences(szValRaw);
+
+                    if (pszSearch && pszSearch[0] != L'\0') {
+                        AutocorrectionEntry entry;
+                        entry.search  = pszSearch;
+                        entry.replace = pszReplace ? pszReplace : L"";
+                        tbl.entries.push_back(entry);
+                    }
+                    if (pszSearch)  free(pszSearch);
+                    if (pszReplace) free(pszReplace);
+
+                    pSection = pEnd;
+                    if (*pSection == L'\r') pSection++;
+                    if (*pSection == L'\n') pSection++;
+                }
+            }
+
+            // Log override warning if overwriting a previously loaded table
+            if (targetIdx >= 0 && sources[s].szSourceDir[0] != L'\0') {
+                WCHAR szTpl[256];
+                LoadStringResource(IDS_ADDON_OVERRIDE_AC, szTpl, 256);
+                WCHAR szMsg[512];
+                _snwprintf(szMsg, 512, szTpl, szName, sources[s].szSourceDir);
+                szMsg[511] = L'\0';
+                LogAddonMessage(szMsg);
+                g_AutocorrectionTables[targetIdx] = tbl;
+            } else if (targetIdx < 0) {
+                if ((int)g_AutocorrectionTables.size() < MAX_AUTOCORRECTION_TABLES) {
+                    g_AutocorrectionTables.push_back(tbl);
+                }
+            }
+        }
+    }
+
+    // Apply [AutocorrectionSettings] from main INI cache (only once, after all sources)
+    // This runs after every call since we may be called multiple times (startup + addons).
+    EnsureIniCacheLoaded();
+    for (auto& tbl : g_AutocorrectionTables) {
+        WCHAR szVal[64] = L"";
+        ReadINIValueFromData(g_IniCache.data.c_str(),
+                             L"AutocorrectionSettings", tbl.szName,
+                             szVal, 64, L"");
+        tbl.bTyping = FALSE;
+        tbl.bRepl   = FALSE;
+        if (szVal[0] != L'\0') {
+            // Parse comma-separated values: "typing", "repl"
+            WCHAR szCopy[64];
+            wcscpy_s(szCopy, 64, szVal);
+            WCHAR* pTok = wcstok(szCopy, L",");
+            while (pTok) {
+                // Trim spaces
+                while (*pTok == L' ' || *pTok == L'\t') pTok++;
+                WCHAR* pEnd = pTok + wcslen(pTok) - 1;
+                while (pEnd > pTok && (*pEnd == L' ' || *pEnd == L'\t')) *pEnd-- = L'\0';
+                if (_wcsicmp(pTok, L"typing") == 0) tbl.bTyping = TRUE;
+                if (_wcsicmp(pTok, L"repl")   == 0) tbl.bRepl   = TRUE;
+                pTok = wcstok(NULL, L",");
+            }
+        }
+    }
+
+    RebuildTypingAutocorrectionIndex();
+}
+
+// Convenience overload: loads from main INI cache only
+void LoadAutocorrectionTables()
+{
+    EnsureIniCacheLoaded();
+    std::vector<INISource> sources(1);
+    sources[0].pszData = g_IniCache.data.c_str();
+    sources[0].szSourceDir[0] = L'\0';
+    LoadAutocorrectionTables(sources);
+}
+
+//============================================================================
+// RebuildTypingAutocorrectionIndex - Flatten and sort all bTyping entries.
+// Must be called after any change to g_AutocorrectionTables.
+//============================================================================
+void RebuildTypingAutocorrectionIndex()
+{
+    g_TypingAutocorrectionIndex.clear();
+    g_nMaxTypingSearchLen = 0;
+
+    for (int t = 0; t < (int)g_AutocorrectionTables.size(); t++) {
+        if (!g_AutocorrectionTables[t].bTyping) continue;
+        const auto& entries = g_AutocorrectionTables[t].entries;
+        for (int e = 0; e < (int)entries.size(); e++) {
+            if (entries[e].search.empty()) continue;
+            AutocorrectionTypingEntry te;
+            te.tableIdx  = t;
+            te.entryIdx  = e;
+            te.searchLen = (int)entries[e].search.size();
+            g_TypingAutocorrectionIndex.push_back(te);
+            if (te.searchLen > g_nMaxTypingSearchLen)
+                g_nMaxTypingSearchLen = te.searchLen;
+        }
+    }
+
+    // Sort longest-to-shortest so we try longer matches first
+    std::sort(g_TypingAutocorrectionIndex.begin(), g_TypingAutocorrectionIndex.end(),
+              [](const AutocorrectionTypingEntry& a, const AutocorrectionTypingEntry& b) {
+                  return a.searchLen > b.searchLen;
+              });
+}
+
+//============================================================================
+// ApplyAutocorrectionTable - Apply one table to selected text (or whole doc)
+//============================================================================
+void ApplyAutocorrectionTable(int tableIdx)
+{
+    if (g_bReadOnly) return;
+    if (tableIdx < 0 || tableIdx >= (int)g_AutocorrectionTables.size()) return;
+    const AutocorrectionTable& tbl = g_AutocorrectionTables[tableIdx];
+    if (tbl.entries.empty()) return;
+
+    // If nothing is selected, select all
+    CHARRANGE cr = RE_GetSel(g_hWndEdit);
+    BOOL bWasEmpty = (cr.cpMin == cr.cpMax);
+    if (bWasEmpty) {
+        cr.cpMin = 0;
+        cr.cpMax = -1;
+        RE_SetSel(g_hWndEdit, 0, -1);
+    }
+
+    // Get selected text
+    LONG nLen = RE_GetTextLen(g_hWndEdit);
+    if (nLen <= 0) return;
+    LPWSTR pszText = (LPWSTR)malloc((nLen + 2) * sizeof(WCHAR));
+    if (!pszText) return;
+
+    GETTEXTEX gt;
+    ZeroMemory(&gt, sizeof(gt));
+    gt.cb = (nLen + 1) * sizeof(WCHAR);
+    gt.flags = GT_SELECTION;
+    gt.codepage = 1200;
+    LONG nGot = (LONG)SendMessage(g_hWndEdit, EM_GETTEXTEX, (WPARAM)&gt, (LPARAM)pszText);
+    pszText[nGot] = L'\0';
+
+    if (nGot <= 0) { free(pszText); return; }
+
+    // Apply entries top-to-bottom (single-pass scan per entry)
+    std::wstring result(pszText);
+    free(pszText);
+
+    for (const auto& entry : tbl.entries) {
+        if (entry.search.empty()) continue;
+        std::wstring out;
+        out.reserve(result.size());
+        const std::wstring& srch = entry.search;
+        size_t srchLen = srch.size();
+        size_t pos = 0;
+        while (pos < result.size()) {
+            if (result.compare(pos, srchLen, srch) == 0) {
+                // Expand %0/%% in replace string
+                LPWSTR pszExpanded = ExpandReplacePlaceholder(entry.replace.c_str(), srch.c_str());
+                if (pszExpanded) {
+                    out += pszExpanded;
+                    free(pszExpanded);
+                } else {
+                    out += entry.replace;
+                }
+                pos += srchLen;
+            } else {
+                out += result[pos++];
+            }
+        }
+        result = out;
+    }
+
+    // Commit as a single undoable operation via EM_SETTEXTEX on the selection
+    SETTEXTEX st;
+    ZeroMemory(&st, sizeof(st));
+    st.flags    = ST_SELECTION | ST_KEEPUNDO;
+    st.codepage = 1200;
+    SendMessage(g_hWndEdit, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)result.c_str());
+
+    g_bModified = TRUE;
+    UpdateTitle();
+    UpdateStatusBar();
+}
+
+//============================================================================
+// ApplyTypingAutocorrectionAtCaret - Called after each WM_CHAR to check
+// whether the characters immediately before the caret match a typing
+// autocorrection entry.  If so, the matched text is replaced in-place.
+//============================================================================
+void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
+{
+    if (g_TypingAutocorrectionIndex.empty() || g_nMaxTypingSearchLen == 0)
+        return;
+
+    // Only act on a bare caret (no selection)
+    DWORD dwSelStart = 0, dwSelEnd = 0;
+    SendMessage(hwnd, EM_GETSEL, (WPARAM)&dwSelStart, (LPARAM)&dwSelEnd);
+    if (dwSelStart != dwSelEnd)
+        return;
+
+    int caretPos = (int)dwSelEnd;
+    int fetchLen = (caretPos < g_nMaxTypingSearchLen) ? caretPos : g_nMaxTypingSearchLen;
+    if (fetchLen == 0)
+        return;
+
+    // Fetch the characters immediately before the caret
+    WCHAR* pszBuf = (WCHAR*)malloc((fetchLen + 1) * sizeof(WCHAR));
+    if (!pszBuf) return;
+
+    TEXTRANGEW tr;
+    tr.chrg.cpMin = caretPos - fetchLen;
+    tr.chrg.cpMax = caretPos;
+    tr.lpstrText  = pszBuf;
+    pszBuf[0] = L'\0';
+    SendMessage(hwnd, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    pszBuf[fetchLen] = L'\0';
+
+    int actualLen = (int)wcslen(pszBuf);
+
+    // Walk index (longest-to-shortest); stop at first match
+    for (const auto& idx : g_TypingAutocorrectionIndex)
+    {
+        const AutocorrectionTable& tbl = g_AutocorrectionTables[idx.tableIdx];
+        if (!tbl.bTyping) continue;
+
+        const AutocorrectionEntry& ac = tbl.entries[idx.entryIdx];
+        int sLen = idx.searchLen;
+        if (sLen > actualLen) continue;
+
+        const WCHAR* pszTail = pszBuf + actualLen - sLen;
+        if (wcsncmp(pszTail, ac.search.c_str(), sLen) == 0)
+        {
+            LPWSTR pszExpanded = ExpandReplacePlaceholder(ac.replace.c_str(), ac.search.c_str());
+            if (pszExpanded)
+            {
+                SendMessage(hwnd, EM_SETSEL, (WPARAM)(caretPos - sLen), (LPARAM)caretPos);
+                SendMessage(hwnd, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+                free(pszExpanded);
+            }
+            break;
+        }
+    }
+
+    free(pszBuf);
+}
+
+//============================================================================
+// ApplyReplAutocorrections - Apply all bRepl tables to REPL output buffer.
+// Called from background threads before StripANSIEscapes.
+// Reallocates pszText if the result differs from the input.
+//============================================================================
+void ApplyReplAutocorrections(LPWSTR& pszText)
+{
+    if (!pszText || g_AutocorrectionTables.empty()) return;
+
+    // Check whether any repl table is active to avoid unnecessary work
+    BOOL bAnyRepl = FALSE;
+    for (const auto& tbl : g_AutocorrectionTables) {
+        if (tbl.bRepl && !tbl.entries.empty()) { bAnyRepl = TRUE; break; }
+    }
+    if (!bAnyRepl) return;
+
+    std::wstring result(pszText);
+
+    for (const auto& tbl : g_AutocorrectionTables) {
+        if (!tbl.bRepl) continue;
+        for (const auto& entry : tbl.entries) {
+            if (entry.search.empty()) continue;
+            std::wstring out;
+            out.reserve(result.size());
+            const std::wstring& srch = entry.search;
+            size_t srchLen = srch.size();
+            size_t pos = 0;
+            while (pos < result.size()) {
+                if (result.compare(pos, srchLen, srch) == 0) {
+                    LPWSTR pszExpanded = ExpandReplacePlaceholder(entry.replace.c_str(), srch.c_str());
+                    if (pszExpanded) {
+                        out += pszExpanded;
+                        free(pszExpanded);
+                    } else {
+                        out += entry.replace;
+                    }
+                    pos += srchLen;
+                } else {
+                    out += result[pos++];
+                }
+            }
+            result = out;
+        }
+    }
+
+    // Only reallocate if changed
+    if (result != pszText) {
+        free(pszText);
+        pszText = (LPWSTR)malloc((result.size() + 1) * sizeof(WCHAR));
+        if (pszText) {
+            wcscpy(pszText, result.c_str());
+        }
+    }
+}
+
+//============================================================================
+// BuildAutocorrectionMenu - Rebuild the "Apply Autocorrections" submenu in Tools
+//============================================================================
+void BuildAutocorrectionMenu(HWND hwnd)
+{
+    HMENU hMenu = GetMenu(hwnd);
+    if (!hMenu) return;
+
+    // Find Tools menu by locating the item containing ID_TOOLS_EXECUTEFILTER
+    int toolsMenuPos = -1;
+    int menuCount = GetMenuItemCount(hMenu);
+    for (int i = 0; i < menuCount; i++) {
+        HMENU hSub = GetSubMenu(hMenu, i);
+        if (!hSub) continue;
+        int n = GetMenuItemCount(hSub);
+        for (int j = 0; j < n; j++) {
+            if (GetMenuItemID(hSub, j) == ID_TOOLS_EXECUTEFILTER) {
+                toolsMenuPos = i;
+                break;
+            }
+        }
+        if (toolsMenuPos != -1) break;
+    }
+    if (toolsMenuPos == -1) return;
+
+    HMENU hToolsMenu = GetSubMenu(hMenu, toolsMenuPos);
+    if (!hToolsMenu) return;
+
+    // Find the "Apply Autocorrections" popup — identified by
+    // ID_TOOLS_APPLY_AUTOCORRECTIONS or by searching for a popup whose first
+    // item has an ID in the autocorrection range.
+    // Strategy: iterate popups until we find one whose first item id is in
+    // [ID_TOOLS_AUTOCORRECTION_BASE, ID_TOOLS_AUTOCORRECTION_BASE+MAX_AUTOCORRECTION_TABLES)
+    // or equals ID_TOOLS_APPLY_AUTOCORRECTIONS; fall back to the third popup found.
+    HMENU hAcMenu = NULL;
+    int toolsItemCount = GetMenuItemCount(hToolsMenu);
+    int popupCount = 0;
+    for (int i = 0; i < toolsItemCount; i++) {
+        HMENU hSub = GetSubMenu(hToolsMenu, i);
+        if (!hSub) continue;
+        popupCount++;
+        if (popupCount == 3) {   // third popup = autocorrections (filter is 1st, template 2nd — but
+                                  // template menu is added at runtime; check by item ID range)
+            UINT firstId = GetMenuItemID(hSub, 0);
+            if (firstId == (UINT)ID_TOOLS_AUTOCORRECTION_BASE ||
+                (firstId >= (UINT)ID_TOOLS_AUTOCORRECTION_BASE &&
+                 firstId < (UINT)(ID_TOOLS_AUTOCORRECTION_BASE + MAX_AUTOCORRECTION_TABLES))) {
+                hAcMenu = hSub;
+                break;
+            }
+        }
+        // Check any popup whose first item is in the autocorrection ID range
+        UINT firstId = GetMenuItemID(hSub, 0);
+        if (firstId >= (UINT)ID_TOOLS_AUTOCORRECTION_BASE &&
+            firstId <  (UINT)(ID_TOOLS_AUTOCORRECTION_BASE + MAX_AUTOCORRECTION_TABLES)) {
+            hAcMenu = hSub;
+            break;
+        }
+    }
+    if (!hAcMenu) return;
+
+    // Clear existing items
+    while (GetMenuItemCount(hAcMenu) > 0) {
+        DeleteMenu(hAcMenu, 0, MF_BYPOSITION);
+    }
+
+    if (g_AutocorrectionTables.empty()) {
+        WCHAR szNoAc[128];
+        LoadStringResource(IDS_NO_AUTOCORRECTIONS, szNoAc, 128);
+        AppendMenu(hAcMenu, MF_STRING | MF_GRAYED, ID_TOOLS_AUTOCORRECTION_BASE, szNoAc);
+        return;
+    }
+
+    for (int i = 0; i < (int)g_AutocorrectionTables.size() && i < MAX_AUTOCORRECTION_TABLES; i++) {
+        const AutocorrectionTable& tbl = g_AutocorrectionTables[i];
+        WCHAR szMenuText[MAX_AUTOCORRECTION_NAME + MAX_AUTOCORRECTION_DESC + 4];
+        const WCHAR* pszName = tbl.szLocalizedName[0] ? tbl.szLocalizedName : tbl.szName;
+        const WCHAR* pszDesc = tbl.szLocalizedDescription[0] ? tbl.szLocalizedDescription : tbl.szDescription;
+        if (g_bShowMenuDescriptions && pszDesc[0] != L'\0') {
+            _snwprintf(szMenuText, _countof(szMenuText), L"%s: %s", pszName, pszDesc);
+        } else {
+            wcscpy_s(szMenuText, _countof(szMenuText), pszName);
+        }
+        szMenuText[_countof(szMenuText) - 1] = L'\0';
+        AppendMenu(hAcMenu, MF_STRING, ID_TOOLS_AUTOCORRECTION_BASE + i, szMenuText);
+    }
+}
+
+//============================================================================
 // LoadAddons - Scan addons/ subdirectory and load filters + templates
 // Builds a unified source list (main INI first, then addons sorted by name)
 // and calls LoadFilters/LoadTemplates with the combined list.
+// Note: __attribute__((optimize("O1"))) works around a GCC LTO/DSE ICE that
+// fires at -Os when this function contains three parallel vector sets of the
+// same shape (filter/template/autocorrection).  No behaviour change.
 //============================================================================
-void LoadAddons()
+__attribute__((optimize("O1"))) void LoadAddons()
 {
     EnsureIniCacheLoaded();
 
@@ -10444,10 +11052,12 @@ void LoadAddons()
     // Source lists — main INI is always first
     std::vector<INISource> filterSources;
     std::vector<INISource> templateSources;
+    std::vector<INISource> autocorrectionSources;
 
     // Buffers to keep addon INI data alive during loading
     std::vector<std::wstring> addonFilterBuffers;
     std::vector<std::wstring> addonTemplateBuffers;
+    std::vector<std::wstring> addonAutocorrectionBuffers;
 
     // Main INI as first source
     {
@@ -10456,6 +11066,7 @@ void LoadAddons()
         mainSrc.szSourceDir[0] = L'\0';
         filterSources.push_back(mainSrc);
         templateSources.push_back(mainSrc);
+        autocorrectionSources.push_back(mainSrc);
     }
 
     // Get exe directory and build addons path
@@ -10525,6 +11136,21 @@ void LoadAddons()
                 bHasContent = TRUE;
             }
 
+            // Try autocorrections.ini
+            WCHAR szAutocorrectionsIni[MAX_PATH];
+            _snwprintf(szAutocorrectionsIni, MAX_PATH, L"%s\\autocorrections.ini", szPackDir);
+            szAutocorrectionsIni[MAX_PATH - 1] = L'\0';
+
+            std::wstring autocorrectionBuf;
+            if (LoadINIFileToBuffer(szAutocorrectionsIni, autocorrectionBuf) && !autocorrectionBuf.empty()) {
+                addonAutocorrectionBuffers.push_back(autocorrectionBuf);
+                INISource src;
+                src.pszData = NULL;
+                wcscpy(src.szSourceDir, szPackDir);
+                autocorrectionSources.push_back(src);
+                bHasContent = TRUE;
+            }
+
             if (bHasContent) nAddonPacks++;
         }
     }
@@ -10538,10 +11164,15 @@ void LoadAddons()
     for (size_t i = 1; i < templateSources.size(); i++) {
         templateSources[i].pszData = addonTemplateBuffers[i - 1].c_str();
     }
+    for (size_t i = 1; i < autocorrectionSources.size(); i++) {
+        autocorrectionSources[i].pszData = addonAutocorrectionBuffers[i - 1].c_str();
+    }
 
-    // Load filters and templates from all sources
+    // Load filters, templates and autocorrections from all sources
     LoadFilters(filterSources);
     LoadTemplates(templateSources);
+    g_AutocorrectionTables.clear();
+    LoadAutocorrectionTables(autocorrectionSources);
 
     // Show status bar summary
     if (nAddonPacks > 0) {
@@ -10593,6 +11224,7 @@ void ReloadAddons()
     BuildFilterMenu(g_hWndMain);
     BuildTemplateMenu(g_hWndMain);
     BuildFileNewMenu(g_hWndMain);
+    BuildAutocorrectionMenu(g_hWndMain);
 
     // Rebuild accelerator table (templates may have changed shortcuts)
     if (g_hAccel) {
@@ -11504,6 +12136,9 @@ DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
                 }
             }
 
+            // Apply REPL autocorrections before stripping ANSI sequences
+            ApplyReplAutocorrections(pszOutput);
+
             // Strip ANSI escape sequences (colors, cursor positioning, etc.)
             StripANSIEscapes(pszOutput);
             
@@ -11565,6 +12200,9 @@ DWORD WINAPI REPLStderrThread(LPVOID /* lpParam */)
                     PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
                 }
             }
+
+            // Apply REPL autocorrections before stripping ANSI sequences
+            ApplyReplAutocorrections(pszOutput);
 
             // Strip ANSI escape sequences (colors, cursor positioning, etc.)
             StripANSIEscapes(pszOutput);

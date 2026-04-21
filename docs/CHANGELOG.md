@@ -21,6 +21,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Internal code size reduction: consolidated repeated patterns across the codebase into shared helpers. Net effect is roughly 2 KB smaller binary with no user-visible behavior change. (`23a145a`, `584f1eb`, `f978f0b`)
 - REPL tab completion: pressing Tab on a prompt line sends the partial input to the child process for completion. The editor suppresses the echoed text that the child sends back and tracks what has already been sent, so that subsequent Tab or Enter presses transmit only the new portion. Requires a cooperating REPL filter that reads input without waiting for a full line. (`5164e3b`)
 - Fixed "Cannot find" and "Replace All" message boxes stealing focus into an invisible window when the Find dialog had been closed (hidden) before pressing F3. The message box owner now falls back to the main window whenever the Find dialog is not visible. (`e83e7cc`)
+- Autocorrection tables: you can now define search → replace pairs in `autocorrections.ini` files (in addon packs or in the main `RichEditor.ini`) and have them applied while you type, to incoming REPL output, or on demand via **Tools → Apply Autocorrections**. Activation per table is controlled by a new `[AutocorrectionSettings]` section in `RichEditor.ini`. See `docs/autocorrection_tables.md` for the full format reference.
 
 ## v2.9.0 (2026-03-26)
 

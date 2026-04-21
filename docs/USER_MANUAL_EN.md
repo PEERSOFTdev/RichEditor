@@ -103,7 +103,7 @@ Advanced: templates are editable in `RichEditor.ini`. You can localize template 
 
 ## Addons (Filter and Template Packs)
 
-You can extend RichEditor by placing addon packs in an `addons` folder next to the executable. Each addon is a subdirectory containing `filters.ini` and/or `templates.ini`.
+You can extend RichEditor by placing addon packs in an `addons` folder next to the executable. Each addon is a subdirectory containing `filters.ini`, `templates.ini`, and/or `autocorrections.ini`.
 
 Example layout:
 
@@ -116,6 +116,8 @@ addons/
       myfilter.exe
   snippets/
     templates.ini
+  my-corrections/
+    autocorrections.ini
 ```
 
 - Addon INI files use the same `[Filter1]`/`[Template1]` section format as the main `RichEditor.ini`. The `Count=` key is optional; if omitted, sections are probed sequentially.
@@ -123,6 +125,18 @@ addons/
 - If an addon defines a filter or template with the same `Name=` as an existing one, the addon version overwrites it (last loaded wins). The override is logged to the output pane.
 - Filter commands from addons are executed with their addon directory as the working directory, so relative paths to bundled tools work.
 - Use `Tools -> Reload Addons` to reload all addons without restarting.
+
+## Autocorrection Tables
+
+Autocorrection tables define search → replace pairs that can be applied while you type, to incoming REPL output, or manually via the menu.
+
+**Manual use:** `Tools → Apply Autocorrections → _Table name_` applies the selected table to the current selection, or to the whole document if nothing is selected. The operation is undoable. The submenu is greyed out when no tables are loaded or when the editor is in read-only mode.
+
+**Typing:** Tables marked `typing` in `[AutocorrectionSettings]` are checked after every keystroke. The characters immediately before the caret are tested against each entry (longest search string first); the first match is replaced in place as a single undoable action.
+
+**REPL output:** Tables marked `repl` are applied to each chunk of text received from the REPL process, before ANSI colour codes are stripped.
+
+Tables are defined in `autocorrections.ini` files inside addon packs, or directly in `RichEditor.ini`. Activation is controlled by `[AutocorrectionSettings]` in the main `RichEditor.ini` (never in addon files). See `docs/autocorrection_tables.md` for the full INI reference.
 
 ## URL Handling
 
@@ -240,6 +254,23 @@ Each `[TemplateN]` defines one template:
 ### [MRU]
 
 Stores most recently used files. `File1` is the newest entry, followed by `File2`, `File3`, and so on. The list length depends on recent activity.
+
+### [AutocorrectionSettings]
+
+Controls which autocorrection tables are applied automatically. Each key is a table name (matching the `Name=` of an `[AutocorrectionTableN]` section); the value is a comma-separated list of modes:
+
+- `typing` — apply after every keystroke.
+- `repl` — apply to incoming REPL output before ANSI colours are stripped.
+
+Example:
+
+```ini
+[AutocorrectionSettings]
+Emoticons=typing,repl
+Abbrev=typing
+```
+
+Tables not listed here are available for manual use only via the `Tools → Apply Autocorrections` submenu.
 
 ### [FindHistory] / [ReplaceHistory]
 
