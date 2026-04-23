@@ -705,7 +705,7 @@ Shortcut=Ctrl+Shift+F
 ### Phase 2.9.1 (Complete)
 
 **Find Dialog:**
-- Find dialog with escape sequences and history; when Use Escapes is enabled: `\n` (newline), `\r` (carriage return), `\t` (tab), `\\` (literal backslash), `\xNN` (hex byte), `\uNNNN` (Unicode code point)
+- Find dialog with escape sequences and history; when Use Escapes is enabled: `\n` (newline), `\r` (carriage return), `\t` (tab), `\\` (literal backslash), `\xNN` (hex byte), `\uNNNN` (Unicode code point); any other `\X` emits `X` with the backslash dropped
 - Forward and backward searching (Find Next / Find Previous)
 - F3 = Find Next, Shift+F3 = Find Previous
 - Options persisted: Match case, Whole word, Use escapes, Select after find
@@ -904,8 +904,6 @@ addons/
 
 **Binary size delta (with DPI):** 359 936 → 362 496 bytes (+2 560 bytes)
 
-### Phase 2.14 — Autocorrection Tables
-
 **Autocorrection tables** let users define search → replace pairs applied in up to three modes: while typing, on incoming REPL output, or manually via the menu.
 
 **INI format (`autocorrections.ini` in addon packs, or sections in `RichEditor.ini`):**
@@ -925,7 +923,7 @@ Description=Replaces ASCII emoticons with Unicode emoji
 :-D=😀
 ```
 
-- Search and replace values both support escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`.
+- Search and replace values both support escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`. Any other character preceded by `\` is emitted as-is with the backslash dropped (e.g. `\=` → `=`); this is the only way to include a literal `=` in a search key.
 - Replace values also support `%0` (matched text) and `%%` (literal `%`), consistent with the existing Find & Replace placeholder convention.
 - Entries within a section are matched and applied top-to-bottom.
 

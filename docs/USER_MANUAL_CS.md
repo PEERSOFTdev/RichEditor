@@ -52,7 +52,7 @@ Přejít na řádek (`Ctrl+G`) skočí na zadané číslo řádku a posune jej d
 Počítání řádků se řídí nastavením zalamování: při zapnutém zalamování se počítají vizuální řádky, při vypnutém fyzické řádky.
 
 Pokročilé:
-- Escape sekvence (zástupné zápisy znaků): `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`
+- Escape sekvence (zástupné zápisy znaků): `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`. Neznámá sekvence `\X` vydá pouze znak `X` (zpětné lomítko je vypuštěno).
 - Zástupné znaky v náhradě: `%0` vloží nalezený text, `%%` vloží znak `%`
 - Nahradit vše lze plně vrátit zpět.
 
@@ -164,7 +164,7 @@ Chování editoru a výchozí volby.
 - `SelectAfterFind` (výchozí `1`): nechá nalezený text vybraný.
 - `FindMatchCase` (výchozí `0`): výchozí hledání rozlišuje velikost písmen.
 - `FindWholeWord` (výchozí `0`): výchozí hledání pouze celých slov.
-- `FindUseEscapes` (výchozí `0`): povolí escape sekvence (\n, \t, \xNN, \uNNNN) v Najít/Nahradit.
+- `FindUseEscapes` (výchozí `0`): povolí escape sekvence (\n, \t, \xNN, \uNNNN) v Najít/Nahradit. Neznámá sekvence `\X` vydá pouze `X` (zpětné lomítko je vypuštěno).
 
 Formát data a času.
 
@@ -268,8 +268,8 @@ Příklad:
 
 ```ini
 [AutocorrectionSettings]
-Emotikony=typing,repl
-Zkratky=typing
+Emoticons=typing,repl
+Abbrev=typing
 ```
 
 Tabulky, které zde nejsou uvedeny, jsou dostupné pouze pro ruční použití přes podnabídku `Nástroje → Použít automatické opravy`.

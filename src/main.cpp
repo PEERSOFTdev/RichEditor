@@ -1286,8 +1286,10 @@ LPWSTR ParseEscapeSequences(LPCWSTR pszInput)
                 }
                 
                 default:
-                    // Unknown escape - preserve backslash and character
-                    *pDest++ = L'\\';
+                    // Unknown escape — drop backslash, emit the character as-is.
+                    // This makes '\' a universal escape prefix: '\X' → 'X' for
+                    // any character X not listed above.  In particular '\=' → '='
+                    // which is useful in autocorrection search keys.
                     *pDest++ = *pSrc++;
                     break;
             }
@@ -2172,20 +2174,20 @@ void BuildTemplateMenu(HWND hwnd)
     HMENU hToolsMenu = GetSubMenu(hMenu, toolsMenuPos);
     if (!hToolsMenu) return;
     
-    // Find or create "Insert Template" submenu
-    // It should be the second submenu (after Select Filter)
+    // Find the "Insert Template" submenu — identified by its first item's ID
+    // being in the template ID range.  Do NOT rely on positional counting because
+    // the "Apply Autocorrections" popup is now also a static submenu in the RC.
     int insertTemplatePos = -1;
-    int foundSubmenus = 0;
     int toolsItemCount = GetMenuItemCount(hToolsMenu);
-    
+
     for (int i = 0; i < toolsItemCount; i++) {
         HMENU hSubMenu = GetSubMenu(hToolsMenu, i);
-        if (hSubMenu) {
-            foundSubmenus++;
-            if (foundSubmenus == 2) {  // Second submenu is Insert Template
-                insertTemplatePos = i;
-                break;
-            }
+        if (!hSubMenu) continue;
+        UINT firstId = GetMenuItemID(hSubMenu, 0);
+        if (firstId >= (UINT)ID_TOOLS_TEMPLATE_BASE &&
+            firstId <  (UINT)(ID_TOOLS_TEMPLATE_BASE + MAX_TEMPLATES)) {
+            insertTemplatePos = i;
+            break;
         }
     }
     
@@ -10492,7 +10494,6 @@ void LoadFilters()
 }
 
 //============================================================================
-//============================================================================
 // Autocorrection System — Loading and Application
 //============================================================================
 
@@ -10600,9 +10601,13 @@ void LoadAutocorrectionTables(const std::vector<INISource>& sources)
                         continue;
                     }
 
-                    // Find '=' separator
+                    // Find '=' separator; skip '\=' escape sequences in the key
                     const WCHAR* pEq = pSection;
-                    while (*pEq && *pEq != L'=' && *pEq != L'\r' && *pEq != L'\n') pEq++;
+                    while (*pEq && *pEq != L'\r' && *pEq != L'\n') {
+                        if (*pEq == L'\\' && *(pEq + 1) == L'=') { pEq += 2; continue; }
+                        if (*pEq == L'=') break;
+                        pEq++;
+                    }
                     if (*pEq != L'=') {
                         // No '=' on this line — skip
                         while (*pSection && *pSection != L'\n') pSection++;
@@ -10840,12 +10845,11 @@ void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
         return;
 
     // Only act on a bare caret (no selection)
-    DWORD dwSelStart = 0, dwSelEnd = 0;
-    SendMessage(hwnd, EM_GETSEL, (WPARAM)&dwSelStart, (LPARAM)&dwSelEnd);
-    if (dwSelStart != dwSelEnd)
+    CHARRANGE cr = RE_GetSel(hwnd);
+    if (cr.cpMin != cr.cpMax)
         return;
 
-    int caretPos = (int)dwSelEnd;
+    int caretPos = (int)cr.cpMax;
     int fetchLen = (caretPos < g_nMaxTypingSearchLen) ? caretPos : g_nMaxTypingSearchLen;
     if (fetchLen == 0)
         return;
@@ -10854,12 +10858,7 @@ void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
     WCHAR* pszBuf = (WCHAR*)malloc((fetchLen + 1) * sizeof(WCHAR));
     if (!pszBuf) return;
 
-    TEXTRANGEW tr;
-    tr.chrg.cpMin = caretPos - fetchLen;
-    tr.chrg.cpMax = caretPos;
-    tr.lpstrText  = pszBuf;
-    pszBuf[0] = L'\0';
-    SendMessage(hwnd, EM_GETTEXTRANGE, 0, (LPARAM)&tr);
+    RE_GetTextRange(hwnd, caretPos - fetchLen, caretPos, pszBuf);
     pszBuf[fetchLen] = L'\0';
 
     int actualLen = (int)wcslen(pszBuf);
@@ -10880,7 +10879,7 @@ void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
             LPWSTR pszExpanded = ExpandReplacePlaceholder(ac.replace.c_str(), ac.search.c_str());
             if (pszExpanded)
             {
-                SendMessage(hwnd, EM_SETSEL, (WPARAM)(caretPos - sLen), (LPARAM)caretPos);
+                RE_SetSel(hwnd, caretPos - sLen, caretPos);
                 SendMessage(hwnd, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
                 free(pszExpanded);
             }

@@ -59,6 +59,9 @@ The actual entries, one per line in `Search=Replace` format:
 
 Search and replace values both support escape sequences: `\n`, `\r`, `\t`,
 `\\`, `\xNN` (hex byte), `\uNNNN` (Unicode code point).
+Any other character preceded by `\` is emitted literally with the backslash
+dropped — so `\=` produces `=`, which is the only way to include a literal
+`=` sign in a search key (since `=` is otherwise the key/value separator).
 
 Replace values also support placeholders:
 

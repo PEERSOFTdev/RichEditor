@@ -52,7 +52,7 @@ Go to Line (`Ctrl+G`) jumps to a specific line number and scrolls it into view.
 Line counting follows Word Wrap mode: visual lines when wrap is ON, physical lines when wrap is OFF.
 
 Advanced:
-- Escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`
+- Escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`. Any `\X` with an unrecognised `X` emits `X` (backslash dropped).
 - Replace placeholders: `%0` inserts matched text, `%%` inserts a literal `%`
 - Replace All can be fully undone.
 
@@ -164,7 +164,7 @@ Editor behavior and defaults.
 - `SelectAfterFind` (default `1`): keep found text selected after a successful find.
 - `FindMatchCase` (default `0`): match case by default in Find/Replace.
 - `FindWholeWord` (default `0`): whole‑word search by default.
-- `FindUseEscapes` (default `0`): interpret escape sequences (\n, \t, \xNN, \uNNNN) in Find/Replace.
+- `FindUseEscapes` (default `0`): interpret escape sequences (\n, \t, \xNN, \uNNNN) in Find/Replace. Any unrecognised `\X` emits `X` (backslash dropped).
 
 Date and time formatting.
 
