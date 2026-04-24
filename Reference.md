@@ -871,7 +871,7 @@ addons/
 
 **Status bar and output pane:**
 
-- After addon loading, a summary (`N packs, N addon filters, N addon templates`) is shown in the status bar.
+- After addon loading, a summary (`N packs, N addon filters, N addon templates, N autocorrections`) is shown in the status bar.
 - The output pane is auto-shown only if warnings or errors were logged during loading (e.g., duplicate name overrides, limit reached).
 
 **INI parsing refactor:**

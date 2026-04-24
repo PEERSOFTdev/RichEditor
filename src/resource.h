@@ -274,7 +274,7 @@
 
 // Addon system strings (Phase 2.14: 2180-2184)
 #define IDS_ADDON_OVERRIDE_FLT         2180  // "[Addons] filter/filtr overridden" log message
-#define IDS_ADDON_STATUS                2181  // "Loaded %d addon packs (%d filters, %d templates)"
+#define IDS_ADDON_STATUS                2181  // "Loaded %d addon packs (%d filters, %d templates, %d autocorrections)"
 #define IDS_TEMPLATE                    2182  // "template" / "šablona"
 #define IDS_FILTER                     2183  // "filter" / "filtr"
 #define IDS_ADDON_OVERRIDE_TPL         2184  // "[Addons] template/šablona overridden (with fileext)"

@@ -10545,16 +10545,28 @@ void LoadAutocorrectionTables(const std::vector<INISource>& sources)
 
             wcscpy_s(tbl.szName, MAX_AUTOCORRECTION_NAME, szName);
 
-            // Localized name
-            WCHAR szLangCode[8] = L"";
-            GetSystemLanguageCode(szLangCode, 8);
+            // Localized name — two-pass: try full locale (e.g. Name.cs_CZ) then
+            // language-only (Name.cs) before falling back to the base name.
+            WCHAR szLangCode[16] = L"";
+            GetSystemLanguageCode(szLangCode, 16);
+            WCHAR szLangOnly[4] = L"";
+            wcsncpy(szLangOnly, szLangCode, 2);
+            szLangOnly[2] = L'\0';
+
             if (szLangCode[0] != L'\0') {
-                WCHAR szLocalKey[MAX_AUTOCORRECTION_NAME + 8];
-                _snwprintf(szLocalKey, MAX_AUTOCORRECTION_NAME + 8, L"Name.%s", szLangCode);
-                szLocalKey[MAX_AUTOCORRECTION_NAME + 7] = L'\0';
+                WCHAR szLocalKey[MAX_AUTOCORRECTION_NAME + 16];
+                _snwprintf(szLocalKey, MAX_AUTOCORRECTION_NAME + 16, L"Name.%s", szLangCode);
+                szLocalKey[MAX_AUTOCORRECTION_NAME + 15] = L'\0';
                 ReadINIValueFromData(pszData, szSection, szLocalKey,
-                                     tbl.szLocalizedName, MAX_AUTOCORRECTION_NAME, szName);
-            } else {
+                                     tbl.szLocalizedName, MAX_AUTOCORRECTION_NAME, L"");
+                if (tbl.szLocalizedName[0] == L'\0' && szLangOnly[0] != L'\0') {
+                    _snwprintf(szLocalKey, MAX_AUTOCORRECTION_NAME + 16, L"Name.%s", szLangOnly);
+                    szLocalKey[MAX_AUTOCORRECTION_NAME + 15] = L'\0';
+                    ReadINIValueFromData(pszData, szSection, szLocalKey,
+                                         tbl.szLocalizedName, MAX_AUTOCORRECTION_NAME, L"");
+                }
+            }
+            if (tbl.szLocalizedName[0] == L'\0') {
                 wcscpy_s(tbl.szLocalizedName, MAX_AUTOCORRECTION_NAME, szName);
             }
 
@@ -10562,15 +10574,21 @@ void LoadAutocorrectionTables(const std::vector<INISource>& sources)
             ReadINIValueFromData(pszData, szSection, L"Description",
                                  tbl.szDescription, MAX_AUTOCORRECTION_DESC, L"");
 
-            // Localized description
+            // Localized description — two-pass: full locale then language-only
             if (szLangCode[0] != L'\0') {
-                WCHAR szLocalKey[MAX_AUTOCORRECTION_DESC + 8];
-                _snwprintf(szLocalKey, MAX_AUTOCORRECTION_DESC + 8, L"Description.%s", szLangCode);
-                szLocalKey[MAX_AUTOCORRECTION_DESC + 7] = L'\0';
+                WCHAR szLocalKey[MAX_AUTOCORRECTION_DESC + 16];
+                _snwprintf(szLocalKey, MAX_AUTOCORRECTION_DESC + 16, L"Description.%s", szLangCode);
+                szLocalKey[MAX_AUTOCORRECTION_DESC + 15] = L'\0';
                 ReadINIValueFromData(pszData, szSection, szLocalKey,
-                                     tbl.szLocalizedDescription, MAX_AUTOCORRECTION_DESC,
-                                     tbl.szDescription);
-            } else {
+                                     tbl.szLocalizedDescription, MAX_AUTOCORRECTION_DESC, L"");
+                if (tbl.szLocalizedDescription[0] == L'\0' && szLangOnly[0] != L'\0') {
+                    _snwprintf(szLocalKey, MAX_AUTOCORRECTION_DESC + 16, L"Description.%s", szLangOnly);
+                    szLocalKey[MAX_AUTOCORRECTION_DESC + 15] = L'\0';
+                    ReadINIValueFromData(pszData, szSection, szLocalKey,
+                                         tbl.szLocalizedDescription, MAX_AUTOCORRECTION_DESC, L"");
+                }
+            }
+            if (tbl.szLocalizedDescription[0] == L'\0') {
                 wcscpy_s(tbl.szLocalizedDescription, MAX_AUTOCORRECTION_DESC, tbl.szDescription);
             }
 
@@ -11176,17 +11194,20 @@ __attribute__((optimize("O1"))) void LoadAddons()
     // Show status bar summary
     if (nAddonPacks > 0) {
         // Count addon-sourced items (those with non-empty szSourceDir)
-        int nAddonFilters = 0, nAddonTemplates = 0;
+        int nAddonFilters = 0, nAddonTemplates = 0, nAddonAutocorrections = 0;
         for (int i = 0; i < g_nFilterCount; i++) {
             if (g_Filters[i].szSourceDir[0] != L'\0') nAddonFilters++;
         }
         for (int i = 0; i < g_nTemplateCount; i++) {
             if (g_Templates[i].szSourceDir[0] != L'\0') nAddonTemplates++;
         }
+        for (int i = 0; i < (int)g_AutocorrectionTables.size(); i++) {
+            if (g_AutocorrectionTables[i].szSourceDir[0] != L'\0') nAddonAutocorrections++;
+        }
 
         WCHAR szTpl[256];
         LoadStringResource(IDS_ADDON_STATUS, szTpl, 256);
-        _snwprintf(g_szAddonStatus, 256, szTpl, nAddonPacks, nAddonFilters, nAddonTemplates);
+        _snwprintf(g_szAddonStatus, 256, szTpl, nAddonPacks, nAddonFilters, nAddonTemplates, nAddonAutocorrections);
         g_szAddonStatus[255] = L'\0';
         if (g_hWndStatus) {
             SendMessage(g_hWndStatus, SB_SETTEXT, 0, (LPARAM)g_szAddonStatus);
