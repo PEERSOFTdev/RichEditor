@@ -11088,7 +11088,10 @@ void BuildAutocorrectionMenu(HWND hwnd)
 // fires at -Os when this function contains three parallel vector sets of the
 // same shape (filter/template/autocorrection).  No behaviour change.
 //============================================================================
-__attribute__((optimize("O1"))) void LoadAddons()
+#ifdef __GNUC__
+__attribute__((optimize("O1")))
+#endif
+void LoadAddons()
 {
     EnsureIniCacheLoaded();
 
@@ -12181,6 +12184,8 @@ DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
                 if (pszDbg) {
                     _snwprintf(pszDbg, dbgLen, L"[REPL] << (raw) %s\r\n", pszOutput);
                     pszDbg[dbgLen - 1] = L'\0';
+                    // Ownership of pszDbg transfers to the message handler (WM_FILTER_DEBUG),
+                    // which is responsible for freeing it.
                     PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
                 }
             }
@@ -12198,6 +12203,8 @@ DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
                 if (pszDbg) {
                     _snwprintf(pszDbg, dbgLen, L"[REPL] << %s\r\n", pszOutput);
                     pszDbg[dbgLen - 1] = L'\0';
+                    // Ownership of pszDbg transfers to the message handler (WM_FILTER_DEBUG),
+                    // which is responsible for freeing it.
                     PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
                 }
             }
@@ -12206,6 +12213,8 @@ DWORD WINAPI REPLStdoutThread(LPVOID /* lpParam */)
             LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
             if (pszCopy) {
                 wcscpy(pszCopy, pszOutput);
+                // Ownership of pszCopy transfers to the message handler (WM_REPL_OUTPUT),
+                // which is responsible for freeing it.
                 PostMessage(g_hWndMain, WM_REPL_OUTPUT, 0, (LPARAM)pszCopy);
             }
             free(pszOutput);
@@ -12246,6 +12255,8 @@ DWORD WINAPI REPLStderrThread(LPVOID /* lpParam */)
                 if (pszDbg) {
                     _snwprintf(pszDbg, dbgLen, L"[REPL] << (stderr raw) %s\r\n", pszOutput);
                     pszDbg[dbgLen - 1] = L'\0';
+                    // Ownership of pszDbg transfers to the message handler (WM_FILTER_DEBUG),
+                    // which is responsible for freeing it.
                     PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
                 }
             }
@@ -12263,6 +12274,8 @@ DWORD WINAPI REPLStderrThread(LPVOID /* lpParam */)
                 if (pszDbg) {
                     _snwprintf(pszDbg, dbgLen, L"[REPL] << (stderr) %s\r\n", pszOutput);
                     pszDbg[dbgLen - 1] = L'\0';
+                    // Ownership of pszDbg transfers to the message handler (WM_FILTER_DEBUG),
+                    // which is responsible for freeing it.
                     PostMessage(g_hWndMain, WM_FILTER_DEBUG, 0, (LPARAM)pszDbg);
                 }
             }
@@ -12271,6 +12284,8 @@ DWORD WINAPI REPLStderrThread(LPVOID /* lpParam */)
             LPWSTR pszCopy = (LPWSTR)malloc((wcslen(pszOutput) + 1) * sizeof(WCHAR));
             if (pszCopy) {
                 wcscpy(pszCopy, pszOutput);
+                // Ownership of pszCopy transfers to the message handler (WM_REPL_OUTPUT),
+                // which is responsible for freeing it.
                 PostMessage(g_hWndMain, WM_REPL_OUTPUT, 0, (LPARAM)pszCopy);
             }
             free(pszOutput);
@@ -12506,17 +12521,19 @@ void SendLineToREPL()
         if (wcsncmp(pszCheck, L"\\raw:", 5) == 0) {
             LPCWSTR pszRaw = pszCheck + 5;
             LPWSTR pszExpanded = ParseEscapeSequences(pszRaw);
-            if (pszExpanded && g_hREPLStdin) {
-                LPSTR pszUTF8 = UTF16ToUTF8(pszExpanded);
-                if (pszUTF8) {
-                    DWORD dwWritten;
-                    WriteFile(g_hREPLStdin, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
-                    FlushFileBuffers(g_hREPLStdin);
-                    WCHAR szLog[2048];
-                    _snwprintf(szLog, _countof(szLog), L"[REPL] >> (raw debug) %s\r\n", pszRaw);
-                    szLog[_countof(szLog) - 1] = L'\0';
-                    LogFilterDebug(szLog);
-                    free(pszUTF8);
+            if (pszExpanded) {
+                if (g_hREPLStdin) {
+                    LPSTR pszUTF8 = UTF16ToUTF8(pszExpanded);
+                    if (pszUTF8) {
+                        DWORD dwWritten;
+                        WriteFile(g_hREPLStdin, pszUTF8, strlen(pszUTF8), &dwWritten, NULL);
+                        FlushFileBuffers(g_hREPLStdin);
+                        WCHAR szLog[2048];
+                        _snwprintf(szLog, _countof(szLog), L"[REPL] >> (raw debug) %s\r\n", pszRaw);
+                        szLog[_countof(szLog) - 1] = L'\0';
+                        LogFilterDebug(szLog);
+                        free(pszUTF8);
+                    }
                 }
                 free(pszExpanded);
             }
