@@ -24,6 +24,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Autocorrection tables: you can now define search → replace pairs in `autocorrections.ini` files (in addon packs or in the main `RichEditor.ini`) and have them applied while you type, to incoming REPL output, or on demand via **Tools → Apply Autocorrections**. Activation per table is controlled by a new `[AutocorrectionSettings]` section in `RichEditor.ini`. See `docs/autocorrection_tables.md` for the full format reference. (`8f08430`, `eea5050`)
 - Fixed autocorrection table names and descriptions not appearing in their translated form when running under a non-English locale. The editor now follows the same two-pass lookup used by filters and templates: it first checks the full locale key (e.g. `Name.cs_CZ`), then falls back to the language-only key (e.g. `Name.cs`), before using the English name. (`372fdbf`)
 - The addon loading summary shown in the status bar now includes the number of autocorrection tables loaded from addon packs, alongside the existing filter and template counts. (`372fdbf`)
+- Typing autocorrections can now play a sound: set `AutocorrectionSound=<path>` in the `[Settings]` section of `RichEditor.ini` to specify a WAV file to play each time an autocorrection fires while you type. Relative paths resolve from the `RichEditor.exe` directory. The feature is disabled by default.
 
 ## v2.9.0 (2026-03-26)
 

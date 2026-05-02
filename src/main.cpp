@@ -11,6 +11,7 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <shlwapi.h>    // Path functions (PathIsRelative, PathCombine, etc.)
+#include <mmsystem.h>   // PlaySound
 #include <oleacc.h>     // IAccPropServices — accessible name annotation
 #include <stdio.h>
 #include <string>
@@ -438,6 +439,7 @@ struct AutocorrectionTypingEntry {
 };
 std::vector<AutocorrectionTypingEntry> g_TypingAutocorrectionIndex;
 int g_nMaxTypingSearchLen = 0;  // max search length across all typing entries
+WCHAR g_szAutocorrSoundPath[MAX_PATH] = L"";  // resolved absolute path; empty = disabled
 
 // File type tracking for File→New submenu
 struct FileTypeInfo {
@@ -9672,6 +9674,11 @@ void CreateDefaultINI()
         ";                              ; Why override? Some DLLs report v8.0 but don't support RichEditD2DPT\r\n"
         ";                              ; Example: RichEditClassName=RichEdit60W\r\n"
         "\r\n"
+        "; Autocorrection sound (Phase 2.14)\r\n"
+        "; AutocorrectionSound=         ; WAV file played after each typing autocorrection (optional)\r\n"
+        ";                              ; Relative paths are resolved from the RichEditor.exe directory\r\n"
+        ";                              ; Example: AutocorrectionSound=sounds\\autocorr.wav\r\n"
+        "\r\n"
         "; Autosave settings\r\n"
         "AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)\r\n"
         "AutosaveIntervalMinutes=1     ; Autosave interval in minutes, 0=disabled (default: 1)\r\n"
@@ -10125,6 +10132,25 @@ void LoadSettings()
     WCHAR szClassName[64];
     ReadINIValue(szIniPath, L"Settings", L"RichEditClassName", szClassName, 64, L"");
     wcscpy(g_szRichEditClassNameINI, szClassName);
+
+    // AutocorrectionSound (Phase 2.14) - optional WAV file played on typing autocorrection
+    // Don't auto-write — optional, documented in CreateDefaultINI comments
+    {
+        WCHAR szACSound[MAX_PATH];
+        ReadINIValue(szIniPath, L"Settings", L"AutocorrectionSound",
+                     szACSound, MAX_PATH, L"");
+        if (szACSound[0] != L'\0') {
+            if (PathIsRelative(szACSound)) {
+                WCHAR szExeDir[MAX_PATH];
+                GetExeDirectory(szExeDir, MAX_PATH);
+                PathCombine(g_szAutocorrSoundPath, szExeDir, szACSound);
+            } else {
+                wcscpy_s(g_szAutocorrSoundPath, MAX_PATH, szACSound);
+            }
+        } else {
+            g_szAutocorrSoundPath[0] = L'\0';
+        }
+    }
     
     LoadSettingBool(szIniPath, L"AutosaveEnabled",        &g_bAutosaveEnabled, TRUE);
     LoadSettingInt (szIniPath, L"AutosaveIntervalMinutes", (int*)&g_nAutosaveIntervalMinutes, 1, 1, 1440);
@@ -10899,6 +10925,9 @@ void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
             {
                 RE_SetSel(hwnd, caretPos - sLen, caretPos);
                 SendMessage(hwnd, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+                if (g_szAutocorrSoundPath[0] != L'\0')
+                    PlaySound(g_szAutocorrSoundPath, NULL,
+                              SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
                 free(pszExpanded);
             }
             break;

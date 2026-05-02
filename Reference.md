@@ -958,6 +958,13 @@ Values: `typing`, `repl`, or both. Tables not listed are available for manual us
 
 - `g_TypingAutocorrectionIndex` (vector of `{tableIdx, entryIdx, searchLen}`) is rebuilt by `RebuildTypingAutocorrectionIndex` after each load, sorted longest-to-shortest.
 - `g_nMaxTypingSearchLen` caches the maximum search length for the lookback fetch.
+- `g_szAutocorrSoundPath[MAX_PATH]`: resolved absolute path of the WAV file to play on match; empty when disabled.
+
+**Sound feedback:**
+
+- `AutocorrectionSound=<path>` in `[Settings]` (optional; default empty). Relative paths resolve from the `RichEditor.exe` directory via `GetExeDirectory` + `PathCombine`.
+- Played asynchronously with `PlaySound(..., SND_FILENAME | SND_ASYNC | SND_NODEFAULT)` immediately after `EM_REPLACESEL`. Each correction restarts the sound from the beginning (no `SND_NOSTOP`).
+- Requires `winmm` (`-lwinmm`); `<mmsystem.h>` included in `src/main.cpp`.
 
 **Addon loading:**
 

@@ -134,6 +134,8 @@ Autocorrection tables define search → replace pairs that can be applied while 
 
 **Typing:** Tables marked `typing` in `[AutocorrectionSettings]` are checked after every keystroke. The characters immediately before the caret are tested against each entry (longest search string first); the first match is replaced in place as a single undoable action.
 
+**Sound feedback:** You can optionally play a WAV file whenever a typing autocorrection fires. Set `AutocorrectionSound=<path>` in `[Settings]` — relative paths resolve from the `RichEditor.exe` directory. Leave it empty (the default) for no sound.
+
 **REPL output:** Tables marked `repl` are applied to each chunk of text received from the REPL process, before ANSI colour codes are stripped.
 
 Tables are defined in `autocorrections.ini` files inside addon packs, or directly in `RichEditor.ini`. Activation is controlled by `[AutocorrectionSettings]` in the main `RichEditor.ini` (never in addon files). See `docs/autocorrection_tables.md` for the full INI reference.
@@ -195,6 +197,7 @@ RichEdit library selection (advanced).
 
 - `RichEditLibraryPath` (default empty): custom RichEdit DLL path; empty uses auto‑detection.
 - `RichEditClassName` (default empty): optional class override (e.g., `RichEditD2DPT`, `RichEdit60W`).
+- `AutocorrectionSound` (default empty): WAV file played after each typing autocorrection; relative paths resolve from the `RichEditor.exe` directory. Empty disables sound.
 
 Internal state (usually not edited by hand).
 

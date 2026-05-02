@@ -143,3 +143,20 @@ The replacement is performed as a single undoable operation.
 
 The submenu item is greyed out when the editor is in read-only mode or when
 no tables have been loaded.
+
+---
+
+## Sound feedback
+
+To play a WAV file each time a typing autocorrection fires, add the
+`AutocorrectionSound` key to the `[Settings]` section of `RichEditor.ini`:
+
+```ini
+[Settings]
+AutocorrectionSound=sounds\autocorr.wav
+```
+
+- **Relative paths** are resolved from the `RichEditor.exe` directory.
+- **Absolute paths** are used as-is.
+- Leave the key **empty or absent** (the default) to disable sound feedback.
+- Only typing autocorrections play the sound; REPL and manual applications are silent.

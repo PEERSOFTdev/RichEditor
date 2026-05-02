@@ -52,7 +52,7 @@ CFLAGS = -std=c++11 -DUNICODE -D_UNICODE -Os -g -Wall -Wextra \
 # -fno-exceptions : must also appear at link time for LTO to honour it
 LDFLAGS = -mwindows -municode -static -static-libgcc -static-libstdc++ \
           -Wl,--gc-sections -flto -Os -fno-exceptions
-LIBS = -lcomctl32 -lcomdlg32 -lole32 -loleaut32 -lshell32 -lshlwapi -lversion -loleacc
+LIBS = -lcomctl32 -lcomdlg32 -lole32 -loleaut32 -lshell32 -lshlwapi -lversion -loleacc -lwinmm
 
 # Default target (debug build)
 .DEFAULT_GOAL := debug
