@@ -26,6 +26,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - The addon loading summary shown in the status bar now includes the number of autocorrection tables loaded from addon packs, alongside the existing filter and template counts. (`372fdbf`)
 - Typing autocorrections can now play a sound: set `AutocorrectionSound=<path>` in the `[Settings]` section of `RichEditor.ini` to specify a WAV file to play each time an autocorrection fires while you type. Relative paths resolve from the `RichEditor.exe` directory. The feature is disabled by default. (`291e3b4`)
 - Internal code quality improvements: fixed a rare memory leak in REPL raw-input handling where memory could be lost if the REPL connection closed at exactly the wrong moment; added source-code comments clarifying memory ownership in the REPL output threads; improved MSVC compiler compatibility for a GCC-specific code annotation. No user-visible behavior change. (`53b70af`)
+- Fixed the Tools menu accumulating duplicate "Insert Template" entries. Opening a file, reloading addons, or changing the file extension could each add another copy of the submenu. The problem only appeared when at least one template had a category assigned to it. (`c4b0fd8`)
 
 ## v2.9.0 (2026-03-26)
 
