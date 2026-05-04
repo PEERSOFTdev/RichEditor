@@ -452,6 +452,7 @@ int g_nFileTypeCount = 0;
 
 // Accelerator table management
 HACCEL g_hAccel = NULL;  // Dynamic accelerator table (includes built-in + template shortcuts)
+HMENU g_hTemplateMenu = NULL; // "Insert Template" submenu handle (cached to avoid re-insertion)
 
 // REPL mode state (Phase 2.5)
 BOOL g_bREPLMode = FALSE;              // TRUE when in Interactive Mode
@@ -2176,31 +2177,18 @@ void BuildTemplateMenu(HWND hwnd)
     HMENU hToolsMenu = GetSubMenu(hMenu, toolsMenuPos);
     if (!hToolsMenu) return;
     
-    // Find the "Insert Template" submenu — identified by its first item's ID
-    // being in the template ID range.  Do NOT rely on positional counting because
-    // the "Apply Autocorrections" popup is now also a static submenu in the RC.
-    int insertTemplatePos = -1;
+    // Use the cached submenu handle to avoid the duplication bug:
+    // content-based detection fails when templates have categories, because
+    // GetMenuItemID() returns 0xFFFFFFFF for MF_POPUP items, causing a false
+    // "not found" result and a new submenu being inserted on every call.
     int toolsItemCount = GetMenuItemCount(hToolsMenu);
-
-    for (int i = 0; i < toolsItemCount; i++) {
-        HMENU hSubMenu = GetSubMenu(hToolsMenu, i);
-        if (!hSubMenu) continue;
-        UINT firstId = GetMenuItemID(hSubMenu, 0);
-        if (firstId >= (UINT)ID_TOOLS_TEMPLATE_BASE &&
-            firstId <  (UINT)(ID_TOOLS_TEMPLATE_BASE + MAX_TEMPLATES)) {
-            insertTemplatePos = i;
-            break;
-        }
-    }
-    
     HMENU hTemplateMenu;
-    
-    if (insertTemplatePos == -1) {
-        // Create new "Insert Template" submenu if not found
+
+    if (!g_hTemplateMenu) {
+        // First call: create and insert the "Insert Template" submenu.
         hTemplateMenu = CreatePopupMenu();
-        
-        // Insert after Select Filter submenu (typically position 1 or 2)
-        // Find position after first submenu
+
+        // Insert after the first submenu (Select Filter) in the Tools menu.
         int insertPos = 0;
         for (int i = 0; i < toolsItemCount; i++) {
             if (GetSubMenu(hToolsMenu, i)) {
@@ -2208,17 +2196,18 @@ void BuildTemplateMenu(HWND hwnd)
                 break;
             }
         }
-        
+
         WCHAR szInsertTemplate[64];
         LoadString(GetModuleHandle(NULL), IDS_MENU_INSERT_TEMPLATE, szInsertTemplate, 64);
-        
-        InsertMenu(hToolsMenu, insertPos, MF_BYPOSITION | MF_STRING | MF_POPUP, 
+
+        InsertMenu(hToolsMenu, insertPos, MF_BYPOSITION | MF_STRING | MF_POPUP,
                    (UINT_PTR)hTemplateMenu, szInsertTemplate);
+
+        g_hTemplateMenu = hTemplateMenu;  // cache for subsequent calls
     } else {
-        hTemplateMenu = GetSubMenu(hToolsMenu, insertTemplatePos);
-        if (!hTemplateMenu) return;
-        
-        // Clear existing items
+        hTemplateMenu = g_hTemplateMenu;
+
+        // Clear existing items before repopulating.
         while (GetMenuItemCount(hTemplateMenu) > 0) {
             DeleteMenu(hTemplateMenu, 0, MF_BYPOSITION);
         }
