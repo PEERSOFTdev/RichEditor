@@ -27,6 +27,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Typing autocorrections can now play a sound: set `AutocorrectionSound=<path>` in the `[Settings]` section of `RichEditor.ini` to specify a WAV file to play each time an autocorrection fires while you type. Relative paths resolve from the `RichEditor.exe` directory. The feature is disabled by default. (`291e3b4`)
 - Internal code quality improvements: fixed a rare memory leak in REPL raw-input handling where memory could be lost if the REPL connection closed at exactly the wrong moment; added source-code comments clarifying memory ownership in the REPL output threads; improved MSVC compiler compatibility for a GCC-specific code annotation. No user-visible behavior change. (`53b70af`)
 - Fixed the Tools menu accumulating duplicate "Insert Template" entries. Opening a file, reloading addons, or changing the file extension could each add another copy of the submenu. The problem only appeared when at least one template had a category assigned to it. (`c4b0fd8`)
+- Fixed the editor freezing or being reported as "not responding" after minimizing all windows (Win+M) and then returning to it. The pause was especially long on slower devices and large documents, and could briefly block Alt+Tab from bringing the window back to the foreground. The editor now skips the word-wrap recalculation while the window is minimized, and also when a resize does not change the window's width (for example a height-only drag or restoring to the same size). (`91ff591`)
 
 ## v2.9.0 (2026-03-26)
 
