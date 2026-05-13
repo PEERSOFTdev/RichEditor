@@ -454,6 +454,14 @@ int g_nFileTypeCount = 0;
 HACCEL g_hAccel = NULL;  // Dynamic accelerator table (includes built-in + template shortcuts)
 HMENU g_hTemplateMenu = NULL; // "Insert Template" submenu handle (cached to avoid re-insertion)
 
+// Last pixel width at which ApplyWordWrap performed a reflow.
+// WM_SIZE skips ApplyWordWrap when the edit control's width hasn't changed,
+// avoiding a full document reflow on every height-only resize and on restore
+// from minimize (where the width is typically the same as before).
+// Set to -1 to force a reflow on the next WM_SIZE (e.g. after zoom change,
+// word-wrap toggle, or DPI change).
+int g_nLastWrapWidthPx = -1;
+
 // REPL mode state (Phase 2.5)
 BOOL g_bREPLMode = FALSE;              // TRUE when in Interactive Mode
 HANDLE g_hREPLProcess = NULL;          // REPL process handle
@@ -3292,6 +3300,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
             
         case WM_SIZE:
+            // Skip all layout work when minimizing: ApplyWordWrap sends
+            // EM_SETTARGETDEVICE to RichEdit, which triggers a full document
+            // reflow that can take seconds on large files or slow devices.
+            // The reflow is wasted work — the window is invisible — and it
+            // blocks the message pump long enough for Windows to report the
+            // app as "not responding".  Layout is recalculated correctly on
+            // restore when WM_SIZE fires again with the real window dimensions.
+            if (wParam == SIZE_MINIMIZED) return 0;
+
             // Resize status bar
             if (g_hWndStatus) {
                 SendMessage(g_hWndStatus, WM_SIZE, 0, 0);
@@ -3349,7 +3366,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     SWP_NOZORDER);
 
                 if (g_bWordWrap) {
-                    ApplyWordWrap(g_hWndEdit);
+                    // Only reflow if the edit control's width changed.
+                    // Height-only resizes (window taller/shorter) and restores
+                    // from minimize to the same size do not affect line breaking
+                    // and skipping EM_SETTARGETDEVICE avoids a potentially
+                    // multi-second stall on large documents.
+                    int nNewWidth = rcClient.right;
+                    if (nNewWidth != g_nLastWrapWidthPx) {
+                        g_nLastWrapWidthPx = nNewWidth;
+                        ApplyWordWrap(g_hWndEdit);
+                    }
                 }
             }
             return 0;
@@ -3360,6 +3386,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             g_nDpi = HIWORD(wParam);
             // Reset cached line height so it is recalculated at the new DPI
             g_nOutputPaneLineHeight = 0;
+            // Invalidate wrap-width cache: DPI change alters twips-per-pixel,
+            // so the next WM_SIZE must reflow even if pixel width is unchanged.
+            g_nLastWrapWidthPx = -1;
             // Apply the suggested window rect from the system
             RECT* prcSuggested = (RECT*)lParam;
             SetWindowPos(hwnd, NULL,
@@ -4549,7 +4578,8 @@ if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
         g_nZoomPercent = (int)MulDiv((int)nNum, 100, (int)nDen);
     else
         g_nZoomPercent = 100;
-    ApplyWordWrap(hwnd);
+    ApplyWordWrap(hwnd);  // zoom changed — force reflow regardless of width
+    g_nLastWrapWidthPx = -1;
     UpdateStatusBar();
     return lResult;
 }
@@ -5487,6 +5517,7 @@ HWND CreateRichEditControl(HWND hwndParent)
             SendMessage(hwndEdit, EM_SETZOOM, (WPARAM)g_nZoomPercent, (LPARAM)100);
         }
 
+        g_nLastWrapWidthPx = -1;  // zoom restored — force reflow on next WM_SIZE
         ApplyWordWrap(hwndEdit);
         
         // Subclass the RichEdit control to intercept WM_KEYDOWN
@@ -8837,7 +8868,8 @@ void ViewWordWrap()
 {
     // Toggle word wrap state
     g_bWordWrap = !g_bWordWrap;
-    
+
+    g_nLastWrapWidthPx = -1;  // mode changed — force reflow on next WM_SIZE
     ApplyWordWrap(g_hWndEdit);
     
     // Update menu checkmark
@@ -8858,6 +8890,7 @@ void ViewZoomReset()
     // EM_SETZOOM(0,0) resets to default (100%)
     SendMessage(g_hWndEdit, EM_SETZOOM, 0, 0);
     g_nZoomPercent = 100;
+    g_nLastWrapWidthPx = -1;  // zoom changed — force reflow regardless of width
     ApplyWordWrap(g_hWndEdit);
     UpdateStatusBar();
     SetFocus(g_hWndEdit);
