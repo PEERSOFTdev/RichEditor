@@ -443,6 +443,12 @@ std::vector<AutocorrectionTypingEntry> g_TypingAutocorrectionIndex;
 int g_nMaxTypingSearchLen = 0;  // max search length across all typing entries
 WCHAR g_szAutocorrSoundPath[MAX_PATH] = L"";  // resolved absolute path; empty = disabled
 
+// Smart-pair state: set when a typing autocorrection with \c fires and the
+// closing string is exactly one character.  Cleared on the next keypress that
+// is neither the closing character nor a pair-delete Backspace.
+WCHAR g_wchLastPairClosing = L'\0';  // closing char of most recent pair insertion
+LONG  g_nLastPairClosePos  = -1;     // doc position of that closing char
+
 // File type tracking for File→New submenu
 struct FileTypeInfo {
     WCHAR szCategory[MAX_TEMPLATE_CATEGORY];
@@ -1219,6 +1225,8 @@ BOOL IsShortcutReserved(WORD wVirtualKey, BYTE fModifiers)
 //   \\  -> Backslash
 //   \xNN -> Hex byte (e.g., \x41 = 'A')
 //   \uNNNN -> Unicode codepoint (e.g., \u00E9 = 'é')
+//   \c  -> Cursor placement sentinel (U+0002, STX) used in autocorrection
+//          replace strings to mark where the caret should land after insertion
 //
 // Unknown escapes are preserved as literals (e.g., \q stays as \q)
 //============================================================================
@@ -1256,6 +1264,11 @@ LPWSTR ParseEscapeSequences(LPCWSTR pszInput)
                     
                 case L'\\':
                     *pDest++ = L'\\';
+                    pSrc++;
+                    break;
+
+                case L'c':  // \c -> cursor placement sentinel (STX, U+0002)
+                    *pDest++ = L'\x02';
                     pSrc++;
                     break;
                     
@@ -10940,6 +10953,11 @@ void ApplyAutocorrectionTable(int tableIdx)
         result = out;
     }
 
+    // Strip any remaining cursor-placement sentinels (STX = U+0002).
+    // Cursor positioning is meaningless in bulk apply; the sentinel has no
+    // visible glyph but must not be left in the document.
+    result.erase(std::remove(result.begin(), result.end(), L'\x02'), result.end());
+
     // Commit as a single undoable operation via EM_SETTEXTEX on the selection
     SETTEXTEX st;
     ZeroMemory(&st, sizeof(st));
@@ -11026,8 +11044,51 @@ void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
             LPWSTR pszExpanded = ExpandReplacePlaceholder(ac.replace.c_str(), ac.search.c_str());
             if (pszExpanded)
             {
-                RE_SetSel(hwnd, caretPos - sLen, caretPos);
-                SendMessage(hwnd, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+                // Check for cursor-placement sentinel (STX = U+0002)
+                LPWSTR pszSentinel = wcschr(pszExpanded, L'\x02');
+                if (pszSentinel)
+                {
+                    // Split replacement at the sentinel
+                    *pszSentinel = L'\0';  // terminate "before" part
+                    LPCWSTR pszAfter  = pszSentinel + 1;
+                    int beforeLen = (int)wcslen(pszExpanded);
+                    int afterLen  = (int)wcslen(pszAfter);
+
+                    // Build combined string (before + after, no sentinel)
+                    size_t totalLen = (size_t)beforeLen + (size_t)afterLen;
+                    LPWSTR pszCombined = (LPWSTR)malloc((totalLen + 1) * sizeof(WCHAR));
+                    if (pszCombined)
+                    {
+                        wcscpy(pszCombined, pszExpanded);
+                        wcscat(pszCombined, pszAfter);
+
+                        RE_SetSel(hwnd, caretPos - sLen, caretPos);
+                        SendMessage(hwnd, EM_REPLACESEL, TRUE, (LPARAM)pszCombined);
+                        free(pszCombined);
+
+                        // Move caret to the split point
+                        LONG newCaret = (LONG)(caretPos - sLen + beforeLen);
+                        RE_SetSel(hwnd, newCaret, newCaret);
+
+                        // Record smart-pair state for single-char closings only
+                        if (afterLen == 1) {
+                            g_wchLastPairClosing = pszAfter[0];
+                            g_nLastPairClosePos  = newCaret;
+                        } else {
+                            g_wchLastPairClosing = L'\0';
+                            g_nLastPairClosePos  = -1;
+                        }
+                    }
+                }
+                else
+                {
+                    // No sentinel — plain replacement
+                    g_wchLastPairClosing = L'\0';
+                    g_nLastPairClosePos  = -1;
+                    RE_SetSel(hwnd, caretPos - sLen, caretPos);
+                    SendMessage(hwnd, EM_REPLACESEL, TRUE, (LPARAM)pszExpanded);
+                }
+
                 if (g_szAutocorrSoundPath[0] != L'\0')
                     PlaySound(g_szAutocorrSoundPath, NULL,
                               SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
@@ -11082,6 +11143,9 @@ void ApplyReplAutocorrections(LPWSTR& pszText)
             result = out;
         }
     }
+
+    // Strip cursor-placement sentinels — they are meaningless in REPL output
+    result.erase(std::remove(result.begin(), result.end(), L'\x02'), result.end());
 
     // Only reallocate if changed
     if (result != pszText) {
