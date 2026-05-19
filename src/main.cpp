@@ -448,6 +448,7 @@ WCHAR g_szAutocorrSoundPath[MAX_PATH] = L"";  // resolved absolute path; empty =
 // is neither the closing character nor a pair-delete Backspace.
 WCHAR g_wchLastPairClosing = L'\0';  // closing char of most recent pair insertion
 LONG  g_nLastPairClosePos  = -1;     // doc position of that closing char
+BOOL  g_bSmartPairAssist   = TRUE;   // skip-over and Backspace-delete-pair enabled
 
 // File type tracking for File→New submenu
 struct FileTypeInfo {
@@ -4602,9 +4603,62 @@ if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
     // Typing autocorrection: after each character is inserted, check for matches
     if (msg == WM_CHAR && !g_bReadOnly && !g_TypingAutocorrectionIndex.empty())
     {
+        // Smart-pair skip-over: if the typed character matches the closing char
+        // of the most recently inserted pair, and the caret is still right before
+        // that closing char, move past it instead of inserting a duplicate.
+        if (g_bSmartPairAssist && g_wchLastPairClosing != L'\0'
+            && (WCHAR)wParam == g_wchLastPairClosing)
+        {
+            CHARRANGE crCheck = RE_GetSel(hwnd);
+            if (crCheck.cpMin == crCheck.cpMax
+                && crCheck.cpMax == g_nLastPairClosePos)
+            {
+                WCHAR chNext[2] = {};
+                RE_GetTextRange(hwnd, crCheck.cpMax, crCheck.cpMax + 1, chNext);
+                if (chNext[0] == g_wchLastPairClosing)
+                {
+                    RE_SetSel(hwnd, crCheck.cpMax + 1, crCheck.cpMax + 1);
+                    g_wchLastPairClosing = L'\0';
+                    g_nLastPairClosePos  = -1;
+                    return 0;  // suppress the WM_CHAR — no duplicate inserted
+                }
+            }
+        }
+        // Any other WM_CHAR clears the smart-pair state
+        g_wchLastPairClosing = L'\0';
+        g_nLastPairClosePos  = -1;
+
         LRESULT lr = CallWindowProc(g_pfnOriginalEditProc, hwnd, msg, wParam, lParam);
         ApplyTypingAutocorrectionAtCaret(hwnd);
         return lr;
+    }
+
+    // Smart-pair Backspace-delete: if Backspace is pressed immediately after a
+    // pair was inserted (caret still right before the single closing char), delete
+    // both the opening and closing characters together.
+    if (msg == WM_KEYDOWN && wParam == VK_BACK
+        && g_bSmartPairAssist && g_wchLastPairClosing != L'\0'
+        && !g_bReadOnly)
+    {
+        CHARRANGE crBack = RE_GetSel(hwnd);
+        if (crBack.cpMin == crBack.cpMax
+            && crBack.cpMax == g_nLastPairClosePos
+            && crBack.cpMax >= 1)
+        {
+            WCHAR ctx[3] = {};
+            RE_GetTextRange(hwnd, crBack.cpMax - 1, crBack.cpMax + 1, ctx);
+            if (ctx[1] == g_wchLastPairClosing)
+            {
+                RE_SetSel(hwnd, crBack.cpMax - 1, crBack.cpMax + 1);
+                SendMessage(hwnd, EM_REPLACESEL, TRUE, (LPARAM)L"");
+                g_wchLastPairClosing = L'\0';
+                g_nLastPairClosePos  = -1;
+                return 0;
+            }
+        }
+        // Backspace that doesn't match the pair still clears smart-pair state
+        g_wchLastPairClosing = L'\0';
+        g_nLastPairClosePos  = -1;
     }
 
     // Call original window procedure for all other messages
@@ -9715,6 +9769,9 @@ void CreateDefaultINI()
         "; AutocorrectionSound=         ; WAV file played after each typing autocorrection (optional)\r\n"
         ";                              ; Relative paths are resolved from the RichEditor.exe directory\r\n"
         ";                              ; Example: AutocorrectionSound=sounds\\autocorr.wav\r\n"
+        "; SmartPairAssist=1            ; 1=skip-over closing char and Backspace-delete both pair chars\r\n"
+        ";                              ; when a typing autocorrection with \\c (cursor placement) fires\r\n"
+        ";                              ; Set to 0 to disable these helpers (\\c cursor placement still works)\r\n"
         "\r\n"
         "; Autosave settings\r\n"
         "AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)\r\n"
@@ -10188,6 +10245,9 @@ void LoadSettings()
             g_szAutocorrSoundPath[0] = L'\0';
         }
     }
+
+    // SmartPairAssist - enable/disable skip-over and Backspace-delete-pair
+    LoadSettingBool(szIniPath, L"SmartPairAssist", &g_bSmartPairAssist, TRUE);
     
     LoadSettingBool(szIniPath, L"AutosaveEnabled",        &g_bAutosaveEnabled, TRUE);
     LoadSettingInt (szIniPath, L"AutosaveIntervalMinutes", (int*)&g_nAutosaveIntervalMinutes, 1, 1, 1440);
