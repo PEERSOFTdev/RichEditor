@@ -923,9 +923,42 @@ Description=Replaces ASCII emoticons with Unicode emoji
 :-D=😀
 ```
 
-- Search and replace values both support escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`. Any other character preceded by `\` is emitted as-is with the backslash dropped (e.g. `\=` → `=`); this is the only way to include a literal `=` in a search key.
+- Search and replace values both support escape sequences: `\n`, `\r`, `\t`, `\\`, `\xNN`, `\uNNNN`. Any other character preceded by `\` is emitted as-is with the backslash dropped (e.g. `\=` → `=`); this is the only way to include a literal `=` in a search key.  `\c` in a **replace** string is a cursor-placement sentinel (see below).
 - Replace values also support `%0` (matched text) and `%%` (literal `%`), consistent with the existing Find & Replace placeholder convention.
 - Entries within a section are matched and applied top-to-bottom.
+
+**Search key flags:**
+
+One or both of the following characters may prefix a search key to change matching behaviour; they are stripped before the key is parsed:
+
+| Prefix | Effect |
+|--------|--------|
+| `~` | Case-insensitive match |
+| `<` | Whole-word match — the character before and after the match must not be a letter, digit, or underscore |
+
+Flags may be combined in any order (e.g. `~<word=WORD`).  A literal `~` or `<` at the start of a search key must be escaped (`\~`, `\<`).
+
+**Cursor placement (`\c`):**
+
+A `\c` escape in a **replace** string marks where the caret should land after insertion.  `ParseEscapeSequences` converts `\c` to a private sentinel (U+0002 STX).  At typing time `ApplyTypingAutocorrectionAtCaret`:
+
+1. Splits the expanded replace string at the first STX.
+2. Inserts `before + after` via one `EM_REPLACESEL`.
+3. Repositions the caret to the split point via `RE_SetSel`.
+4. If `after` is exactly one character, records `g_wchLastPairClosing` and `g_nLastPairClosePos` for the smart-pair helpers.
+
+In manual-apply and REPL contexts the STX sentinel is stripped from the result after all entries are applied (no-op for those without `\c`).
+
+**Smart-pair helpers (`SmartPairAssist`):**
+
+Active when `g_bSmartPairAssist` is `TRUE` (default) and a single-char closing was just recorded:
+
+- **Skip-over** (`WM_CHAR`): if the typed character matches `g_wchLastPairClosing` and the caret is still at `g_nLastPairClosePos`, the `WM_CHAR` is suppressed and the caret moves forward by one instead.
+- **Backspace-delete-pair** (`WM_KEYDOWN / VK_BACK`): if caret is at `g_nLastPairClosePos`, selects `[caretPos−1, caretPos+1]` and replaces with empty string (one undoable step).
+
+Both helpers clear the pair globals after firing.  Any `WM_CHAR` that is not the closing character also clears them.  Multi-character closings never set the pair globals, so the helpers are inert for those entries.
+
+`SmartPairAssist=0/1` in `[Settings]` disables/enables both helpers without affecting `\c` cursor placement itself.  Default: `1`.
 
 **Activation (`[AutocorrectionSettings]` in `RichEditor.ini` only):**
 
@@ -938,7 +971,7 @@ Values: `typing`, `repl`, or both. Tables not listed are available for manual us
 
 **Typing mode:**
 
-- After every `WM_CHAR`, `ApplyTypingAutocorrectionAtCaret` fetches the last `g_nMaxTypingSearchLen` characters before the caret and walks the pre-sorted index (longest search string first).
+- After every `WM_CHAR`, `ApplyTypingAutocorrectionAtCaret` fetches the last `g_nMaxTypingSearchLen + 1` characters before the caret (the extra character supports whole-word left-boundary checks) and walks the pre-sorted index (longest search string first) via `AcEntryMatchesTail` (honours `bCaseInsensitive` / `bWholeWord`).
 - First match at the caret triggers `EM_SETSEL` + `EM_REPLACESEL(TRUE, …)` — a single undoable operation.
 - Skipped when the editor is read-only or when a non-empty selection exists.
 - Applies in REPL prompt text too (the hook is in `EditSubclassProc`, not restricted by mode).
@@ -959,6 +992,8 @@ Values: `typing`, `repl`, or both. Tables not listed are available for manual us
 - `g_TypingAutocorrectionIndex` (vector of `{tableIdx, entryIdx, searchLen}`) is rebuilt by `RebuildTypingAutocorrectionIndex` after each load, sorted longest-to-shortest.
 - `g_nMaxTypingSearchLen` caches the maximum search length for the lookback fetch.
 - `g_szAutocorrSoundPath[MAX_PATH]`: resolved absolute path of the WAV file to play on match; empty when disabled.
+- `g_wchLastPairClosing`, `g_nLastPairClosePos`: smart-pair state set by `\c` replacements with a single-char closing; cleared on the next unrelated keypress.
+- `g_bSmartPairAssist`: mirrors `SmartPairAssist` INI key; gates skip-over and Backspace-delete-pair.
 
 **Sound feedback:**
 

@@ -76,6 +76,93 @@ to bottom).
 
 ---
 
+## Search key flags
+
+One or both of the following flag characters may be placed at the very start
+of a search key to change how it is matched:
+
+| Flag | Meaning |
+|------|---------|
+| `~` | Case-insensitive match |
+| `<` | Whole-word match — the character immediately before **and** after the matched text must not be a letter, digit, or underscore |
+
+Flags may appear in any order and may be combined.  Examples:
+
+```ini
+[SmartTyping]
+teh=the              ; exact match only (default)
+~tEh=the             ; matches teh, TEH, Teh, …
+<word=WORD           ; only replaces 'word' when not part of a longer word
+~<colour=color       ; case-insensitive whole-word replacement
+```
+
+If you need a literal `~` or `<` as the **first character** of a search string,
+escape it with a backslash.  `ParseEscapeSequences` drops the backslash and
+keeps the character, so the flag scanner never sees it:
+
+```ini
+[Symbols]
+\~=≈            ; literal ~ at start, no flag
+\<=‹            ; literal < at start, no flag
+```
+
+Flags apply in all three modes: typing, manual apply, and REPL.
+
+---
+
+## Cursor placement (`\c`)
+
+A `\c` escape sequence in a **replace** string marks where the cursor
+(caret) should be positioned after the replacement is inserted.  Text to
+the left of `\c` is placed before the cursor; text to the right is placed
+after it.
+
+This makes it easy to build character-pair tables:
+
+```ini
+[SmartPairs]
+(=(^\c)
+[=[\c]
+{={\c}
+"="\c"
+\<=<h1>\c</h1>
+```
+
+After typing `(`, the editor inserts `()` and places the cursor between
+them.  After typing `<h1>` (with `<` escaped so it is not treated as the
+whole-word flag), the editor inserts `<h1></h1>` with the cursor inside.
+
+`\c` is only meaningful in the **typing** mode.  In manual-apply and REPL
+contexts the sentinel is silently stripped from the result.
+
+### Smart-pair helpers
+
+When a `\c` replacement fires and the closing string is exactly **one
+character**, two additional behaviours activate (both require
+`SmartPairAssist=1` in `[Settings]`, which is the default):
+
+**Skip-over:** if you type the closing character when the cursor is already
+right before it (and no other key has been pressed in between), the editor
+moves past the existing closing character instead of inserting a second one.
+
+**Backspace-delete-pair:** if you press Backspace immediately after the pair
+was inserted (cursor still right before the closing character), both the
+opening and closing characters are deleted together as one undoable step.
+
+These helpers are silently inactive for multi-character closings (e.g.
+`</h1>`).
+
+To disable skip-over and Backspace-delete-pair while keeping `\c` cursor
+placement working, set `SmartPairAssist=0` in the `[Settings]` section of
+`RichEditor.ini`:
+
+```ini
+[Settings]
+SmartPairAssist=0
+```
+
+---
+
 ## Activation: `[AutocorrectionSettings]`
 
 Activation is configured in **`RichEditor.ini`** (not in addon INI files):
@@ -114,8 +201,9 @@ the output pane.
 ## How typing autocorrection works
 
 After every character is inserted, RichEditor looks back up to the length of
-the longest search string and tests each entry (longest first). The first
-match at the end of that window is replaced as a single undoable operation.
+the longest search string (plus one extra character for whole-word boundary
+checks) and tests each entry (longest first). The first match at the end of
+that window is replaced as a single undoable operation.
 
 - The replacement is only attempted when the editor is not in read-only mode.
 - In REPL mode the typing hook still fires for text you type in the prompt.
@@ -160,3 +248,4 @@ AutocorrectionSound=sounds\autocorr.wav
 - **Absolute paths** are used as-is.
 - Leave the key **empty or absent** (the default) to disable sound feedback.
 - Only typing autocorrections play the sound; REPL and manual applications are silent.
+
