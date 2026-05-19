@@ -413,8 +413,10 @@ WCHAR g_szCurrentFileExtension[MAX_TEMPLATE_FILEEXT] = L"txt";
 //============================================================================
 
 struct AutocorrectionEntry {
-    std::wstring search;   // parsed (escape sequences already expanded)
-    std::wstring replace;  // parsed (escape sequences already expanded)
+    std::wstring search;          // parsed (escape sequences already expanded)
+    std::wstring replace;         // parsed (escape sequences already expanded)
+    bool bCaseInsensitive = false; // '~' prefix on raw search key
+    bool bWholeWord       = false; // '<' prefix on raw search key
 };
 
 struct AutocorrectionTable {
@@ -10717,14 +10719,31 @@ void LoadAutocorrectionTables(const std::vector<INISource>& sources)
                         while (vi >= 0 && (szValRaw[vi] == L' ' || szValRaw[vi] == L'\t')) szValRaw[vi--] = L'\0';
                     }
 
+                    // Strip leading flag prefixes from raw key:
+                    //   '~' -> case-insensitive match
+                    //   '<' -> whole-word match
+                    // Any other leading character (including '\') stops the scan.
+                    // A leading '\~' or '\<' is left untouched here; ParseEscapeSequences
+                    // will turn it into a literal '~' or '<' in the search string.
+                    LPCWSTR pszKeyFlags = szKeyRaw;
+                    bool bCaseInsensitive = false;
+                    bool bWholeWord       = false;
+                    while (*pszKeyFlags == L'~' || *pszKeyFlags == L'<') {
+                        if (*pszKeyFlags == L'~') bCaseInsensitive = true;
+                        else                      bWholeWord       = true;
+                        pszKeyFlags++;
+                    }
+
                     // Parse escape sequences in both key and value
-                    LPWSTR pszSearch  = ParseEscapeSequences(szKeyRaw);
+                    LPWSTR pszSearch  = ParseEscapeSequences(pszKeyFlags);
                     LPWSTR pszReplace = ParseEscapeSequences(szValRaw);
 
                     if (pszSearch && pszSearch[0] != L'\0') {
                         AutocorrectionEntry entry;
-                        entry.search  = pszSearch;
-                        entry.replace = pszReplace ? pszReplace : L"";
+                        entry.search          = pszSearch;
+                        entry.replace         = pszReplace ? pszReplace : L"";
+                        entry.bCaseInsensitive = bCaseInsensitive;
+                        entry.bWholeWord       = bWholeWord;
                         tbl.entries.push_back(entry);
                     }
                     if (pszSearch)  free(pszSearch);
@@ -10825,6 +10844,41 @@ void RebuildTypingAutocorrectionIndex()
 }
 
 //============================================================================
+// AcFindNextMatch - Find next occurrence of ac.search in text starting at pos,
+// respecting bCaseInsensitive and bWholeWord flags.
+// Returns the match position, or std::wstring::npos if not found.
+//============================================================================
+static size_t AcFindNextMatch(const std::wstring& text, size_t pos,
+                               const AutocorrectionEntry& ac)
+{
+    const size_t srchLen = ac.search.size();
+    if (srchLen == 0) return std::wstring::npos;
+
+    while (pos + srchLen <= text.size()) {
+        // Compare at pos
+        int cmp = ac.bCaseInsensitive
+            ? _wcsnicmp(text.c_str() + pos, ac.search.c_str(), srchLen)
+            : wcsncmp (text.c_str() + pos, ac.search.c_str(), srchLen);
+
+        if (cmp == 0) {
+            // Whole-word: check left boundary
+            if (ac.bWholeWord && pos > 0) {
+                WCHAR before = text[pos - 1];
+                if (iswalnum(before) || before == L'_') { pos++; continue; }
+            }
+            // Whole-word: check right boundary
+            if (ac.bWholeWord && pos + srchLen < text.size()) {
+                WCHAR after = text[pos + srchLen];
+                if (iswalnum(after) || after == L'_') { pos++; continue; }
+            }
+            return pos;
+        }
+        pos++;
+    }
+    return std::wstring::npos;
+}
+
+//============================================================================
 // ApplyAutocorrectionTable - Apply one table to selected text (or whole doc)
 //============================================================================
 void ApplyAutocorrectionTable(int tableIdx)
@@ -10867,24 +10921,22 @@ void ApplyAutocorrectionTable(int tableIdx)
         if (entry.search.empty()) continue;
         std::wstring out;
         out.reserve(result.size());
-        const std::wstring& srch = entry.search;
-        size_t srchLen = srch.size();
+        size_t srchLen = entry.search.size();
         size_t pos = 0;
-        while (pos < result.size()) {
-            if (result.compare(pos, srchLen, srch) == 0) {
-                // Expand %0/%% in replace string
-                LPWSTR pszExpanded = ExpandReplacePlaceholder(entry.replace.c_str(), srch.c_str());
-                if (pszExpanded) {
-                    out += pszExpanded;
-                    free(pszExpanded);
-                } else {
-                    out += entry.replace;
-                }
-                pos += srchLen;
+        size_t matchPos;
+        while ((matchPos = AcFindNextMatch(result, pos, entry)) != std::wstring::npos) {
+            out.append(result, pos, matchPos - pos);
+            // Expand %0/%% in replace string
+            LPWSTR pszExpanded = ExpandReplacePlaceholder(entry.replace.c_str(), entry.search.c_str());
+            if (pszExpanded) {
+                out += pszExpanded;
+                free(pszExpanded);
             } else {
-                out += result[pos++];
+                out += entry.replace;
             }
+            pos = matchPos + srchLen;
         }
+        out.append(result, pos, std::wstring::npos);
         result = out;
     }
 
@@ -10898,6 +10950,32 @@ void ApplyAutocorrectionTable(int tableIdx)
     g_bModified = TRUE;
     UpdateTitle();
     UpdateStatusBar();
+}
+
+//============================================================================
+// AcEntryMatchesTail - Case/whole-word aware tail match for typing autocorrection.
+// buf[0..bufLen-1] holds the characters fetched before the caret (bufLen >= sLen).
+// Returns true if the last sLen characters of buf match ac.search under ac's flags.
+//============================================================================
+static bool AcEntryMatchesTail(const WCHAR* buf, int bufLen,
+                                const AutocorrectionEntry& ac, int sLen)
+{
+    const WCHAR* tail = buf + bufLen - sLen;
+
+    // Compare sLen characters, case-sensitive or case-insensitive
+    int cmp = ac.bCaseInsensitive
+        ? _wcsnicmp(tail, ac.search.c_str(), (size_t)sLen)
+        : wcsncmp (tail, ac.search.c_str(), (size_t)sLen);
+    if (cmp != 0) return false;
+
+    // Whole-word: the character immediately before the match (if any) must not
+    // be a word character (letter, digit, or underscore).
+    if (ac.bWholeWord && bufLen > sLen) {
+        WCHAR before = buf[bufLen - sLen - 1];
+        if (iswalnum(before) || before == L'_') return false;
+    }
+
+    return true;
 }
 
 //============================================================================
@@ -10916,7 +10994,11 @@ void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
         return;
 
     int caretPos = (int)cr.cpMax;
-    int fetchLen = (caretPos < g_nMaxTypingSearchLen) ? caretPos : g_nMaxTypingSearchLen;
+    // Fetch one extra character beyond the longest search string so that
+    // whole-word entries can check the character preceding the match.
+    int fetchLen = (caretPos < g_nMaxTypingSearchLen + 1)
+                 ? caretPos
+                 : g_nMaxTypingSearchLen + 1;
     if (fetchLen == 0)
         return;
 
@@ -10939,8 +11021,7 @@ void ApplyTypingAutocorrectionAtCaret(HWND hwnd)
         int sLen = idx.searchLen;
         if (sLen > actualLen) continue;
 
-        const WCHAR* pszTail = pszBuf + actualLen - sLen;
-        if (wcsncmp(pszTail, ac.search.c_str(), sLen) == 0)
+        if (AcEntryMatchesTail(pszBuf, actualLen, ac, sLen))
         {
             LPWSTR pszExpanded = ExpandReplacePlaceholder(ac.replace.c_str(), ac.search.c_str());
             if (pszExpanded)
@@ -10983,23 +11064,21 @@ void ApplyReplAutocorrections(LPWSTR& pszText)
             if (entry.search.empty()) continue;
             std::wstring out;
             out.reserve(result.size());
-            const std::wstring& srch = entry.search;
-            size_t srchLen = srch.size();
+            size_t srchLen = entry.search.size();
             size_t pos = 0;
-            while (pos < result.size()) {
-                if (result.compare(pos, srchLen, srch) == 0) {
-                    LPWSTR pszExpanded = ExpandReplacePlaceholder(entry.replace.c_str(), srch.c_str());
-                    if (pszExpanded) {
-                        out += pszExpanded;
-                        free(pszExpanded);
-                    } else {
-                        out += entry.replace;
-                    }
-                    pos += srchLen;
+            size_t matchPos;
+            while ((matchPos = AcFindNextMatch(result, pos, entry)) != std::wstring::npos) {
+                out.append(result, pos, matchPos - pos);
+                LPWSTR pszExpanded = ExpandReplacePlaceholder(entry.replace.c_str(), entry.search.c_str());
+                if (pszExpanded) {
+                    out += pszExpanded;
+                    free(pszExpanded);
                 } else {
-                    out += result[pos++];
+                    out += entry.replace;
                 }
+                pos = matchPos + srchLen;
             }
+            out.append(result, pos, std::wstring::npos);
             result = out;
         }
     }
