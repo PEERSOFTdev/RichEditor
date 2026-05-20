@@ -156,7 +156,7 @@ echo Building RELEASE version (size-optimized)...
 goto :config_done
 
 :config_done
-set LIBS=user32.lib gdi32.lib kernel32.lib comctl32.lib comdlg32.lib ole32.lib oleaut32.lib shell32.lib shlwapi.lib version.lib
+set LIBS=user32.lib gdi32.lib kernel32.lib comctl32.lib comdlg32.lib ole32.lib oleaut32.lib shell32.lib shlwapi.lib version.lib winmm.lib
 
 REM ============================================================================
 REM Compile Resources
