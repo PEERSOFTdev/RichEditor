@@ -993,7 +993,7 @@ Values: `typing`, `repl`, or both. Tables not listed are available for manual us
 - `g_nMaxTypingSearchLen` caches the maximum search length for the lookback fetch.
 - `g_szAutocorrSoundPath[MAX_PATH]`: resolved absolute path of the WAV file to play on match; empty when disabled.
 - `g_wchLastPairClosing`, `g_nLastPairClosePos`: smart-pair state set by `\c` replacements with a single-char closing; used by Backspace-delete-pair; cleared on the next unrelated keypress.
-- `g_SmartPairClosingChars`: `std::set<WCHAR>` of single-char closing characters from active typing-mode `\c` entries; rebuilt by `RebuildTypingAutocorrectionIndex`; drives the positional skip-over check.
+- `g_SmartPairClosingChars`: `std::wstring` used as a small bag of single-char closing characters from active typing-mode `\c` entries; rebuilt by `RebuildTypingAutocorrectionIndex`; drives the positional skip-over check.
 - `g_bSmartPairAssist`: mirrors `SmartPairAssist` INI key; gates skip-over and Backspace-delete-pair.
 
 **Sound feedback:**

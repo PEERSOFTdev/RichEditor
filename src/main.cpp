@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
-#include <set>
 #include <algorithm>
 #include <activscp.h>
 #include "resource.h"
@@ -450,9 +449,10 @@ WCHAR g_szAutocorrSoundPath[MAX_PATH] = L"";  // resolved absolute path; empty =
 WCHAR g_wchLastPairClosing = L'\0';  // closing char of most recent pair insertion
 LONG  g_nLastPairClosePos  = -1;     // doc position of that closing char
 BOOL  g_bSmartPairAssist   = TRUE;   // skip-over and Backspace-delete-pair enabled
-// Set of single-character closing chars from active typing-mode \c entries.
+// Single-character closing chars from active typing-mode \c entries.
 // Rebuilt by RebuildTypingAutocorrectionIndex.  Used for positional skip-over.
-std::set<WCHAR> g_SmartPairClosingChars;
+// Stored as a wstring bag (each char appears at most once); <string> already included.
+std::wstring g_SmartPairClosingChars;
 
 // File type tracking for File→New submenu
 struct FileTypeInfo {
@@ -4613,7 +4613,7 @@ if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
         // move past it instead of inserting a duplicate.  No pair-state is
         // consulted — the check is purely positional.
         if (g_bSmartPairAssist && !g_SmartPairClosingChars.empty()
-            && g_SmartPairClosingChars.count((WCHAR)wParam))
+            && g_SmartPairClosingChars.find((WCHAR)wParam) != std::wstring::npos)
         {
             CHARRANGE crCheck = RE_GetSel(hwnd);
             if (crCheck.cpMin == crCheck.cpMax)
@@ -10916,6 +10916,7 @@ void RebuildTypingAutocorrectionIndex()
 
             // Collect single-char closing characters from \c entries for
             // positional skip-over.  Only bTyping tables contribute.
+            // g_SmartPairClosingChars is a wstring bag (each char once).
             const std::wstring& repl = entries[e].replace;
             size_t sentPos = repl.find(L'\x02');  // STX sentinel from \c
             if (sentPos != std::wstring::npos) {
@@ -10923,7 +10924,8 @@ void RebuildTypingAutocorrectionIndex()
                 // Strip any further sentinels (shouldn't occur, but be safe)
                 after.erase(std::remove(after.begin(), after.end(), L'\x02'), after.end());
                 if (after.size() == 1)
-                    g_SmartPairClosingChars.insert(after[0]);
+                    if (g_SmartPairClosingChars.find(after[0]) == std::wstring::npos)
+                        g_SmartPairClosingChars += after[0];
             }
         }
     }
