@@ -74,6 +74,8 @@ Filters run external commands on selected text (or the current line if nothing i
 
 Examples include Uppercase/Lowercase, Sort Lines, Line Count, and Word Count. These are meant as starting points; the rest is for you to explore in the menus.
 
+The built-in **Auto Indent** filter (`Ctrl+Enter` with that filter selected) appends a new line below the current one, indented to match the leading whitespace. If you have an existing `RichEditor.ini` from before this fix, find the `[Filter8]` section and change `Insert=replace` to `Insert=append` — otherwise pressing `Ctrl+Enter` on an indented line will erase the line content.
+
 Advanced: filters and categories are defined in `RichEditor.ini`. Categories are user-defined and can be renamed or replaced. You can also control whether a filter appears in the context menu.
 
 The `Command` field accepts a `script:` prefix to run a JScript expression in-process (no external process spawned). The special variable `INPUT` holds the selected text. Example: `script:INPUT.toLocaleUpperCase()`. This correctly handles all Unicode characters including diacritics. JScript reference: https://learn.microsoft.com/en-us/previous-versions//hbxc2t98(v=vs.85)
@@ -133,6 +135,16 @@ Autocorrection tables define search → replace pairs that can be applied while 
 **Manual use:** `Tools → Apply Autocorrections → _Table name_` applies the selected table to the current selection, or to the whole document if nothing is selected. The operation is undoable. The submenu is greyed out when no tables are loaded or when the editor is in read-only mode.
 
 **Typing:** Tables marked `typing` in `[AutocorrectionSettings]` are checked after every keystroke. The characters immediately before the caret are tested against each entry (longest search string first); the first match is replaced in place as a single undoable action.
+
+**Search key flags:** Prefix a search key with `~` for case-insensitive matching, `<` for whole-word matching, or both (e.g. `~<colour`). A leading `\~` or `\<` is treated as a literal character.
+
+**Cursor placement (`\c`):** Place `\c` anywhere in a replace string to mark where the caret should land after the replacement. Everything before `\c` is inserted to the left of the cursor; everything after is inserted to the right. Example: `(=(\c)` types `(` and produces `()` with the cursor between the parentheses.
+
+**Smart-pair helpers:** When a replace string contains `\c` and its closing part is a single character, two extra helpers activate automatically (controlled by `SmartPairAssist=1` in `[Settings]`, which is the default):
+- Typing that closing character when the caret is already immediately before it skips over it instead of inserting a duplicate.
+- Pressing Backspace immediately after the pair was inserted deletes both characters together.
+
+Set `SmartPairAssist=0` to disable both helpers without affecting `\c` cursor placement itself.
 
 **Sound feedback:** You can optionally play a WAV file whenever a typing autocorrection fires. Set `AutocorrectionSound=<path>` in `[Settings]` — relative paths resolve from the `RichEditor.exe` directory. Leave it empty (the default) for no sound.
 
@@ -198,6 +210,7 @@ RichEdit library selection (advanced).
 - `RichEditLibraryPath` (default empty): custom RichEdit DLL path; empty uses auto‑detection.
 - `RichEditClassName` (default empty): optional class override (e.g., `RichEditD2DPT`, `RichEdit60W`).
 - `AutocorrectionSound` (default empty): WAV file played after each typing autocorrection; relative paths resolve from the `RichEditor.exe` directory. Empty disables sound.
+- `SmartPairAssist` (default `1`): `1` enables the skip-over and Backspace-delete helpers for typing autocorrections that use `\c` cursor placement with a single-character closing. Set to `0` to disable both helpers; `\c` cursor placement itself is unaffected.
 
 Internal state (usually not edited by hand).
 
