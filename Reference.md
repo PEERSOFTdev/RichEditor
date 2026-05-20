@@ -953,8 +953,8 @@ In manual-apply and REPL contexts the STX sentinel is stripped from the result a
 
 Active when `g_bSmartPairAssist` is `TRUE` (default) and a single-char closing was just recorded:
 
-- **Skip-over** (`WM_CHAR`): if the typed character matches `g_wchLastPairClosing` and the caret is still at `g_nLastPairClosePos`, the `WM_CHAR` is suppressed and the caret moves forward by one instead.
-- **Backspace-delete-pair** (`WM_KEYDOWN / VK_BACK`): if caret is at `g_nLastPairClosePos`, selects `[caretPos−1, caretPos+1]` and replaces with empty string (one undoable step).
+- **Skip-over** (`WM_CHAR`): checks `g_SmartPairClosingChars` (a `std::set<WCHAR>` of single-char closings from all active typing-mode `\c` entries, rebuilt in `RebuildTypingAutocorrectionIndex`). If the typed character is in the set and the character immediately to the right of the bare caret equals that character, the `WM_CHAR` is suppressed and the caret moves right by one. The check is purely positional — no pair-insertion state is consulted.
+- **Backspace-delete-pair** (`WM_KEYDOWN / VK_BACK`): if caret is at `g_nLastPairClosePos`, selects `[caretPos−1, caretPos+1]` and replaces with empty string (one undoable step). State-based — only fires while the most recent single-char pair insertion is still recorded.
 
 Both helpers clear the pair globals after firing.  Any `WM_CHAR` that is not the closing character also clears them.  Multi-character closings never set the pair globals, so the helpers are inert for those entries.
 
@@ -992,7 +992,8 @@ Values: `typing`, `repl`, or both. Tables not listed are available for manual us
 - `g_TypingAutocorrectionIndex` (vector of `{tableIdx, entryIdx, searchLen}`) is rebuilt by `RebuildTypingAutocorrectionIndex` after each load, sorted longest-to-shortest.
 - `g_nMaxTypingSearchLen` caches the maximum search length for the lookback fetch.
 - `g_szAutocorrSoundPath[MAX_PATH]`: resolved absolute path of the WAV file to play on match; empty when disabled.
-- `g_wchLastPairClosing`, `g_nLastPairClosePos`: smart-pair state set by `\c` replacements with a single-char closing; cleared on the next unrelated keypress.
+- `g_wchLastPairClosing`, `g_nLastPairClosePos`: smart-pair state set by `\c` replacements with a single-char closing; used by Backspace-delete-pair; cleared on the next unrelated keypress.
+- `g_SmartPairClosingChars`: `std::set<WCHAR>` of single-char closing characters from active typing-mode `\c` entries; rebuilt by `RebuildTypingAutocorrectionIndex`; drives the positional skip-over check.
 - `g_bSmartPairAssist`: mirrors `SmartPairAssist` INI key; gates skip-over and Backspace-delete-pair.
 
 **Sound feedback:**

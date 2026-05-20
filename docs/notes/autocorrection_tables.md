@@ -138,16 +138,27 @@ contexts the sentinel is silently stripped from the result.
 ### Smart-pair helpers
 
 When a `\c` replacement fires and the closing string is exactly **one
-character**, two additional behaviours activate (both require
+character**, two additional behaviours may activate (both require
 `SmartPairAssist=1` in `[Settings]`, which is the default):
 
-**Skip-over:** if you type the closing character when the cursor is already
-right before it (and no other key has been pressed in between), the editor
-moves past the existing closing character instead of inserting a second one.
+**Skip-over:** when you type a character that is a known closing character
+(i.e. it appears as a single-character closing in any active typing-mode
+`\c` entry) and that same character is already sitting immediately to the
+right of the bare caret, the typed character is suppressed and the caret
+moves past the existing one instead.  The check is **positional** — it does
+not matter how long ago the pair was inserted or how many characters were
+typed inside it.
+
+Trade-off: the skip fires for _any_ occurrence of a registered closing
+character at the caret, not only ones placed by a pair insertion.  In most
+editing situations this is the desired behaviour; if the skip fires
+unwantedly, set `SmartPairAssist=0`.
 
 **Backspace-delete-pair:** if you press Backspace immediately after the pair
-was inserted (cursor still right before the closing character), both the
-opening and closing characters are deleted together as one undoable step.
+was inserted (cursor still right before the closing character, nothing typed
+inside), both the opening and closing characters are deleted together as one
+undoable step.  This check _is_ state-based — it only fires while the editor
+still remembers the most recent single-char pair insertion.
 
 These helpers are silently inactive for multi-character closings (e.g.
 `</h1>`).
