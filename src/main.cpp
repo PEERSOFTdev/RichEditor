@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
+#include <set>
 #include <algorithm>
 #include <activscp.h>
 #include "resource.h"
@@ -449,6 +450,9 @@ WCHAR g_szAutocorrSoundPath[MAX_PATH] = L"";  // resolved absolute path; empty =
 WCHAR g_wchLastPairClosing = L'\0';  // closing char of most recent pair insertion
 LONG  g_nLastPairClosePos  = -1;     // doc position of that closing char
 BOOL  g_bSmartPairAssist   = TRUE;   // skip-over and Backspace-delete-pair enabled
+// Set of single-character closing chars from active typing-mode \c entries.
+// Rebuilt by RebuildTypingAutocorrectionIndex.  Used for positional skip-over.
+std::set<WCHAR> g_SmartPairClosingChars;
 
 // File type tracking for File→New submenu
 struct FileTypeInfo {
@@ -4603,21 +4607,23 @@ if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
     // Typing autocorrection: after each character is inserted, check for matches
     if (msg == WM_CHAR && !g_bReadOnly && !g_TypingAutocorrectionIndex.empty())
     {
-        // Smart-pair skip-over: if the typed character matches the closing char
-        // of the most recently inserted pair, and the caret is still right before
-        // that closing char, move past it instead of inserting a duplicate.
-        if (g_bSmartPairAssist && g_wchLastPairClosing != L'\0'
-            && (WCHAR)wParam == g_wchLastPairClosing)
+        // Smart-pair skip-over: if the character being typed is a known closing
+        // char (from any active typing-mode \c entry) and the character
+        // immediately to the right of the bare caret is that same character,
+        // move past it instead of inserting a duplicate.  No pair-state is
+        // consulted — the check is purely positional.
+        if (g_bSmartPairAssist && !g_SmartPairClosingChars.empty()
+            && g_SmartPairClosingChars.count((WCHAR)wParam))
         {
             CHARRANGE crCheck = RE_GetSel(hwnd);
-            if (crCheck.cpMin == crCheck.cpMax
-                && crCheck.cpMax == g_nLastPairClosePos)
+            if (crCheck.cpMin == crCheck.cpMax)
             {
                 WCHAR chNext[2] = {};
                 RE_GetTextRange(hwnd, crCheck.cpMax, crCheck.cpMax + 1, chNext);
-                if (chNext[0] == g_wchLastPairClosing)
+                if (chNext[0] == (WCHAR)wParam)
                 {
                     RE_SetSel(hwnd, crCheck.cpMax + 1, crCheck.cpMax + 1);
+                    // Clear pair state — the skip consumed the closing char
                     g_wchLastPairClosing = L'\0';
                     g_nLastPairClosePos  = -1;
                     return 0;  // suppress the WM_CHAR — no duplicate inserted
@@ -10893,6 +10899,7 @@ void RebuildTypingAutocorrectionIndex()
 {
     g_TypingAutocorrectionIndex.clear();
     g_nMaxTypingSearchLen = 0;
+    g_SmartPairClosingChars.clear();
 
     for (int t = 0; t < (int)g_AutocorrectionTables.size(); t++) {
         if (!g_AutocorrectionTables[t].bTyping) continue;
@@ -10906,6 +10913,18 @@ void RebuildTypingAutocorrectionIndex()
             g_TypingAutocorrectionIndex.push_back(te);
             if (te.searchLen > g_nMaxTypingSearchLen)
                 g_nMaxTypingSearchLen = te.searchLen;
+
+            // Collect single-char closing characters from \c entries for
+            // positional skip-over.  Only bTyping tables contribute.
+            const std::wstring& repl = entries[e].replace;
+            size_t sentPos = repl.find(L'\x02');  // STX sentinel from \c
+            if (sentPos != std::wstring::npos) {
+                std::wstring after = repl.substr(sentPos + 1);
+                // Strip any further sentinels (shouldn't occur, but be safe)
+                after.erase(std::remove(after.begin(), after.end(), L'\x02'), after.end());
+                if (after.size() == 1)
+                    g_SmartPairClosingChars.insert(after[0]);
+            }
         }
     }
 
