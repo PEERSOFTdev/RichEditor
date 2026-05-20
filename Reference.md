@@ -1015,6 +1015,12 @@ Values: `typing`, `repl`, or both. Tables not listed are available for manual us
 
 **Binary size delta:** 891 280 → 912 337 bytes (+21 057 bytes)
 
+**Bug fix — Auto Indent filter (`Insert=append`):**
+
+- The built-in Auto Indent filter (`[Filter8]`) was defined with `Insert=replace`. Because filters with no selection auto-select the current line, pressing `Ctrl+Enter` on an indented line caused the line's own text to be replaced by the filter output (a newline + indent prefix), deleting the line content.
+- Corrected to `Insert=append`: the filter output (which already starts with a newline) is appended after the selection end, preserving the current line.
+- **Existing INI files are not updated automatically.** Users who have `[Filter8]` (Auto Indent) with `Insert=replace` in their `RichEditor.ini` must change it to `Insert=append` manually.
+
 ## Building
 
 ### Option 1: MSVC Build (Recommended for Windows) ✅
