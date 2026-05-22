@@ -63,6 +63,22 @@ Any other character preceded by `\` is emitted literally with the backslash
 dropped — so `\=` produces `=`, which is the only way to include a literal
 `=` sign in a search key (since `=` is otherwise the key/value separator).
 
+> **Warning — `[` at the start of a line is an INI section header.**
+> A line that begins with `[` ends the current table section immediately; any
+> entries that follow it in the same section are silently lost.  If your
+> search key starts with `[` (e.g. to autocorrect a bracket), you **must**
+> escape it:
+>
+> ```ini
+> \[=[\c]       ; correct — \[ is a literal [, not a section header
+> [=[\c]        ; WRONG  — this line ends the section; entries below are lost
+> ```
+>
+> The same applies to a search key that is exactly `[` on its own.  This is
+> the most common pitfall when building character-pair tables, because `(`
+> (which happens to work fine unescaped) may give a false sense of security
+> before you add the `[` entry.
+
 Replace values also support placeholders:
 
 | Placeholder | Expands to |
@@ -122,7 +138,7 @@ This makes it easy to build character-pair tables:
 ```ini
 [SmartPairs]
 (=(^\c)
-[=[\c]
+\[=[\c]
 {={\c}
 "="\c"
 \<=<h1>\c</h1>
@@ -131,6 +147,11 @@ This makes it easy to build character-pair tables:
 After typing `(`, the editor inserts `()` and places the cursor between
 them.  After typing `<h1>` (with `<` escaped so it is not treated as the
 whole-word flag), the editor inserts `<h1></h1>` with the cursor inside.
+
+Note that both `[` and `<` **must** be escaped when they appear as the first
+character of a search key: `[` would otherwise terminate the INI section
+(silently dropping all entries that follow), and `<` would be interpreted as
+the whole-word flag.
 
 `\c` is only meaningful in the **typing** mode.  In manual-apply and REPL
 contexts the sentinel is silently stripped from the result.

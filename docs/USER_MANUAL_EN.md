@@ -140,6 +140,8 @@ Autocorrection tables define search → replace pairs that can be applied while 
 
 **Cursor placement (`\c`):** Place `\c` anywhere in a replace string to mark where the caret should land after the replacement. Everything before `\c` is inserted to the left of the cursor; everything after is inserted to the right. Example: `(=(\c)` types `(` and produces `()` with the cursor between the parentheses.
 
+**Important — escape `[` and `<` at the start of a search key.** A line beginning with `[` is treated as an INI section header and silently terminates the table, causing all entries that follow it to be ignored. A leading `<` is consumed as the whole-word flag. Both must be escaped with a backslash: `\[=[\c]` and `\<=<h1>\c</h1>`. The `(` character does not need escaping, which can give a false sense of security before you add the `[` entry.
+
 **Smart-pair helpers:** When a replace string contains `\c` and its closing part is a single character, two extra helpers activate automatically (controlled by `SmartPairAssist=1` in `[Settings]`, which is the default):
 - Typing that closing character when the caret is already immediately before it skips over it instead of inserting a duplicate.
 - Pressing Backspace immediately after the pair was inserted deletes both characters together.
