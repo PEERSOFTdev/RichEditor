@@ -189,7 +189,7 @@ BOOL g_bLastOperationWasReplace = FALSE; // TRUE if last operation was Replace A
 //============================================================================
 #define MAX_FILTERS 100
 #define MAX_FILTER_NAME 64
-#define MAX_FILTER_COMMAND 512
+#define MAX_FILTER_COMMAND 1024
 #define MAX_FILTER_DESC 256
 #define MAX_FILTER_CATEGORY 32
 
@@ -9949,7 +9949,7 @@ void CreateDefaultINI()
          "[Filter8]\r\n"
          "Name=Smart Continue\r\n"
          "Name.cs=Chytré pokračování\r\n"
-         "Command=script:(function(){var s=INPUT,m,c,i,b;m=s.match(/^([ \\t]*)([-+*])([ \\t]+)/);if(m)return'\\n'+m[1]+m[2]+m[3];m=s.match(/^([ \\t]*)(\\d+)([.)])([ \\t]+)/);if(m)return'\\n'+m[1]+(parseInt(m[2],10)+1)+m[3]+m[4];m=s.match(/^([ \\t]*)([a-zA-Z]+)(\\))([ \\t]+)/);if(m){c=m[2].split('');b=m[2]===m[2].toUpperCase()?65:97;i=c.length-1;while(i>=0){if(c[i].charCodeAt(0)-b<25){c[i]=String.fromCharCode(c[i].charCodeAt(0)+1);break;}else{c[i]=String.fromCharCode(b);i--;}}if(i<0)c.unshift(String.fromCharCode(b));return'\\n'+m[1]+c.join('')+m[3]+m[4];}m=s.match(/^([ \\t]*)/);return'\\n'+m[1]})()\r\n"
+         "Command=script:(function(){var s=INPUT,m,t,base,r,carry,k,v;m=s.match(/^([ \\t]*)([-+*])([ \\t]+)/);if(m)return'\\n'+m[1]+m[2]+m[3];m=s.match(/^([ \\t]*)(\\d+)([.)])([ \\t]+)/);if(m)return'\\n'+m[1]+(parseInt(m[2],10)+1)+m[3]+m[4];m=s.match(/^([ \\t]*)([a-zA-Z]+)([.)])([ \\t]+)/);if(m){t=m[2];base=(t===t.toUpperCase())?65:97;r='';carry=1;k=t.length-1;while(k>=0){v=t.charCodeAt(k)-base+carry;if(v>25){v=v-26;carry=1;}else{carry=0;}r=String.fromCharCode(base+v)+r;k=k-1;}if(carry===1)r=String.fromCharCode(base)+r;return'\\n'+m[1]+r+m[3]+m[4];}m=s.match(/^([ \\t]*)/);return'\\n'+m[1]})()\r\n"
          "Description=Appends a new line continuing the current indent, bullet, or ordered list\r\n"
          "Description.cs=Přidá nový řádek pokračující v odsazení, odrážce nebo číslovaném seznamu\r\n"
          "Category=Utility\r\n"
