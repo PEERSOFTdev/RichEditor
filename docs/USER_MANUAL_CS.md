@@ -74,7 +74,7 @@ Filtry spouštějí externí příkazy nad výběrem (nebo aktuálním řádkem,
 
 Příklady: Velká písmena, Malá písmena, Seřadit řádky, Počet řádků, Počet slov. Tyto příklady slouží jako základní ukázka; další možnosti jsou dostupné v nabídce.
 
-Vestavěný filtr **Automatické odsazení** (dostupný přes `Ctrl+Enter`) přidá nový řádek pod aktuálním se stejným odsazením. Pokud máte starší `RichEditor.ini`, vyhledejte sekci `[Filter8]` a změňte `Insert=replace` na `Insert=append` — jinak by `Ctrl+Enter` na odsazeném řádku obsah řádku smazal.
+Vestavěný filtr **Chytré pokračování** (dostupný přes `Ctrl+Enter`) přidá nový řádek pod aktuálním a inteligentně ho zahájí: neodrážkované seznamy (`-`, `+`, `*`) opakují stejnou odrážku; číslované seznamy (`1.` / `1)`) zvýší číslo; písmenkové seznamy (`a)` / `A)`) pokročí na další písmeno (s přenosem: `z`→`aa`, `Z`→`AA`); ostatní řádky zkopírují úvodní odsazení. Máte-li starší `RichEditor.ini` s původním filtrem Automatické odsazení v sekci `[Filter8]`, nahraďte v ní řádky `Command=`, `Name=` a popis novými hodnotami filtru Chytré pokračování.
 
 Pokročilé: filtry a kategorie se definují v `RichEditor.ini`. Kategorie jsou plně uživatelské a lze je přejmenovat nebo vytvořit nové. Lze také nastavit, zda se filtr objeví v kontextové nabídce.
 

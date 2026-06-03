@@ -1021,6 +1021,16 @@ Values: `typing`, `repl`, or both. Tables not listed are available for manual us
 - Corrected to `Insert=append`: the filter output (which already starts with a newline) is appended after the selection end, preserving the current line.
 - **Existing INI files are not updated automatically.** Users who have `[Filter8]` (Auto Indent) with `Insert=replace` in their `RichEditor.ini` must change it to `Insert=append` manually.
 
+**Filter8 replaced — Smart Continue:**
+
+- `[Filter8]` has been replaced with the **Smart Continue** filter (`Name=Smart Continue`). It supersedes Auto Indent with full list-continuation logic:
+  - **Unordered bullets** (`-`, `+`, `*` followed by one or more spaces/tabs): repeats the same bullet and spacing.
+  - **Ordered numeric** (`1.` / `1)` style, any number of digits): increments the number (`9`→`10`, `99`→`100`, etc.).
+  - **Ordered letter** (`a)` / `A)` style, one or more letters): advances to the next letter with carry-propagation (`z`→`aa`, `Z`→`AA`, `az`→`ba`, `ZZ`→`AAA`, etc.).
+  - **Plain indent fallback**: copies leading whitespace only.
+- Implemented as a `script:` JScript expression (no external process); execution is instantaneous.
+- **Existing INI files are not updated automatically.** Users should replace their `[Filter8]` `Command=` with the new `script:` expression and update `Name=`, `Name.cs=`, `Description=`, `Description.cs=` to match the new defaults.
+
 ## Building
 
 ### Option 1: MSVC Build (Recommended for Windows) ✅

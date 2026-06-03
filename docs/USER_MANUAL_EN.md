@@ -74,7 +74,7 @@ Filters run external commands on selected text (or the current line if nothing i
 
 Examples include Uppercase/Lowercase, Sort Lines, Line Count, and Word Count. These are meant as starting points; the rest is for you to explore in the menus.
 
-The built-in **Auto Indent** filter (`Ctrl+Enter` with that filter selected) appends a new line below the current one, indented to match the leading whitespace. If you have an existing `RichEditor.ini` from before this fix, find the `[Filter8]` section and change `Insert=replace` to `Insert=append` — otherwise pressing `Ctrl+Enter` on an indented line will erase the line content.
+The built-in **Smart Continue** filter (`Ctrl+Enter` with that filter selected) appends a new line below the current one. It detects what kind of line you are on and continues accordingly: unordered bullets (`-`, `+`, `*`) repeat the same bullet; ordered numeric lists (`1.` / `1)`) increment the number; ordered letter lists (`a)` / `A)`) advance to the next letter (with carry: `z`→`aa`, `Z`→`AA`); any other line copies the leading indent only. If you have an existing `RichEditor.ini` with the old Auto Indent filter in `[Filter8]`, replace its `Command=`, `Name=`, and description lines with the new Smart Continue defaults.
 
 Advanced: filters and categories are defined in `RichEditor.ini`. Categories are user-defined and can be renamed or replaced. You can also control whether a filter appears in the context menu.
 
