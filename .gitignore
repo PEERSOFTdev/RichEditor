@@ -4,9 +4,6 @@
 # Executables
 *.exe
 
-# Build artifacts
-RichEditor.exe
-
 # Local DLL helpers and private scripts
 lib/
 
@@ -54,3 +51,7 @@ addons/
 
 # My ToDo file
 ToDo.txt
+
+# clang-tidy-related
+.cache/
+compile_commands.json
