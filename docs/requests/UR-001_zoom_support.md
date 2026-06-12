@@ -1,6 +1,6 @@
 # UR-001 — Zoom Support
 
-**Status:** Planned  
+**Status:** Done  
 **Requested by:** User (visually impaired friend report)  
 **Date:** 2026-03-07
 

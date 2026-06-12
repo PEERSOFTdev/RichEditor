@@ -7,6 +7,10 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 
 ## Unreleased
 
+---
+
+## v2.10.0 (2026-06-12)
+
 - The Open dialog now offers an "All Supported Types" filter that combines every registered file extension into a single entry, making it easier to browse mixed-content folders. The Save As dialog is unaffected — it still lists individual types so the chosen extension is unambiguous. (`6e50787`)
 - Addon system: filters and templates can now be distributed as self-contained packs in the `addons/` directory. Each subfolder contains its own `filters.ini` and/or `templates.ini`; RichEditor loads them at startup alongside the built-in definitions. A "Reload Addons" item under the Tools menu rescans without restarting. (`b03c174`)
 - Fixed a crash when the `addons/` directory exists but contains no addon packs. Also fixed a potential crash when reloading addons while REPL mode is active. (`08009d7`)
@@ -33,7 +37,7 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 - Fixed a missing library in the MSVC build that caused the build to fail when `AutocorrectionSound=` was configured. (`7ac9dea`)
 - Fixed the built-in Auto Indent filter deleting the current line when executed with no selection. Pressing Ctrl+Enter on an indented line with the Auto Indent filter active now correctly appends a new indented line below — the original line is preserved. Users who have the Auto Indent filter in an existing `RichEditor.ini` need to change its `Insert=replace` line to `Insert=append` manually. (`e15d96f`)
 - The built-in Filter 8 has been replaced with **Smart Continue**, which supersedes Auto Indent. Pressing Ctrl+Enter now continues the current line intelligently: unordered bullets (`-`, `+`, `*`) repeat the same bullet; ordered numeric lists (`1.` / `1)`) increment the number (including multi-digit: `9`→`10`, `99`→`100`); ordered letter lists (`a)` / `A)`) advance to the next letter with carry-propagation (`z`→`aa`, `Z`→`AA`); any other line copies the leading indentation. The filter runs instantly using the built-in JScript engine — no PowerShell process is spawned. Users with an existing `RichEditor.ini` should update their `[Filter8]` section manually to pick up the new command. (`78af455`)
-- Fixed Smart Continue failing with a script error ("Identifier expected" or "Syntax error") and doing nothing whenever Ctrl+Enter was pressed. The built-in command was longer than the editor's internal limit for filter commands, so it was cut short and could no longer run; the limit has been raised. The command itself was also simplified, and letter lists now continue when the marker ends with a period (`a.` → `b.`) as well as the existing `a)` form. Users who copied the old `[Filter8]` command into their `RichEditor.ini` should replace it with the new one. (`bb1e17f`)
+- Fixed Smart Continue failing with a script error ("Identifier expected" or "Syntax error") and doing nothing whenever Ctrl+Enter was pressed. The built-in command was longer than the editor's internal limit for filter commands, so it was cut short and could no longer run; the limit has been raised. The command itself was also simplified, and letter lists now continue when the marker ends with a period (`a.` → `b.`) as well as the existing `a)` form. Users who copied the old `[Filter8]` command into their `RichEditor.ini` should replace it with the new one. (`66add39`)
 
 ## v2.9.0 (2026-03-26)
 
