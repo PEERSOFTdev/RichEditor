@@ -204,11 +204,13 @@ git show <hash>:src/resource.rc | grep FILEVERSION       # check version at a co
 The first commit where `FILEVERSION` changes to `X,Y,0,0` is the start of that version's
 section; its commit date becomes the section date.
 
-Known boundaries (as of 2026-03-14):
+Known boundaries (as of 2026-06-12):
 
 | Section    | Boundary commit | Date       | FILEVERSION |
 |------------|----------------|------------|-------------|
-| Unreleased | `e7e09b4`      | 2026-03-13 | 2,8,0,0 (unreleased work) |
+| Unreleased | `1324cd6`      | 2026-06-12 | 2,10,0,0 (unreleased work) |
+| v2.10.0    | `1324cd6`      | 2026-06-12 | 2,10,0,0 |
+| v2.9.0     | `fbde613`      | 2026-03-05 | 2,9,0,0 |
 | v2.8.0     | `fbde613`      | 2026-03-05 | 2,8,0,0 |
 | v2.7.0     | `359d682`      | 2026-01-14 | 2,7,0,0 |
 | v2.6.0     | `8eb21ba`      | 2026-01-09 | 2,6,0,0 |
