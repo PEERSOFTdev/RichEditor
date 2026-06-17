@@ -4,7 +4,7 @@ RichEditor je lehký a přístupný textový editor pro systém Windows (Win32, 
 
 ## Rychlý start
 
-Otevírejte a ukládejte jako v klasickém editoru: `Soubor -> Otevřít` (`Ctrl+O`) a `Ctrl+S`. Zalamování řádků přepnete v `Zobrazit -> Zalamování řádků` (`Ctrl+W`). Najít, nahradit a přejít na řádek najdete pod `Hledat` (`Ctrl+F`, `Ctrl+H`, `Ctrl+G`).
+Otevírejte a ukládejte jako v klasickém editoru: `Soubor -> Otevřít` (`Ctrl+O`) a `Ctrl+S`. Použijte `Soubor -> Otevřít umístění` (`Ctrl+L`) pro přímé zadání cesty k souboru nebo složce — zadáte-li složku, dialog Otevřít se zobrazí s předvolenou touto složkou; pokud cesta neexistuje, zobrazí se upozornění a cestu lze opravit přímo v dialogu. Zalamování řádků přepnete v `Zobrazit -> Zalamování řádků` (`Ctrl+W`). Najít, nahradit a přejít na řádek najdete pod `Hledat` (`Ctrl+F`, `Ctrl+H`, `Ctrl+G`).
 
 ## Základy rozhraní a stavový řádek
 
@@ -344,6 +344,7 @@ Názvy kláves jsou uvedeny podle popisků na klávesnici (Ctrl, Shift, Alt, Ent
 | --- | --- |
 | Ctrl+N | Nový |
 | Ctrl+O | Otevřít |
+| Ctrl+L | Otevřít umístění (zadat cestu k souboru nebo složce) |
 | Ctrl+S | Uložit |
 | Ctrl+Z | Zpět |
 | Ctrl+Y | Znovu |

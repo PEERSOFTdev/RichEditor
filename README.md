@@ -34,11 +34,18 @@ Open without adding to MRU:
 RichEditor.exe /nomru "C:\path\file.txt"
 ```
 
+Open a folder (shows the Open dialog preset to that folder):
+
+```cmd
+RichEditor.exe "C:\Projects\MyApp"
+```
+
 ## Features (User-Facing)
 
 ### Editing
 
 - New/Open/Save/Save As
+- **Open Location** (Ctrl+L): type a file or folder path directly; the editor opens the file, presets the Open dialog to the folder, or offers to correct a path that does not exist
 - Undo/Redo with descriptive labels
 - Word wrap toggle
 - Time/Date insertion (F5) with configurable templates

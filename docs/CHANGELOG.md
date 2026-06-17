@@ -7,6 +7,8 @@ Within each version, entries are in chronological (oldest-to-newest) order.
 
 ## Unreleased
 
+- New **File → Open Location…** command (`Ctrl+L`): type a file or folder path directly. If the path is an existing file it is opened immediately; if it is a folder the standard Open dialog appears preset to that folder; if the path does not exist a warning is shown and the Open dialog opens with the typed path pre-filled so it can be corrected. Passing a folder as a command-line argument now behaves the same way instead of producing an error. (`4437ebd`)
+
 ---
 
 ## v2.10.0 (2026-06-12)

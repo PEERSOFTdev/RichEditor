@@ -632,7 +632,7 @@ Shortcut=Ctrl+Shift+F
   - Cannot override built-in shortcuts (Ctrl+S, Ctrl+N, etc.)
 
 **Reserved Keyboard Shortcuts (Cannot Be Used):**
-- File: Ctrl+N, Ctrl+O, Ctrl+S
+- File: Ctrl+N, Ctrl+O, Ctrl+L, Ctrl+S
 - Edit: Ctrl+Z, Ctrl+Y, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+A
 - View: Ctrl+W
 - Tools: Ctrl+Enter, Ctrl+Shift+I, Ctrl+Shift+Q, Ctrl+Shift+T
@@ -1153,8 +1153,13 @@ The `Makefile` uses:
 RichEditor supports opening files from the command line with optional flags:
 
 ```bash
-RichEditor.exe [options] [filename]
+RichEditor.exe [options] [path]
 ```
+
+The `path` argument may be a **file path**, a **folder path**, or a path that does not yet exist:
+- **Existing file** — opened directly, as before.
+- **Existing folder** — the standard Open dialog appears preset to that folder.
+- **Non-existent path** — a warning is shown, then the Open dialog appears with the typed path pre-filled so the user can correct it. Useful for cloud locations (e.g. OneDrive Personal Vault) that may be temporarily unavailable.
 
 **Options:**
 - `/nomru` - Open file without adding it to the Most Recently Used (MRU) list
@@ -1167,6 +1172,10 @@ RichEditor.exe [options] [filename]
 RichEditor.exe document.txt
 RichEditor.exe "C:\My Documents\notes.txt"
 RichEditor.exe \\server\share\file.txt    # UNC paths supported
+
+# Open a folder — shows the Open dialog preset to that folder
+RichEditor.exe "C:\Projects\MyApp"
+RichEditor.exe %USERPROFILE%\Documents
 
 # Open without adding to MRU (perfect for temporary/reference files)
 RichEditor.exe data.json /nomru
@@ -1269,6 +1278,7 @@ RichEditor.exe /readonly source.cpp
 |----------|--------|
 | `Ctrl+N` | New file |
 | `Ctrl+O` | Open file |
+| `Ctrl+L` | Open Location (type a file or folder path) |
 | `Ctrl+S` | Save file |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Y` | Redo |

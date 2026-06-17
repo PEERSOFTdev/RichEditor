@@ -4,7 +4,7 @@ RichEditor is a lightweight, accessible Win32 text editor for plain text. It is 
 
 ## Quick Start
 
-Open and save like any classic editor: `File -> Open` (`Ctrl+O`) and `Ctrl+S`. Toggle word wrap with `View -> Word Wrap` (`Ctrl+W`). Find, Replace, and Go to Line live under `Search` (`Ctrl+F`, `Ctrl+H`, `Ctrl+G`).
+Open and save like any classic editor: `File -> Open` (`Ctrl+O`) and `Ctrl+S`. Use `File -> Open Location` (`Ctrl+L`) to type a file or folder path directly — if you type a folder, the Open dialog appears preset to it; if the path does not exist, a warning appears and you can correct the path in the dialog. Toggle word wrap with `View -> Word Wrap` (`Ctrl+W`). Find, Replace, and Go to Line live under `Search` (`Ctrl+F`, `Ctrl+H`, `Ctrl+G`).
 
 ## UI Basics and Status Bar
 
@@ -340,6 +340,7 @@ Note: `/elevated-save` is used internally by the editor when retrying a save wit
 | --- | --- |
 | Ctrl+N | New |
 | Ctrl+O | Open |
+| Ctrl+L | Open Location (type a file or folder path) |
 | Ctrl+S | Save |
 | Ctrl+Z | Undo |
 | Ctrl+Y | Redo |
