@@ -15,6 +15,7 @@
 #define ID_FILE_NEW_BLANK               1002  // New blank document (default)
 #define ID_FILE_NEW_TEMPLATE_BASE       8000  // Base for File→New template items (8000-8031)
 #define ID_FILE_OPEN                    1003
+#define ID_FILE_OPENLOCATION            1008  // Open Location... (file or folder path, Ctrl+L)
 #define ID_FILE_SAVE                    1004
 #define ID_FILE_SAVEAS                  1005
 #define ID_FILE_READONLY                1006  // Toggle read-only mode
@@ -68,6 +69,7 @@
 #define IDD_ABOUT                       300
 #define IDD_FIND                        301
 #define IDD_GOTO                        302
+#define IDD_OPENLOCATION                303  // Open Location dialog
 #define IDC_STATIC                      -1
 
 // Find dialog control IDs (Phase 2.9)
@@ -86,6 +88,10 @@
 // Go to Line dialog control IDs (Phase 2.9.4)
 #define IDC_GOTO_LINE                   3030
 #define IDC_GOTO_LABEL                  3031
+
+// Open Location dialog control IDs
+#define IDC_OPENLOCATION_PATH           3040
+#define IDC_OPENLOCATION_LABEL          3041
 
 // String resource IDs (2000-2099)
 #define IDS_ERROR                       2000
@@ -237,6 +243,11 @@
 #define IDS_GOTO_TITLE                  2159
 #define IDS_GOTO_LABEL                  2160
 #define IDS_GOTO_INVALID_LINE           2161
+
+// Open Location strings
+#define IDS_OPENLOCATION_TITLE          2190
+#define IDS_OPENLOCATION_LABEL          2191
+#define IDS_OPENLOCATION_NOTFOUND       2192
 
 // Bookmark strings (Phase 2.9.3: 2162-2166)
 #define IDS_BOOKMARK_TOGGLE             2162

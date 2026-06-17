@@ -285,6 +285,7 @@ struct ReservedShortcut {
 const ReservedShortcut g_ReservedShortcuts[] = {
     { 'N', FCONTROL | FVIRTKEY, L"Ctrl+N (New File)" },
     { 'O', FCONTROL | FVIRTKEY, L"Ctrl+O (Open)" },
+    { 'L', FCONTROL | FVIRTKEY, L"Ctrl+L (Open Location)" },
     { 'S', FCONTROL | FVIRTKEY, L"Ctrl+S (Save)" },
     { 'Z', FCONTROL | FVIRTKEY, L"Ctrl+Z (Undo)" },
     { 'Y', FCONTROL | FVIRTKEY, L"Ctrl+Y (Redo)" },
@@ -682,6 +683,7 @@ int CalculateTabAwareColumn(LPCWSTR pszLineText, int charPosition);
 BOOL GetURLAtCursor(HWND hWndEdit, LPWSTR pszURL, int cchMax, CHARRANGE* pRange);
 void OpenURL(HWND hwnd, LPCWSTR pszURL);
 INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK DlgOpenLocationProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void CopyURLToClipboard(HWND hwnd, LPCWSTR pszURL);
 void LoadStringResource(UINT uID, LPWSTR lpBuffer, int cchBufferMax);
 void LoadBookmarksForCurrentFile();
@@ -699,6 +701,10 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
 BOOL SaveTextFileInternal(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure, BOOL bUpdateState, BOOL bShowErrors);
 BOOL SaveTextFileSilently(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
+static void GetFirstExistingAncestor(LPCWSTR pszPath, LPWSTR pszDir, DWORD cchDir);
+static void ShowPathNotFound(HWND hwndOwner, LPCWSTR pszPath);
+static BOOL ShowOpenDialogAt(LPCWSTR pszInitialDir, LPCWSTR pszPresetFile);
+void OpenUserPath(LPCWSTR pszPath);
 void ShowError(UINT uMessageID, LPCWSTR pszEnglishMessage, DWORD dwError);
 void ShowSaveTextFailure(SaveTextFailure failure, DWORD dwError);
 static void RestoreForegroundAfterElevation();
@@ -1040,16 +1046,24 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
     // This allows RichEditor to be used as a file viewer while preserving
     // unsaved work for the next launch without arguments
     if (szCommandLineFile[0] != L'\0') {
-        // Command-line file specified - load it and ignore resume file
-        // Pass FALSE to not delete resume file (user might have multiple instances)
-        LoadTextFile(szCommandLineFile, FALSE);
-        
-        // Add to MRU (respects g_bNoMRU flag set by /nomru command-line option)
-        // LoadTextFile with bClearResumeState=FALSE doesn't add to MRU, so we do it here
-        AddToMRU(szCommandLineFile);
-        
-        // DON'T clear resume from INI - defer recovery to next launch without args
-        // User's unsaved work is preserved for later
+        DWORD dwAttrib = GetFileAttributes(szCommandLineFile);
+        if (dwAttrib == INVALID_FILE_ATTRIBUTES) {
+            // Path doesn't exist: warn and offer the Open dialog for correction
+            ShowPathNotFound(g_hWndMain, szCommandLineFile);
+            WCHAR szParent[EXTENDED_PATH_MAX];
+            GetFirstExistingAncestor(szCommandLineFile, szParent, EXTENDED_PATH_MAX);
+            ShowOpenDialogAt(szParent, szCommandLineFile);
+        } else if (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) {
+            // It's a folder: open the dialog preset to it
+            ShowOpenDialogAt(szCommandLineFile, NULL);
+        } else {
+            // Existing file: original behavior unchanged
+            // Pass FALSE to not delete resume file (user might have multiple instances)
+            LoadTextFile(szCommandLineFile, FALSE);
+            // Add to MRU (respects g_bNoMRU flag set by /nomru command-line option)
+            AddToMRU(szCommandLineFile);
+            // DON'T clear resume from INI - defer recovery to next launch without args
+        }
     } else {
         // No command-line file - check for resume file from previous session
         WCHAR szResumeFile[EXTENDED_PATH_MAX];
@@ -1527,7 +1541,7 @@ void LoadTemplates()
 HACCEL BuildAcceleratorTable()
 {
     // Count total accelerators needed
-    const int BUILTIN_COUNT = 24;  // Built-in shortcuts (including search shortcuts - Phase 2.9.3)
+    const int BUILTIN_COUNT = 25;  // Built-in shortcuts (including Open Location)
     int nTemplateShortcuts = 0;
     
     for (int i = 0; i < g_nTemplateCount; i++) {
@@ -1547,6 +1561,7 @@ HACCEL BuildAcceleratorTable()
     // Add built-in shortcuts (must match resource.rc order!)
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'N'; pAccel[idx++].cmd = ID_FILE_NEW;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'O'; pAccel[idx++].cmd = ID_FILE_OPEN;
+    pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'L'; pAccel[idx++].cmd = ID_FILE_OPENLOCATION;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'S'; pAccel[idx++].cmd = ID_FILE_SAVE;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'Z'; pAccel[idx++].cmd = ID_EDIT_UNDO;
     pAccel[idx].fVirt = FCONTROL | FVIRTKEY; pAccel[idx].key = 'Y'; pAccel[idx++].cmd = ID_EDIT_REDO;
@@ -2615,6 +2630,63 @@ INT_PTR CALLBACK DlgGotoProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
 }
 
 //============================================================================
+// DlgOpenLocationProc - Open Location dialog procedure (modal)
+// Accepts a file or folder path typed by the user.
+// lParam must point to an OpenLocationData struct (input: szPreFill, output: szResult).
+//============================================================================
+struct OpenLocationData {
+    WCHAR szPreFill[EXTENDED_PATH_MAX];
+    WCHAR szResult[EXTENDED_PATH_MAX];
+};
+
+INT_PTR CALLBACK DlgOpenLocationProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message) {
+        case WM_INITDIALOG:
+        {
+            SetWindowLongPtr(hDlg, DWLP_USER, lParam);
+
+            WCHAR szLabel[128];
+            LoadStringResource(IDS_OPENLOCATION_LABEL, szLabel, 128);
+            SetDlgItemText(hDlg, IDC_OPENLOCATION_LABEL, szLabel);
+
+            OpenLocationData* pData = (OpenLocationData*)lParam;
+            if (pData && pData->szPreFill[0] != L'\0') {
+                SetDlgItemText(hDlg, IDC_OPENLOCATION_PATH, pData->szPreFill);
+            }
+            SendDlgItemMessage(hDlg, IDC_OPENLOCATION_PATH, EM_SETSEL, 0, -1);
+            return TRUE;
+        }
+
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDOK) {
+                OpenLocationData* pData = (OpenLocationData*)GetWindowLongPtr(hDlg, DWLP_USER);
+                if (pData) {
+                    GetDlgItemText(hDlg, IDC_OPENLOCATION_PATH,
+                                   pData->szResult, EXTENDED_PATH_MAX);
+                    // Trim leading whitespace
+                    WCHAR* p = pData->szResult;
+                    while (*p == L' ' || *p == L'\t') p++;
+                    if (p != pData->szResult)
+                        wmemmove(pData->szResult, p, wcslen(p) + 1);
+                    // Trim trailing whitespace
+                    int len = (int)wcslen(pData->szResult);
+                    while (len > 0 && (pData->szResult[len - 1] == L' ' ||
+                                       pData->szResult[len - 1] == L'\t'))
+                        pData->szResult[--len] = L'\0';
+                }
+                EndDialog(hDlg, IDOK);
+                return TRUE;
+            } else if (LOWORD(wParam) == IDCANCEL) {
+                EndDialog(hDlg, IDCANCEL);
+                return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
+
+//============================================================================
 // DlgFindProc - Find dialog procedure (modeless)
 //============================================================================
 INT_PTR CALLBACK DlgFindProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -3530,6 +3602,25 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case ID_FILE_OPEN:
                     FileOpen();
                     break;
+                case ID_FILE_OPENLOCATION:
+                {
+                    OpenLocationData data = {};
+                    // Pre-fill with current document's folder when a file is open
+                    if (g_szFileName[0] != L'\0') {
+                        wcsncpy_s(data.szPreFill, EXTENDED_PATH_MAX,
+                                  g_szFileName, _TRUNCATE);
+                        PathRemoveFileSpec(data.szPreFill);
+                    }
+                    if (DialogBoxParam(GetModuleHandle(NULL),
+                                       MAKEINTRESOURCE(IDD_OPENLOCATION),
+                                       hwnd, DlgOpenLocationProc,
+                                       (LPARAM)&data) == IDOK
+                        && data.szResult[0] != L'\0')
+                    {
+                        OpenUserPath(data.szResult);
+                    }
+                    break;
+                }
                 case ID_FILE_READONLY:
                     g_bReadOnly = !g_bReadOnly;
                     SendMessage(g_hWndEdit, EM_SETREADONLY, g_bReadOnly, 0);
@@ -8444,40 +8535,114 @@ void BuildFileDialogFilter(LPWSTR pszFilter, DWORD cchFilter, int* pnFilterCount
 }
 
 //============================================================================
+// GetFirstExistingAncestor - Walk up pszPath until a directory that exists
+// is found; write it to pszDir.  Falls back to Documents if none found.
+//============================================================================
+static void GetFirstExistingAncestor(LPCWSTR pszPath, LPWSTR pszDir, DWORD cchDir)
+{
+    WCHAR szWork[EXTENDED_PATH_MAX];
+    wcsncpy_s(szWork, EXTENDED_PATH_MAX, pszPath, _TRUNCATE);
+
+    while (szWork[0] != L'\0') {
+        DWORD dw = GetFileAttributes(szWork);
+        if (dw != INVALID_FILE_ATTRIBUTES && (dw & FILE_ATTRIBUTE_DIRECTORY)) {
+            wcsncpy_s(pszDir, cchDir, szWork, _TRUNCATE);
+            return;
+        }
+        if (!PathRemoveFileSpec(szWork) || szWork[0] == L'\0')
+            break;
+    }
+    GetDocumentsPath(pszDir, cchDir);
+}
+
+//============================================================================
+// ShowPathNotFound - Warn the user that the typed path could not be found
+//============================================================================
+static void ShowPathNotFound(HWND hwndOwner, LPCWSTR pszPath)
+{
+    WCHAR szTitle[64], szFmt[128], szMsg[EXTENDED_PATH_MAX + 128];
+    LoadStringResource(IDS_OPENLOCATION_TITLE, szTitle, 64);
+    LoadStringResource(IDS_OPENLOCATION_NOTFOUND, szFmt, 128);
+    wcsncpy_s(szMsg, _countof(szMsg), szFmt, _TRUNCATE);
+    wcsncat_s(szMsg, _countof(szMsg), L"\n", _TRUNCATE);
+    wcsncat_s(szMsg, _countof(szMsg), pszPath, _TRUNCATE);
+    MessageBox(hwndOwner, szMsg, szTitle, MB_ICONWARNING | MB_OK);
+}
+
+//============================================================================
+// ShowOpenDialogAt - Show the Open File dialog with a preset directory/file.
+// pszInitialDir: directory to start in (NULL = Documents).
+// pszPresetFile: text to place in the File name field (NULL = empty).
+// Does NOT call PromptSaveChanges – caller is responsible.
+// Returns TRUE if the user picked a file (file is loaded); FALSE on cancel.
+//============================================================================
+static BOOL ShowOpenDialogAt(LPCWSTR pszInitialDir, LPCWSTR pszPresetFile)
+{
+    OPENFILENAME ofn    = {};
+    WCHAR szFile[EXTENDED_PATH_MAX]       = L"";
+    WCHAR szInitialDir[EXTENDED_PATH_MAX];
+
+    if (pszInitialDir && pszInitialDir[0])
+        wcsncpy_s(szInitialDir, EXTENDED_PATH_MAX, pszInitialDir, _TRUNCATE);
+    else
+        GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
+
+    if (pszPresetFile && pszPresetFile[0])
+        wcsncpy_s(szFile, EXTENDED_PATH_MAX, pszPresetFile, _TRUNCATE);
+
+    WCHAR szFilter[1024];
+    BuildFileDialogFilter(szFilter, 1024, NULL, NULL, TRUE);
+
+    ofn.lStructSize     = sizeof(OPENFILENAME);
+    ofn.hwndOwner       = g_hWndMain;
+    ofn.lpstrFile       = szFile;
+    ofn.nMaxFile        = EXTENDED_PATH_MAX;
+    ofn.lpstrFilter     = szFilter;
+    ofn.nFilterIndex    = 1;
+    ofn.lpstrInitialDir = szInitialDir;
+    ofn.Flags           = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+
+    if (GetOpenFileName(&ofn)) {
+        LoadTextFile(szFile);
+        SetFocus(g_hWndEdit);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+//============================================================================
+// OpenUserPath - Resolve a user-typed path: open file directly, preset the
+// Open dialog to a folder, or show an error and offer the dialog for a path
+// that does not exist.  Prompts to save unsaved changes first.
+//============================================================================
+void OpenUserPath(LPCWSTR pszPath)
+{
+    if (!pszPath || !pszPath[0]) return;
+    if (!PromptSaveChanges()) return;
+
+    DWORD dw = GetFileAttributes(pszPath);
+    if (dw == INVALID_FILE_ATTRIBUTES) {
+        // Path does not exist: warn, then let the user correct it in the dialog
+        ShowPathNotFound(g_hWndMain, pszPath);
+        WCHAR szParent[EXTENDED_PATH_MAX];
+        GetFirstExistingAncestor(pszPath, szParent, EXTENDED_PATH_MAX);
+        ShowOpenDialogAt(szParent, pszPath);
+    } else if (dw & FILE_ATTRIBUTE_DIRECTORY) {
+        // It's a folder: open the dialog preset to it
+        ShowOpenDialogAt(pszPath, NULL);
+    } else {
+        // It's an existing file: open it directly
+        LoadTextFile(pszPath);
+    }
+}
+
+//============================================================================
 // FileOpen - Show Open File dialog and load selected file
 //============================================================================
 void FileOpen()
 {
-    // Check for unsaved changes
-    if (!PromptSaveChanges()) {
-        return;
-    }
-    
-    // Setup file dialog
-    OPENFILENAME ofn = {};
-    WCHAR szFile[EXTENDED_PATH_MAX] = L"";
-    WCHAR szInitialDir[EXTENDED_PATH_MAX];
-    
-    GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
-    
-    // Build dynamic filter string based on template categories
-    WCHAR szFilter[1024];
-    BuildFileDialogFilter(szFilter, 1024, NULL, NULL, TRUE);
-    
-    ofn.lStructSize = sizeof(OPENFILENAME);
-    ofn.hwndOwner = g_hWndMain;
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = EXTENDED_PATH_MAX;
-    ofn.lpstrFilter = szFilter;
-    ofn.nFilterIndex = 1;
-    ofn.lpstrInitialDir = szInitialDir;
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-    
-    // Show dialog
-    if (GetOpenFileName(&ofn)) {
-        LoadTextFile(szFile);
-        SetFocus(g_hWndEdit);
-    }
+    if (!PromptSaveChanges()) return;
+    ShowOpenDialogAt(NULL, NULL);
 }
 
 //============================================================================

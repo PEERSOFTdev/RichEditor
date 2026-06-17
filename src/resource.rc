@@ -17,6 +17,7 @@ BEGIN
     BEGIN
         MENUITEM "&New\tCtrl+N", ID_FILE_NEW
         MENUITEM "&Open...\tCtrl+O", ID_FILE_OPEN
+        MENUITEM "Open &Location...\tCtrl+L", ID_FILE_OPENLOCATION
         MENUITEM SEPARATOR
         MENUITEM "&Read-Only", ID_FILE_READONLY
         MENUITEM SEPARATOR
@@ -135,6 +136,18 @@ BEGIN
     EDITTEXT        IDC_GOTO_LINE, 10, 25, 180, 14, ES_AUTOHSCROLL | ES_NUMBER
     DEFPUSHBUTTON   "Go", IDOK, 55, 50, 40, 14
     PUSHBUTTON      "Cancel", IDCANCEL, 105, 50, 40, 14
+END
+
+// Open Location dialog
+IDD_OPENLOCATION DIALOGEX 0, 0, 280, 80
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Open Location"
+FONT 8, "MS Shell Dlg", 400, 0
+BEGIN
+    LTEXT           "", IDC_OPENLOCATION_LABEL, 10, 12, 260, 8
+    EDITTEXT        IDC_OPENLOCATION_PATH, 10, 25, 260, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "Open", IDOK, 90, 55, 45, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 145, 55, 45, 14
 END
 
 // Version Information
@@ -341,6 +354,9 @@ BEGIN
      IDS_ADDON_OVERRIDE_TPL         "[Addons] %s ""%s"" (%s) from %s overrides previous definition"
      IDS_NO_AUTOCORRECTIONS          "(No autocorrections configured)"
      IDS_ADDON_OVERRIDE_AC           "[Addons] autocorrection ""%s"" from %s overrides previous definition"
+     IDS_OPENLOCATION_TITLE          "Open Location"
+     IDS_OPENLOCATION_LABEL          "&Path (file or folder):"
+     IDS_OPENLOCATION_NOTFOUND       "Path not found:"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -352,6 +368,7 @@ BEGIN
     BEGIN
         MENUITEM "&Nový\tCtrl+N", ID_FILE_NEW
         MENUITEM "&Otevřít...\tCtrl+O", ID_FILE_OPEN
+        MENUITEM "Otevřít u&místění...\tCtrl+L", ID_FILE_OPENLOCATION
         MENUITEM SEPARATOR
         MENUITEM "&Pouze ke čtení", ID_FILE_READONLY
         MENUITEM SEPARATOR
@@ -470,6 +487,18 @@ BEGIN
     EDITTEXT        IDC_GOTO_LINE, 10, 25, 180, 14, ES_AUTOHSCROLL | ES_NUMBER
     DEFPUSHBUTTON   "Přejít", IDOK, 55, 50, 40, 14
     PUSHBUTTON      "Zrušit", IDCANCEL, 105, 50, 40, 14
+END
+
+// Open Location dialog (Czech)
+IDD_OPENLOCATION DIALOGEX 0, 0, 280, 80
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Otevřít umístění"
+FONT 8, "MS Shell Dlg", 400, 0
+BEGIN
+    LTEXT           "", IDC_OPENLOCATION_LABEL, 10, 12, 260, 8
+    EDITTEXT        IDC_OPENLOCATION_PATH, 10, 25, 260, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "Otevřít", IDOK, 90, 55, 45, 14
+    PUSHBUTTON      "Zrušit", IDCANCEL, 145, 55, 45, 14
 END
 
 // String Resources (Czech)
@@ -630,4 +659,7 @@ BEGIN
      IDS_ADDON_OVERRIDE_TPL         "[Doplňky] %s ""%s"" (%s) z %s přepisuje předchozí definici"
      IDS_NO_AUTOCORRECTIONS          "(Žádné automatické opravy nejsou nakonfigurovány)"
      IDS_ADDON_OVERRIDE_AC           "[Doplňky] automatická oprava ""%s"" z %s přepisuje předchozí definici"
+     IDS_OPENLOCATION_TITLE          "Otevřít umístění"
+     IDS_OPENLOCATION_LABEL          "&Cesta (soubor nebo složka):"
+     IDS_OPENLOCATION_NOTFOUND       "Cesta nebyla nalezena:"
 END
