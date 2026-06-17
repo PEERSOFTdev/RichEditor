@@ -137,6 +137,10 @@ static const IID IID_IAccPropServices_ =
 // PROPID_ACC_NAME {608D3DF8-8128-4AA7-A428-F55E49267291}
 static const MSAAPROPID PROPID_ACC_NAME_ =
     {0x608D3DF8,0x8128,0x4AA7,{0xA4,0x28,0xF5,0x5E,0x49,0x26,0x72,0x91}};
+// CLSID_FileOpenDialog {DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}
+// Class GUID not exported from MXE static libs; define storage here.
+static const CLSID CLSID_FileOpenDialog_ =
+    {0xDC1C5A9C,0xE88A,0x4DDE,{0xA5,0xA1,0x60,0xF8,0x2A,0x20,0xAE,0xF7}};
 
 WCHAR g_szRichEditLibPath[MAX_PATH] = L"";          // Full path to loaded DLL
 WCHAR g_szRichEditLibPathINI[MAX_PATH] = L"";       // User preference from INI
@@ -8578,31 +8582,109 @@ static void ShowPathNotFound(HWND hwndOwner, LPCWSTR pszPath)
 //============================================================================
 static BOOL ShowOpenDialogAt(LPCWSTR pszInitialDir, LPCWSTR pszPresetFile)
 {
-    OPENFILENAME ofn    = {};
-    WCHAR szFile[EXTENDED_PATH_MAX]       = L"";
-    WCHAR szInitialDir[EXTENDED_PATH_MAX];
-
+    WCHAR szDir[EXTENDED_PATH_MAX];
     if (pszInitialDir && pszInitialDir[0])
-        wcsncpy_s(szInitialDir, EXTENDED_PATH_MAX, pszInitialDir, _TRUNCATE);
+        wcsncpy_s(szDir, EXTENDED_PATH_MAX, pszInitialDir, _TRUNCATE);
     else
-        GetDocumentsPath(szInitialDir, EXTENDED_PATH_MAX);
+        GetDocumentsPath(szDir, EXTENDED_PATH_MAX);
 
-    if (pszPresetFile && pszPresetFile[0])
-        wcsncpy_s(szFile, EXTENDED_PATH_MAX, pszPresetFile, _TRUNCATE);
-
+    // Build the file-type filter string (OFN-style, double-null terminated).
+    // Kept alive until after SetFileTypes so the COMDLG_FILTERSPEC pointers
+    // remain valid for the duration of the SetFileTypes call.
     WCHAR szFilter[1024];
     BuildFileDialogFilter(szFilter, 1024, NULL, NULL, TRUE);
 
+    // Use IFileOpenDialog (Vista+) whose SetFolder() reliably sets the initial
+    // folder, unlike GetOpenFileName's lpstrInitialDir which Windows may
+    // override with its persistent per-application directory memory.
+    IFileOpenDialog *pfd = NULL;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog_, NULL,
+                                  CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pfd));
+    if (SUCCEEDED(hr))
+    {
+        // Convert OFN null-delimited filter string to COMDLG_FILTERSPEC array.
+        COMDLG_FILTERSPEC aSpecs[32];
+        int nSpecs = 0;
+        for (const WCHAR *p = szFilter;
+             p[0] != L'\0' && nSpecs < 32;
+             p += wcslen(p) + 1)
+        {
+            aSpecs[nSpecs].pszName = p;
+            p += wcslen(p) + 1;
+            if (p[0] == L'\0') break;
+            aSpecs[nSpecs].pszSpec = p;
+            nSpecs++;
+        }
+        if (nSpecs > 0)
+            pfd->SetFileTypes(nSpecs, aSpecs);
+        pfd->SetFileTypeIndex(1);
+
+        // SetFolder() forces the dialog to open in szDir regardless of any
+        // previously remembered directory.
+        IShellItem *psiFolder = NULL;
+        if (SUCCEEDED(SHCreateItemFromParsingName(szDir, NULL,
+                                                  IID_PPV_ARGS(&psiFolder))))
+        {
+            pfd->SetFolder(psiFolder);
+            psiFolder->Release();
+        }
+
+        // Pre-fill the filename field with the full original path. Unlike
+        // GetOpenFileName (where a path in lpstrFile forces navigation),
+        // SetFileName is purely cosmetic — SetFolder still controls where the
+        // dialog opens. The full path in the edit box lets the user press OK
+        // once the target location becomes available (e.g. after unlocking a
+        // protected folder), and the dialog will resolve it as an absolute path
+        // regardless of the current folder shown in the tree.
+        if (pszPresetFile && pszPresetFile[0])
+            pfd->SetFileName(pszPresetFile);
+
+        DWORD dwFlags = 0;
+        pfd->GetOptions(&dwFlags);
+        pfd->SetOptions(dwFlags | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST);
+
+        hr = pfd->Show(g_hWndMain);
+        if (SUCCEEDED(hr))
+        {
+            IShellItem *psiResult = NULL;
+            hr = pfd->GetResult(&psiResult);
+            if (SUCCEEDED(hr))
+            {
+                LPWSTR pszPath = NULL;
+                if (SUCCEEDED(psiResult->GetDisplayName(SIGDN_FILESYSPATH,
+                                                        &pszPath)))
+                {
+                    LoadTextFile(pszPath);
+                    SetFocus(g_hWndEdit);
+                    CoTaskMemFree(pszPath);
+                }
+                psiResult->Release();
+            }
+        }
+        pfd->Release();
+        return SUCCEEDED(hr);
+    }
+
+    // Fallback: GetOpenFileName for systems where IFileOpenDialog is
+    // unavailable or CoCreateInstance fails.
+    OPENFILENAME ofn = {};
+    WCHAR szFile[EXTENDED_PATH_MAX] = L"";
+    if (pszPresetFile && pszPresetFile[0])
+    {
+        LPCWSTR pszName = PathFindFileNameW(pszPresetFile);
+        wcsncpy_s(szFile, EXTENDED_PATH_MAX,
+                  (pszName && pszName[0]) ? pszName : pszPresetFile, _TRUNCATE);
+    }
     ofn.lStructSize     = sizeof(OPENFILENAME);
     ofn.hwndOwner       = g_hWndMain;
     ofn.lpstrFile       = szFile;
     ofn.nMaxFile        = EXTENDED_PATH_MAX;
     ofn.lpstrFilter     = szFilter;
     ofn.nFilterIndex    = 1;
-    ofn.lpstrInitialDir = szInitialDir;
+    ofn.lpstrInitialDir = szDir;
     ofn.Flags           = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-
-    if (GetOpenFileName(&ofn)) {
+    if (GetOpenFileName(&ofn))
+    {
         LoadTextFile(szFile);
         SetFocus(g_hWndEdit);
         return TRUE;
