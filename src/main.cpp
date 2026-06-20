@@ -8588,6 +8588,18 @@ static BOOL ShowOpenDialogAt(LPCWSTR pszInitialDir, LPCWSTR pszPresetFile)
     else
         GetDocumentsPath(szDir, EXTENDED_PATH_MAX);
 
+    // Canonicalize szDir to an absolute path so SHCreateItemFromParsingName
+    // receives a rooted path even when the caller supplies a relative one
+    // (e.g. "." or "..\dir" from a command-line invocation).
+    // GetFullPathNameW resolves "." / ".." against the process CWD without
+    // adding a \\?\ prefix, so the result is always accepted by shell APIs.
+    // The EXTENDED_PATH_MAX buffer is safe for long-path-aware sessions.
+    {
+        WCHAR szAbs[EXTENDED_PATH_MAX];
+        if (GetFullPathNameW(szDir, EXTENDED_PATH_MAX, szAbs, NULL) > 0)
+            wcsncpy_s(szDir, EXTENDED_PATH_MAX, szAbs, _TRUNCATE);
+    }
+
     // Build the file-type filter string (OFN-style, double-null terminated).
     // Kept alive until after SetFileTypes so the COMDLG_FILTERSPEC pointers
     // remain valid for the duration of the SetFileTypes call.
