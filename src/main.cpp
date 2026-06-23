@@ -11805,16 +11805,18 @@ BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, 
 
     // Check if filter has a name
     if (filter->szName[0] == L'\0') {
-        swprintf(errorMsg, errorMsgSize, 
-                 L"Filter %d: Missing required 'Name' parameter", filterIndex + 1);
+        _snwprintf(errorMsg, errorMsgSize,
+                   L"Filter %d: Missing required 'Name' parameter", filterIndex + 1);
+        errorMsg[errorMsgSize - 1] = L'\0';
         return FALSE;
     }
     
     // Check if filter has a command
     if (filter->szCommand[0] == L'\0') {
-        swprintf(errorMsg, errorMsgSize, 
-                 L"Filter %d (%s): Missing required 'Command' parameter", 
-                 filterIndex + 1, filter->szName);
+        _snwprintf(errorMsg, errorMsgSize,
+                   L"Filter %d (%s): Missing required 'Command' parameter",
+                   filterIndex + 1, filter->szName);
+        errorMsg[errorMsgSize - 1] = L'\0';
         return FALSE;
     }
     
@@ -11842,17 +11844,19 @@ BOOL ValidateFilter(const FilterInfo* filter, int filterIndex, WCHAR* errorMsg, 
             break;
             
         default:
-            swprintf(errorMsg, errorMsgSize, 
-                     L"Filter %d (%s): Invalid action type", 
-                     filterIndex + 1, filter->szName);
+            _snwprintf(errorMsg, errorMsgSize,
+                       L"Filter %d (%s): Invalid action type",
+                       filterIndex + 1, filter->szName);
+            errorMsg[errorMsgSize - 1] = L'\0';
             return FALSE;
     }
     
     // Warn if description is missing (not an error, but recommended for accessibility)
     if (filter->szDescription[0] == L'\0') {
-        swprintf(errorMsg, errorMsgSize, 
-                 L"Filter %d (%s): Warning - Missing 'Description' parameter (recommended for accessibility)", 
-                 filterIndex + 1, filter->szName);
+        _snwprintf(errorMsg, errorMsgSize,
+                   L"Filter %d (%s): Warning - Missing 'Description' parameter (recommended for accessibility)",
+                   filterIndex + 1, filter->szName);
+        errorMsg[errorMsgSize - 1] = L'\0';
         // Return TRUE anyway - this is just a warning
     }
     
