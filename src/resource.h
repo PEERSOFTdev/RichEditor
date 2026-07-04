@@ -16,6 +16,7 @@
 #define ID_FILE_NEW_TEMPLATE_BASE       8000  // Base for File→New template items (8000-8031)
 #define ID_FILE_OPEN                    1003
 #define ID_FILE_OPENLOCATION            1008  // Open Location... (file or folder path, Ctrl+L)
+#define ID_FILE_OPENRESUME              1009  // Open Resume File submenu parent
 #define ID_FILE_SAVE                    1004
 #define ID_FILE_SAVEAS                  1005
 #define ID_FILE_READONLY                1006  // Toggle read-only mode
@@ -61,6 +62,8 @@
 
 // File menu - MRU list
 #define ID_FILE_MRU_BASE                6000  // Base for MRU menu items (6000-6009)
+#define ID_FILE_OPENRESUME_BASE         6100  // Base for Open Resume File items (6100-6124)
+#define ID_FILE_OPENRESUME_CLEAR        6125  // "Delete all resume files" item
 
 // Help menu
 #define ID_HELP_ABOUT                   1901
@@ -294,8 +297,11 @@
 #define IDS_NO_AUTOCORRECTIONS          2185  // "(No autocorrections configured)"
 #define IDS_ADDON_OVERRIDE_AC           2186  // "[Addons] autocorrection overridden" log message
 
-// Session recovery strings (2193-2194: Bug 4 fix warning)
+// Session recovery strings (2193-2197)
 #define IDS_RESUME_UNAVAIL_TITLE        2193  // "Session Recovery" dialog title
 #define IDS_RESUME_UNAVAIL_MSG          2194  // Warning when registered resume file is unreachable
+#define IDS_MENU_OPENRESUME             2195  // "Open Resume File" menu label (for grayed state)
+#define IDS_OPENRESUME_CLEAR            2196  // "Delete all resume files" submenu item
+#define IDS_RESUME_TEMPDIR_FAIL         2197  // Error when recovery folder cannot be created/accessed
 
 #endif // RESOURCE_H

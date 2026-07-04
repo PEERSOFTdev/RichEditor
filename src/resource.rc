@@ -18,6 +18,7 @@ BEGIN
         MENUITEM "&New\tCtrl+N", ID_FILE_NEW
         MENUITEM "&Open...\tCtrl+O", ID_FILE_OPEN
         MENUITEM "Open &Location...\tCtrl+L", ID_FILE_OPENLOCATION
+        MENUITEM "Open Resume &File", ID_FILE_OPENRESUME
         MENUITEM SEPARATOR
         MENUITEM "&Read-Only", ID_FILE_READONLY
         MENUITEM SEPARATOR
@@ -359,6 +360,9 @@ BEGIN
       IDS_OPENLOCATION_NOTFOUND       "Path not found:"
       IDS_RESUME_UNAVAIL_TITLE        "Session Recovery"
       IDS_RESUME_UNAVAIL_MSG          "A session recovery file could not be opened:\n\n{PATH}\n\nThe location may be temporarily unavailable. If you can make it accessible, use File \xe2\x86\x92 Open Resume File to open it. Otherwise, try reopening RichEditor later."
+      IDS_MENU_OPENRESUME             "Open Resume &File"
+      IDS_OPENRESUME_CLEAR            "Delete all resume files"
+      IDS_RESUME_TEMPDIR_FAIL         "Could not create or access the session recovery folder:\n\n{PATH}"
 END
 // ============================================================================
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
@@ -371,6 +375,7 @@ BEGIN
         MENUITEM "&Nový\tCtrl+N", ID_FILE_NEW
         MENUITEM "&Otevřít...\tCtrl+O", ID_FILE_OPEN
         MENUITEM "Otevřít u&místění...\tCtrl+L", ID_FILE_OPENLOCATION
+        MENUITEM "Otevřít soubor &obnovení", ID_FILE_OPENRESUME
         MENUITEM SEPARATOR
         MENUITEM "&Pouze ke čtení", ID_FILE_READONLY
         MENUITEM SEPARATOR
@@ -666,4 +671,7 @@ BEGIN
       IDS_OPENLOCATION_NOTFOUND       "Cesta nebyla nalezena:"
       IDS_RESUME_UNAVAIL_TITLE        "Obnovení relace"
       IDS_RESUME_UNAVAIL_MSG          "Soubor obnovení relace nelze otevřít:\n\n{PATH}\n\nUmístění může být dočasně nedostupné. Pokud jej zpřístupníte, otevřete soubor přes Soubor \xe2\x86\x92 Otevřít soubor obnovení. Jinak zkuste RichEditor otevřít znovu později."
+      IDS_MENU_OPENRESUME             "Otevřít soubor &obnovení"
+      IDS_OPENRESUME_CLEAR            "Smazat všechny soubory obnovení"
+      IDS_RESUME_TEMPDIR_FAIL         "Nelze vytvořit nebo zpřístupnit složku pro obnovení relace:\n\n{PATH}"
 END

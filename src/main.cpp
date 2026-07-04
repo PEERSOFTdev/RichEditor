@@ -168,6 +168,12 @@ WCHAR g_szResumeFilePath[EXTENDED_PATH_MAX] = L"";    // Current resume temp fil
 WCHAR g_szOriginalFilePath[EXTENDED_PATH_MAX] = L""; // Original file path (for resumed files)
 BOOL g_bIsResumedFile = FALSE;                        // TRUE if current file was opened from resume
 BOOL g_bAutoSaveUntitledOnClose = FALSE;              // Auto-save untitled files on close (no prompt)
+WCHAR g_szCustomTempDir[EXTENDED_PATH_MAX] = L"";    // Custom temp dir from AutoSaveTempDir INI key
+
+// Open Resume File submenu state
+#define MAX_RESUME_FILES 25
+static WCHAR g_szResumeFiles[MAX_RESUME_FILES][EXTENDED_PATH_MAX];
+static int   g_nResumeFileCount = 0;
 
 // Tab settings
 UINT g_nTabSize = 8;                          // Tab size in spaces (default 8)
@@ -776,6 +782,7 @@ BOOL PopulateTemplateMenu(HMENU hMenu, BOOL bForToolsMenu);  // Helper: populate
 void ShowTemplatePickerMenu(HWND hwnd);
 void BuildTemplateMenu(HWND hwnd);
 void BuildFileNewMenu(HWND hwnd);
+void BuildResumeFilesMenu(HWND hwnd);
 
 // Autocorrection system functions
 void LoadAutocorrectionTables();
@@ -1075,8 +1082,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
         // so /nomru and /readonly alone do NOT suppress resume detection here.
         WCHAR szResumeFile[EXTENDED_PATH_MAX];
         WCHAR szOriginalPath[EXTENDED_PATH_MAX];
-        
-        if (ReadResumeFromINI(szResumeFile, EXTENDED_PATH_MAX, 
+
+        if (ReadResumeFromINI(szResumeFile, EXTENDED_PATH_MAX,
                               szOriginalPath, EXTENDED_PATH_MAX)) {
             // Check if the resume file is reachable on this machine.
             DWORD dwAttrib = GetFileAttributes(szResumeFile);
@@ -1084,27 +1091,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
                 // File is present — load it.
                 BOOL bPrevNoMRU = g_bNoMRU;
                 g_bNoMRU = TRUE;
-                
+
                 if (LoadTextFile(szResumeFile, FALSE)) {
                     if (szOriginalPath[0] != L'\0') {
                         wcscpy(g_szFileName, szOriginalPath);
                         const WCHAR* pszFileTitle = wcsrchr(szOriginalPath, L'\\');
-                        if (pszFileTitle) {
-                            wcscpy(g_szFileTitle, pszFileTitle + 1);
-                        } else {
-                            wcscpy(g_szFileTitle, szOriginalPath);
-                        }
+                        if (pszFileTitle) wcscpy(g_szFileTitle, pszFileTitle + 1);
+                        else             wcscpy(g_szFileTitle, szOriginalPath);
                     } else {
-                        // Untitled file - clear filename
                         g_szFileName[0] = L'\0';
                         g_szFileTitle[0] = L'\0';
                     }
-                    
+
                     wcscpy(g_szResumeFilePath, szResumeFile);
                     wcscpy(g_szOriginalFilePath, szOriginalPath);
                     g_bIsResumedFile = TRUE;
                     g_bModified = TRUE;
-                    
+
                     UpdateTitle(g_hWndMain);
                 }
 
@@ -1118,7 +1121,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
                 // another machine's temp folder, or a temporarily locked location).
                 // Warn the user and preserve the INI entry so the next launch can
                 // try again.  The user can also open it manually via
-                // File -> Open Resume File once the location becomes available.
+                // File → Open Resume File once the location becomes available.
                 WCHAR szTitle[64], szMsg[EXTENDED_PATH_MAX + 512];
                 LoadStringResource(IDS_RESUME_UNAVAIL_TITLE, szTitle, 64);
                 FormatResWithPath(IDS_RESUME_UNAVAIL_MSG, szResumeFile,
@@ -3379,10 +3382,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
              BuildAutocorrectionMenu(hwnd);  // Build autocorrection submenu
             UpdateFilterDisplay();
             UpdateMenuStates(hwnd);
-            
+
             // Load MRU list
             LoadMRU();
             UpdateMRUMenu(hwnd);
+            BuildResumeFilesMenu(hwnd);  // Build File→Open Resume File submenu
 
             // Initialize bookmark state
             g_nLastTextLen = GetWindowTextLength(g_hWndEdit);
@@ -3630,9 +3634,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     }
                     break;
                 }
+                case ID_FILE_OPENRESUME_CLEAR:
+                {
+                    // If currently editing a resumed file, save or discard it first.
+                    if (g_bIsResumedFile && !PromptSaveChanges()) break;
+                    WCHAR szDir[EXTENDED_PATH_MAX];
+                    if (GetRichEditorTempDir(szDir, EXTENDED_PATH_MAX)) {
+                        // Delete every file in the directory (all are RichEditor-managed).
+                        WCHAR szPattern[EXTENDED_PATH_MAX];
+                        _snwprintf(szPattern, EXTENDED_PATH_MAX, L"%s*", szDir);
+                        szPattern[EXTENDED_PATH_MAX - 1] = L'\0';
+                        WIN32_FIND_DATA wfd;
+                        HANDLE hFind = FindFirstFile(szPattern, &wfd);
+                        if (hFind != INVALID_HANDLE_VALUE) {
+                            do {
+                                if (wcscmp(wfd.cFileName, L".") == 0 ||
+                                    wcscmp(wfd.cFileName, L"..") == 0) continue;
+                                if (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                                WCHAR szFull[EXTENDED_PATH_MAX];
+                                _snwprintf(szFull, EXTENDED_PATH_MAX, L"%s%s",
+                                           szDir, wfd.cFileName);
+                                szFull[EXTENDED_PATH_MAX - 1] = L'\0';
+                                DeleteFile(szFull);
+                            } while (FindNextFile(hFind, &wfd));
+                            FindClose(hFind);
+                        }
+                        ClearResumeFromINI();
+                        BuildResumeFilesMenu(hwnd);
+                    }
+                    break;
+                }
                 case ID_FILE_READONLY:
-                    g_bReadOnly = !g_bReadOnly;
-                    SendMessage(g_hWndEdit, EM_SETREADONLY, g_bReadOnly, 0);
+                    g_bReadOnly = !g_bReadOnly;                    SendMessage(g_hWndEdit, EM_SETREADONLY, g_bReadOnly, 0);
                     BuildFilterMenu(hwnd);  // Rebuild filter menu to update grayed state
                     UpdateMenuStates(hwnd);  // Update Execute Filter / Start Interactive
                     UpdateTitle();
@@ -3786,8 +3819,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         int wmId = LOWORD(wParam);
                         
                         // Handle MRU file clicks
-                        if (wmId >= ID_FILE_MRU_BASE && wmId < ID_FILE_MRU_BASE + MAX_MRU) {
-                            int mruIdx = wmId - ID_FILE_MRU_BASE;
+                        if (wmId >= ID_FILE_MRU_BASE && wmId < ID_FILE_MRU_BASE + MAX_MRU) {                            int mruIdx = wmId - ID_FILE_MRU_BASE;
                             if (mruIdx >= 0 && mruIdx < g_nMRUCount) {
                                 // Check for unsaved changes (synchronous — must happen before
                                 // the menu closes so the user's intent is still clear)
@@ -3805,9 +3837,34 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                 }
                             }
                         }
+                        // Handle Open Resume File submenu clicks
+                        else if (wmId >= ID_FILE_OPENRESUME_BASE &&
+                                 wmId < ID_FILE_OPENRESUME_BASE + MAX_RESUME_FILES) {
+                            int idx = wmId - ID_FILE_OPENRESUME_BASE;
+                            if (idx >= 0 && idx < g_nResumeFileCount &&
+                                g_szResumeFiles[idx][0] != L'\0') {
+                                if (!PromptSaveChanges()) break;
+                                BOOL bPrevNoMRU = g_bNoMRU;
+                                g_bNoMRU = TRUE;
+                                if (LoadTextFile(g_szResumeFiles[idx], FALSE)) {
+                                    // Original path is not stored for arbitrary resume
+                                    // files; treat the same as an untitled resumed file
+                                    // so Ctrl+S goes to Save As.
+                                    g_szFileName[0]         = L'\0';
+                                    g_szFileTitle[0]        = L'\0';
+                                    wcscpy(g_szResumeFilePath, g_szResumeFiles[idx]);
+                                    g_szOriginalFilePath[0] = L'\0';
+                                    g_bIsResumedFile        = TRUE;
+                                    g_bModified             = TRUE;
+                                    UpdateTitle();
+                                    UpdateStatusBar();
+                                }
+                                g_bNoMRU = bPrevNoMRU;
+                                BuildResumeFilesMenu(hwnd);
+                            }
+                        }
                         // Handle URL actions from context menu
-                        else if (wmId == ID_URL_OPEN) {
-                            // Open URL from context menu (use stored URL)
+                        else if (wmId == ID_URL_OPEN) {                            // Open URL from context menu (use stored URL)
                             if (g_szContextMenuURL[0] != L'\0') {
                                 OpenURL(hwnd, g_szContextMenuURL);
                                 g_szContextMenuURL[0] = L'\0';  // Clear after use
@@ -3967,6 +4024,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                              g_bReadOnly ? MF_CHECKED : MF_UNCHECKED);
                 EnableMenuItem(hMenu, ID_FILE_SAVE, 
                               g_bReadOnly ? MF_GRAYED : MF_ENABLED);
+                BuildResumeFilesMenu(hwnd);  // Refresh resume file list
             }
             // Update Undo/Redo menu items when Edit menu is opened
             if (LOWORD(lParam) == 1) {  // Edit menu is at position 1
@@ -4781,17 +4839,27 @@ if (msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL)) {
 //============================================================================
 BOOL GetRichEditorTempDir(WCHAR* pszPath, DWORD dwSize)
 {
+    if (!pszPath || dwSize == 0) return FALSE;
+
+    // Use custom temp directory if configured via AutoSaveTempDir INI key.
+    if (g_szCustomTempDir[0] != L'\0') {
+        wcsncpy_s(pszPath, dwSize, g_szCustomTempDir, _TRUNCATE);
+        // Normalise: ensure exactly one trailing backslash.
+        size_t n = wcslen(pszPath);
+        if (n > 0 && pszPath[n - 1] != L'\\' && n + 1 < dwSize) {
+            pszPath[n]     = L'\\';
+            pszPath[n + 1] = L'\0';
+        }
+        return TRUE;
+    }
+
+    // Default: %TEMP%\RichEditor\ (backslash-terminated)
     WCHAR szTempPath[MAX_PATH];
-    
-    // Get Windows temp directory
     if (GetTempPath(MAX_PATH, szTempPath) == 0) {
         return FALSE;
     }
-    
-    // Append RichEditor subdirectory
     _snwprintf(pszPath, dwSize, L"%sRichEditor\\", szTempPath);
     pszPath[dwSize - 1] = L'\0';
-    
     return TRUE;
 }
 
@@ -4817,6 +4885,11 @@ BOOL EnsureRichEditorTempDirExists()
     if (!CreateDirectory(szTempDir, NULL)) {
         DWORD dwError = GetLastError();
         if (dwError != ERROR_ALREADY_EXISTS) {
+            // Show localised error naming the path that could not be created.
+            WCHAR szTitle[64], szMsg[EXTENDED_PATH_MAX + 256];
+            LoadStringResource(IDS_ERROR, szTitle, 64);
+            FormatResWithPath(IDS_RESUME_TEMPDIR_FAIL, szTempDir, szMsg, _countof(szMsg));
+            MessageBox(g_hWndMain, szMsg, szTitle, MB_OK | MB_ICONERROR);
             return FALSE;
         }
     }
@@ -4844,13 +4917,7 @@ BOOL GenerateResumeFileName(const WCHAR* pszOriginalPath, WCHAR* pszResumeFile, 
     
     // Ensure directory exists
     if (!EnsureRichEditorTempDirExists()) {
-        // Show error message
-        WCHAR szError[512];
-        LoadStringResource(IDS_ERROR, szError, 512);
-        MessageBox(g_hWndMain, 
-                   L"Cannot create temporary directory for session recovery.\n"
-                   L"Unsaved changes will be lost on shutdown.",
-                   szError, MB_OK | MB_ICONERROR);
+        // EnsureRichEditorTempDirExists already showed the localised error.
         return FALSE;
     }
     
@@ -10054,6 +10121,11 @@ void CreateDefaultINI()
         "; Editor behavior settings\r\n"
         "SelectAfterPaste=0            ; 1=select pasted text, 0=cursor after paste (default: 0)\r\n"
         "AutoSaveUntitledOnClose=0     ; 1=auto-save untitled files on close (no prompt), 0=prompt as usual (default: 0)\r\n"
+        "AutoSaveTempDir=              ; Custom folder for session recovery and elevated-save staging files\r\n"
+        ";   Leave empty to use the Windows temporary folder (%TEMP%\\RichEditor\\).\r\n"
+        ";   Use a raw absolute path, e.g. C:\\Users\\name\\AppData\\Local\\MyBackups\\RichEditor\r\n"
+        ";   Useful when RichEditor is a portable app that roams between machines\r\n"
+        ";   and you want recovery files to travel with it.\r\n"
         "\r\n"
         "; URL detection (accessibility: screen reader link roles, context menu 'Open URL', click-to-open)\r\n"
         "; Set DetectURLs=0 if cursor movement is slow on very large files (RichEdit scans per keystroke when enabled)\r\n"
@@ -10525,6 +10597,8 @@ void LoadSettings()
     LoadSettingBool(szIniPath, L"ShowMenuDescriptions",   &g_bShowMenuDescriptions, TRUE);
     LoadSettingBool(szIniPath, L"SelectAfterPaste",       &g_bSelectAfterPaste, FALSE);
     LoadSettingBool(szIniPath, L"AutoSaveUntitledOnClose", &g_bAutoSaveUntitledOnClose, FALSE);
+    LoadSettingString(szIniPath, L"AutoSaveTempDir", g_szCustomTempDir,
+                      _countof(g_szCustomTempDir), L"");
     LoadSettingBool(szIniPath, L"DetectURLs",             &g_bAutoURLEnabled, TRUE);
     LoadSettingInt (szIniPath, L"TabSize",                 (int*)&g_nTabSize, 8, 1, 32);
     LoadSettingInt (szIniPath, L"Zoom",                    &g_nZoomPercent, 100, 1, 6400);
@@ -12138,6 +12212,117 @@ void AddToMRU(LPCWSTR pszFilePath)
     
     // Update menu
     UpdateMRUMenu(g_hWndMain);
+}
+
+//============================================================================
+// BuildResumeFilesMenu - Build (or refresh) the File→Open Resume File submenu.
+// Enumerates all files in GetRichEditorTempDir() (every file there is
+// RichEditor-managed) and populates the submenu, sorted alphabetically.
+// When the directory is absent or empty the parent menu item is grayed.
+// Also rebuilds g_szResumeFiles[] used by the WM_COMMAND dispatcher.
+//============================================================================
+void BuildResumeFilesMenu(HWND hwnd)
+{
+    HMENU hMenu = GetMenu(hwnd);
+    if (!hMenu) return;
+    HMENU hFileMenu = GetSubMenu(hMenu, 0);
+    if (!hFileMenu) return;
+
+    // Find the position of ID_FILE_OPENRESUME in the File menu.
+    int parentPos = -1;
+    int fileItemCount = GetMenuItemCount(hFileMenu);
+    for (int i = 0; i < fileItemCount; i++) {
+        if (GetMenuItemID(hFileMenu, i) == ID_FILE_OPENRESUME) {
+            parentPos = i;
+            break;
+        }
+    }
+    if (parentPos == -1) return;  // item not found (unexpected)
+
+    // Obtain or create the submenu attached to the parent item.
+    HMENU hSub = GetSubMenu(hFileMenu, parentPos);
+    if (!hSub) {
+        hSub = CreatePopupMenu();
+        if (!hSub) return;
+        // Replace the flat MENUITEM with a POPUP.
+        WCHAR szLabel[128];
+        LoadStringResource(IDS_MENU_OPENRESUME, szLabel, 128);
+        DeleteMenu(hFileMenu, parentPos, MF_BYPOSITION);
+        InsertMenu(hFileMenu, parentPos,
+                   MF_BYPOSITION | MF_STRING | MF_POPUP,
+                   (UINT_PTR)hSub, szLabel);
+    } else {
+        // Clear existing items.
+        while (GetMenuItemCount(hSub) > 0)
+            DeleteMenu(hSub, 0, MF_BYPOSITION);
+    }
+
+    // Scan the temp directory.
+    WCHAR szDir[EXTENDED_PATH_MAX];
+    g_nResumeFileCount = 0;
+
+    BOOL bHasDir = GetRichEditorTempDir(szDir, EXTENDED_PATH_MAX);
+    if (bHasDir) {
+        WCHAR szPattern[EXTENDED_PATH_MAX];
+        _snwprintf(szPattern, EXTENDED_PATH_MAX, L"%s*", szDir);
+        szPattern[EXTENDED_PATH_MAX - 1] = L'\0';
+
+        WIN32_FIND_DATA wfd;
+        HANDLE hFind = FindFirstFile(szPattern, &wfd);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                if (wcscmp(wfd.cFileName, L".") == 0 ||
+                    wcscmp(wfd.cFileName, L"..") == 0) continue;
+                if (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                if (g_nResumeFileCount >= MAX_RESUME_FILES) break;
+                _snwprintf(g_szResumeFiles[g_nResumeFileCount],
+                           EXTENDED_PATH_MAX, L"%s%s", szDir, wfd.cFileName);
+                g_szResumeFiles[g_nResumeFileCount][EXTENDED_PATH_MAX - 1] = L'\0';
+                g_nResumeFileCount++;
+            } while (FindNextFile(hFind, &wfd));
+            FindClose(hFind);
+        }
+
+        // Sort alphabetically by filename (case-insensitive).
+        for (int i = 0; i < g_nResumeFileCount - 1; i++) {
+            for (int j = i + 1; j < g_nResumeFileCount; j++) {
+                LPCWSTR pA = wcsrchr(g_szResumeFiles[i], L'\\');
+                LPCWSTR pB = wcsrchr(g_szResumeFiles[j], L'\\');
+                pA = pA ? pA + 1 : g_szResumeFiles[i];
+                pB = pB ? pB + 1 : g_szResumeFiles[j];
+                if (_wcsicmp(pA, pB) > 0) {
+                    WCHAR szTmp[EXTENDED_PATH_MAX];
+                    wcscpy(szTmp, g_szResumeFiles[i]);
+                    wcscpy(g_szResumeFiles[i], g_szResumeFiles[j]);
+                    wcscpy(g_szResumeFiles[j], szTmp);
+                }
+            }
+        }
+    }
+
+    if (g_nResumeFileCount == 0) {
+        // No files — gray the parent item so the submenu arrow is not shown.
+        EnableMenuItem(hFileMenu, parentPos,
+                       MF_BYPOSITION | MF_GRAYED);
+        DrawMenuBar(hwnd);
+        return;
+    }
+
+    // Populate submenu with filenames only (no path).
+    EnableMenuItem(hFileMenu, parentPos, MF_BYPOSITION | MF_ENABLED);
+    for (int i = 0; i < g_nResumeFileCount; i++) {
+        LPCWSTR pszName = wcsrchr(g_szResumeFiles[i], L'\\');
+        pszName = pszName ? pszName + 1 : g_szResumeFiles[i];
+        AppendMenu(hSub, MF_STRING, ID_FILE_OPENRESUME_BASE + i, pszName);
+    }
+
+    // Separator + Delete item.
+    AppendMenu(hSub, MF_SEPARATOR, 0, NULL);
+    WCHAR szClear[128];
+    LoadStringResource(IDS_OPENRESUME_CLEAR, szClear, 128);
+    AppendMenu(hSub, MF_STRING, ID_FILE_OPENRESUME_CLEAR, szClear);
+
+    DrawMenuBar(hwnd);
 }
 
 //============================================================================
