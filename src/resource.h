@@ -294,4 +294,8 @@
 #define IDS_NO_AUTOCORRECTIONS          2185  // "(No autocorrections configured)"
 #define IDS_ADDON_OVERRIDE_AC           2186  // "[Addons] autocorrection overridden" log message
 
+// Session recovery strings (2193-2194: Bug 4 fix warning)
+#define IDS_RESUME_UNAVAIL_TITLE        2193  // "Session Recovery" dialog title
+#define IDS_RESUME_UNAVAIL_MSG          2194  // Warning when registered resume file is unreachable
+
 #endif // RESOURCE_H

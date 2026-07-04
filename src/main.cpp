@@ -705,6 +705,7 @@ BOOL SaveTextFile(LPCWSTR pszFileName, BOOL bClearResumeState = TRUE);
 BOOL SaveTextFileInternal(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure, BOOL bUpdateState, BOOL bShowErrors);
 BOOL SaveTextFileSilently(LPCWSTR pszFileName, BOOL bClearResumeState, DWORD* pLastError, SaveTextFailure* pFailure);
 void GetDocumentsPath(LPWSTR pszPath, DWORD cchPath);
+static void FormatResWithPath(UINT uID, LPCWSTR pszPath, LPWSTR pszOut, size_t cchOut);
 static void GetFirstExistingAncestor(LPCWSTR pszPath, LPWSTR pszDir, DWORD cchDir);
 static void ShowPathNotFound(HWND hwndOwner, LPCWSTR pszPath);
 static BOOL ShowOpenDialogAt(LPCWSTR pszInitialDir, LPCWSTR pszPresetFile);
@@ -1069,25 +1070,22 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
             // DON'T clear resume from INI - defer recovery to next launch without args
         }
     } else {
-        // No command-line file - check for resume file from previous session
+        // No command-line file — check for resume file from previous session.
+        // Note: szCommandLineFile is only set by a non-flag argument (line ~949),
+        // so /nomru and /readonly alone do NOT suppress resume detection here.
         WCHAR szResumeFile[EXTENDED_PATH_MAX];
         WCHAR szOriginalPath[EXTENDED_PATH_MAX];
         
         if (ReadResumeFromINI(szResumeFile, EXTENDED_PATH_MAX, 
                               szOriginalPath, EXTENDED_PATH_MAX)) {
-            // Check if resume file actually exists
+            // Check if the resume file is reachable on this machine.
             DWORD dwAttrib = GetFileAttributes(szResumeFile);
             if (dwAttrib != INVALID_FILE_ATTRIBUTES) {
-                // Temporarily set g_bNoMRU to prevent adding temp file to MRU
+                // File is present — load it.
                 BOOL bPrevNoMRU = g_bNoMRU;
                 g_bNoMRU = TRUE;
                 
-                // Use the working LoadTextFile() function to load content
-                // This ensures consistent UTF-8 decoding without bugs
-                // Pass FALSE to prevent deleting the resume file we're loading
                 if (LoadTextFile(szResumeFile, FALSE)) {
-                    // LoadTextFile() set g_szFileName to the resume file path
-                    // Override with original file path (if available)
                     if (szOriginalPath[0] != L'\0') {
                         wcscpy(g_szFileName, szOriginalPath);
                         const WCHAR* pszFileTitle = wcsrchr(szOriginalPath, L'\\');
@@ -1102,25 +1100,32 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */,
                         g_szFileTitle[0] = L'\0';
                     }
                     
-                    // Set up resumed file state
                     wcscpy(g_szResumeFilePath, szResumeFile);
                     wcscpy(g_szOriginalFilePath, szOriginalPath);
                     g_bIsResumedFile = TRUE;
-                    g_bModified = TRUE;  // Mark as modified
+                    g_bModified = TRUE;
                     
-                    // Update title bar to show [Resumed] indicator
                     UpdateTitle(g_hWndMain);
-                    
-                    // Resume file temp path is NOT added to MRU (g_bNoMRU was TRUE)
-                    // Resume file will be kept as backup until explicit save
                 }
 
-                // Restore g_bNoMRU in any case
                 g_bNoMRU = bPrevNoMRU;
+
+                // Clear the INI entry only after a successful load attempt.
+                // The file stays on disk until the user saves or discards it.
+                ClearResumeFromINI();
+            } else {
+                // The registered resume file cannot be reached (e.g. stored on
+                // another machine's temp folder, or a temporarily locked location).
+                // Warn the user and preserve the INI entry so the next launch can
+                // try again.  The user can also open it manually via
+                // File -> Open Resume File once the location becomes available.
+                WCHAR szTitle[64], szMsg[EXTENDED_PATH_MAX + 512];
+                LoadStringResource(IDS_RESUME_UNAVAIL_TITLE, szTitle, 64);
+                FormatResWithPath(IDS_RESUME_UNAVAIL_MSG, szResumeFile,
+                                  szMsg, _countof(szMsg));
+                MessageBox(g_hWndMain, szMsg, szTitle, MB_OK | MB_ICONWARNING);
+                // INI entry intentionally preserved for the next launch.
             }
-            
-            // Clear INI entry (one-time recovery)
-            ClearResumeFromINI();
         }
     }
     
