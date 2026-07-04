@@ -18,6 +18,11 @@ This is the concise, current guide for contributors and AI agents. The detailed 
 - **UTF-8 (no BOM):** for text files written by the app.
 - **UNC paths:** avoid Win32 INI APIs (no `GetPrivateProfileString`).
 - **Small binary size:** prefer refactors over new code; report old/new sizes for feature changes.
+- **User examples are strictly confidential:** any file path, folder name, username, or other
+  identifying detail supplied by the developer in a conversation must never appear in commit
+  messages, code comments, documentation, or any other artefact. Treat all examples as opaque
+  illustrations only. Use generic placeholders (`C:\path\to\file`, `<unavailable path>`,
+  `example.txt`, etc.) whenever a concrete path or name is needed for explanation.
 
 ## Version Number Management
 

@@ -46,6 +46,7 @@ RichEditor.exe "C:\Projects\MyApp"
 
 - New/Open/Save/Save As
 - **Open Location** (Ctrl+L): type a file or folder path directly; the editor opens the file, presets the Open dialog to the folder, or offers to correct a path that does not exist
+- **Open Resume File** (File menu): lists all session recovery files found in the recovery folder; opening one restores the `[Resumed]` state just as automatic startup recovery does; a **Delete all resume files** entry at the bottom clears the folder
 - Undo/Redo with descriptive labels
 - Word wrap toggle
 - Time/Date insertion (F5) with configurable templates
@@ -96,6 +97,7 @@ AutosaveOnFocusLoss=1
 SelectAfterPaste=0
 ShowMenuDescriptions=1
 AutoSaveUntitledOnClose=0
+AutoSaveTempDir=
 DetectURLs=1
 ```
 

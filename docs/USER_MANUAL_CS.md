@@ -60,7 +60,11 @@ Pokročilé:
 
 Automatické ukládání běží v intervalu (výchozí 1 minuta) a při přepnutí do jiné aplikace. Nepojmenované soubory se standardně neukládají automaticky.
 
-Při vypnutí nebo restartu systému Windows umí RichEditor obnovit neuloženou práci. Obnovené soubory mají v titulku `[Obnoveno]`.
+Při vypnutí nebo restartu systému Windows RichEditor uloží neuloženou práci do souboru obnovení a při příštím spuštění jej načte. Obnovené soubory mají v titulku `[Obnoveno]`.
+
+Pokud soubor obnovení při spuštění není dostupný (například pokud je editor přenosná aplikace používaná na jiném počítači), zobrazí se upozornění s cestou a odkaz do INI se zachová pro příští spuštění. Jakmile je umístění dostupné, lze soubor otevřít ručně přes **Soubor → Otevřít soubor obnovení**.
+
+**Soubor → Otevřít soubor obnovení** zobrazuje všechny soubory obnovení nalezené ve složce obnovy. Vybraný soubor se otevře se stejným stavem `[Obnoveno]` jako při automatické obnově — `Ctrl+S` otevře dialog Uložit jako, protože původní cesta není pro takto otevřené soubory známa. Položka **Smazat všechny soubory obnovení** v dolní části podnabídky trvale odstraní všechny soubory ze složky obnovy.
 
 Pokročilé: `AutoSaveUntitledOnClose=1` uloží nepojmenovanou práci při zavření bez potvrzení.
 
@@ -175,6 +179,7 @@ Chování editoru a výchozí volby.
 - `ShowMenuDescriptions` (výchozí `1`): popisy filtrů v nabídce (přístupnost).
 - `SelectAfterPaste` (výchozí `0`): automaticky vybere vložený text.
 - `AutoSaveUntitledOnClose` (výchozí `0`): uloží nepojmenované soubory při zavření bez dotazu.
+- `AutoSaveTempDir` (výchozí prázdné): vlastní složka pro soubory obnovení a pomocné soubory při ukládání se zvýšenými právy. Ponechte prázdné pro použití `%TEMP%\RichEditor\`. Zadejte absolutní cestu (proměnné prostředí se nevyhodnocují). Užitečné při spouštění RichEditoru jako přenosné aplikace — nastavte cestu ve stejné složce jako exe, aby soubory obnovení cestovaly s editorem.
 - `DetectURLs` (výchozí `1`): 1 = detekuje a zvýrazňuje adresy URL (modrý podtržený text, otevření kliknutím nebo Enter, odečítač obrazovky oznámí jako odkaz). Nastavte na 0, pokud je pohyb kurzoru pomalý v velmi velkých souborech – RichEdit prohledává dokument při každém stisku klávesy, je-li detekce URL zapnutá. Vyžaduje restart. Stavový řádek zobrazí „URL: vypnuto" při zakázání.
 - `TabSize` (výchozí `8`): šířka tabulátoru v počtu mezer (1–32).
 - `SelectAfterFind` (výchozí `1`): nechá nalezený text vybraný.
@@ -301,12 +306,12 @@ Každá sekce obsahuje:
 
 ### [Resume]
 
-Data obnovy autosave:
+Data obnovy:
 
-- `ResumeFile`: cesta k souboru obnovení.
+- `ResumeFile`: cesta k aktuálnímu souboru obnovení (nastavuje se za běhu; maže se po úspěšném načtení).
 - `OriginalPath`: původní cesta (prázdné pro nepojmenované soubory).
 
-Soubory obnovení jsou standardně v `%TEMP%\RichEditor\` (dočasná složka systému).
+Soubory obnovení jsou standardně v `%TEMP%\RichEditor\`, nebo ve složce nastavené pomocí `AutoSaveTempDir`.
 
 ## Podpora čteček obrazovky
 

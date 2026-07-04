@@ -368,7 +368,7 @@ ContextMenu=0
 1. **During Windows Shutdown**:
    - All unsaved changes automatically saved to temporary resume file
    - No prompts or dialogs - seamless background operation
-   - Resume file stored in `%TEMP%\RichEditor\` directory
+   - Resume file stored in `%TEMP%\RichEditor\` by default (configurable via `AutoSaveTempDir`)
    - Original files remain untouched until you explicitly save
    
 2. **On Next Startup**:
@@ -376,6 +376,9 @@ ContextMenu=0
    - Title bar shows `*Untitled [Resumed] - RichEditor` or `*filename.txt [Resumed] - RichEditor`
    - Document marked as modified (asterisk shown)
    - You can continue editing where you left off
+   - If the registered recovery file cannot be reached (e.g. the editor roams between
+     machines as a portable app), a warning is shown with the inaccessible path and the
+     INI entry is preserved for the next launch
    
 3. **After Recovery**:
    - **Save (Ctrl+S)**: For untitled files, opens "Save As" dialog
@@ -390,13 +393,31 @@ ContextMenu=0
 - Only applies to **untitled** files (saved files always prompt)
 - Perfect for note-taking workflow where you never lose content
 
+**File → Open Resume File:**
+- Lists all files found in the session recovery folder as a submenu
+- Grayed out when no recovery files are present
+- Each listed file can be opened as a resumed document (same `[Resumed]` behaviour as
+  automatic startup recovery; Ctrl+S goes to Save As since no original path is known)
+- **Delete all resume files** (bottom of submenu): permanently deletes every file in the
+  recovery folder and clears the INI entry; prompts to save first if the current document
+  is itself a resumed file
+- Useful when startup recovery fails because the file is temporarily inaccessible, or to
+  recover orphaned files from previous sessions
+
+**Resume File Storage Location:**
+- Default: `%TEMP%\RichEditor\` (Windows user temporary folder)
+- Configurable via `AutoSaveTempDir` INI key (raw absolute path, no environment variables)
+- Custom path applies to both resume files and elevated-save staging files
+- Setting a path inside a synced folder (e.g. alongside a portable RichEditor.exe) allows
+  recovery files to travel with the editor between machines
+
 **Resume File Management:**
 - Resume files reused across sessions (same file updated, not recreated)
 - Format: `Untitled_YYYYMMDD_HHMMSS_resume.txt` (for untitled files)
 - Format: `filename_resume.ext` (for saved files with changes)
 - Automatic cleanup when you explicitly save or close without saving
-- Windows temp cleanup eventually removes old resume files
-- One resume file per document session
+- One resume file per document session tracked in INI; additional orphaned files visible
+  via File → Open Resume File
 
 **Multi-Instance Behavior:**
 - First instance opened recovers the resume file
@@ -413,11 +434,12 @@ ContextMenu=0
 
 **Technical Details:**
 - Resume files stored as UTF-8 without BOM (consistent with RichEditor format)
-- INI file tracks resume file path in `[Resume]` section (cleared after recovery)
+- INI file tracks resume file path in `[Resume]` section; cleared only after a successful
+  load (previously cleared unconditionally, losing the pointer on inaccessible paths)
 - Uses accurate Unicode text extraction (`EM_GETTEXTLENGTHEX`) for emoji support
 - Buffer overflow protection for very long filenames/paths
 - Error handling for disk full, permission denied, etc.
-- One-time recovery semantics (resume file cleared after loading)
+- One-time recovery semantics (resume file cleared from INI after loading)
 
 **User Experience:**
 - Transparent operation - works automatically, no configuration needed
@@ -430,9 +452,11 @@ ContextMenu=0
 ```ini
 [Settings]
 AutoSaveUntitledOnClose=0     ; 1=auto-save untitled files on close (no prompt), 0=prompt as usual (default: 0)
+AutoSaveTempDir=              ; Custom folder for recovery and staging files (default: %TEMP%\RichEditor\)
+                              ; Raw absolute path only, e.g. C:\Users\name\AppData\Local\MyBackups\RichEditor
 
 [Resume]
-ResumeFile=C:\Users\...\AppData\Local\Temp\RichEditor\Untitled_20260109_230000_resume.txt
+ResumeFile=                   ; Set at runtime; path to the current recovery file
 OriginalPath=                 ; Empty for untitled, or original file path for saved files
 ```
 
@@ -457,12 +481,18 @@ OriginalPath=                 ; Empty for untitled, or original file path for sa
    - Continue working normally
    - No stale resume file registered ✅
 
+6. **Recovery file temporarily inaccessible at startup**:
+   - Warning shown with the path; INI entry preserved
+   - Make the location accessible, then use File → Open Resume File ✅
+
+7. **Portable app roaming between machines** (`AutoSaveTempDir` set to a synced folder):
+   - Recovery files travel with the editor
+   - Next launch on any machine finds and recovers the file ✅
+
 **Limitations:**
 - Multiple instances during shutdown: Only last one writes resume file
-  - Acceptable: Windows temp cleanup handles orphaned files
-  - Most users run single instance
-- Resume file visible in `%TEMP%\RichEditor\` until explicitly saved
-  - This is by design: serves as backup until you save
+  - Orphaned files from earlier instances remain and are visible via File → Open Resume File
+- `AutoSaveTempDir` accepts raw paths only; environment variables are not expanded
 
 ### Phase 2.7 (Complete)
 
@@ -632,7 +662,7 @@ Shortcut=Ctrl+Shift+F
   - Cannot override built-in shortcuts (Ctrl+S, Ctrl+N, etc.)
 
 **Reserved Keyboard Shortcuts (Cannot Be Used):**
-- File: Ctrl+N, Ctrl+O, Ctrl+L, Ctrl+S
+- File: Ctrl+N, Ctrl+O, Ctrl+L, Ctrl+S (Open Resume File has no shortcut — use the File menu)
 - Edit: Ctrl+Z, Ctrl+Y, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+A
 - View: Ctrl+W
 - Tools: Ctrl+Enter, Ctrl+Shift+I, Ctrl+Shift+Q, Ctrl+Shift+T
@@ -1355,6 +1385,8 @@ ShowMenuDescriptions=1        ; 1=show filter descriptions in menus (accessible)
 AutosaveEnabled=1             ; 1=enabled, 0=disabled (default: 1)
 AutosaveIntervalMinutes=1     ; Autosave interval in minutes, 0=disabled (default: 1)
 AutosaveOnFocusLoss=1         ; 1=save when window loses focus, 0=don't (default: 1)
+AutoSaveUntitledOnClose=0     ; 1=auto-save untitled files on close, 0=prompt (default: 0)
+AutoSaveTempDir=              ; Custom recovery folder (default: %TEMP%\RichEditor\)
 
 ; Find/Replace defaults
 FindMatchCase=0               ; 1=match case, 0=ignore case (default: 0)

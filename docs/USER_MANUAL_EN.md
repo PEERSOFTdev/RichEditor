@@ -60,7 +60,11 @@ Advanced:
 
 Autosave runs on a timer (default: 1 minute) and when you switch to another application. Untitled files are not autosaved by default.
 
-If Windows shuts down or restarts, RichEditor can recover unsaved work. Recovered files show `[Resumed]` in the title bar.
+If Windows shuts down or restarts, RichEditor saves unsaved work to a recovery file and restores it on the next launch. Recovered files show `[Resumed]` in the title bar.
+
+If the recovery file cannot be reached at startup (for example, if the editor is a portable app that was last used on a different machine), a warning is shown with the path and the recovery pointer is kept for the next launch. Once the location is accessible, use **File → Open Resume File** to open it manually.
+
+**File → Open Resume File** lists all recovery files found in the recovery folder. Selecting one opens it with the same `[Resumed]` state as automatic recovery — `Ctrl+S` opens a Save As dialog since the original path is not known for files opened this way. The **Delete all resume files** entry at the bottom of the submenu permanently removes all files in the recovery folder.
 
 Advanced: `AutoSaveUntitledOnClose=1` saves untitled work on close without prompting.
 
@@ -175,6 +179,7 @@ Editor behavior and defaults.
 - `ShowMenuDescriptions` (default `1`): show filter descriptions in menus (accessibility).
 - `SelectAfterPaste` (default `0`): select pasted text automatically.
 - `AutoSaveUntitledOnClose` (default `0`): save untitled work on close without prompting.
+- `AutoSaveTempDir` (default empty): custom folder for recovery and elevated-save staging files. Leave empty to use `%TEMP%\RichEditor\`. Set to a raw absolute path (environment variables are not expanded). Useful when running RichEditor as a portable app — point this to a folder that travels with the exe so recovery files are always accessible.
 - `DetectURLs` (default `1`): 1 = detect and highlight URLs (blue underline, click/Enter to open, screen reader announces as link). Set to 0 if cursor movement is slow on very large files — RichEdit scans the document on every keystroke when URL detection is on. Requires restart. Status bar shows "URL: off" when disabled.
 - `TabSize` (default `8`): tab width in spaces for column calculation (valid range 1–32).
 - `SelectAfterFind` (default `1`): keep found text selected after a successful find.
@@ -301,10 +306,10 @@ Each section stores:
 
 Autosave recovery data:
 
-- `ResumeFile`: path to the resume file.
+- `ResumeFile`: path to the current recovery file (set at runtime; cleared after a successful load).
 - `OriginalPath`: original path (empty for untitled files).
 
-Resume files are stored in `%TEMP%\RichEditor\` by default.
+Recovery files are stored in `%TEMP%\RichEditor\` by default, or in the folder set by `AutoSaveTempDir`.
 
 ## Screen Reader Support
 
